@@ -5,7 +5,7 @@ import AppKit
 /// (since we run as `.accessory` — no dock icon, no main window).
 @MainActor
 final class MenuBarController {
-    enum State {
+    enum State: Equatable {
         case idle
         case recording
         case paused
@@ -23,6 +23,7 @@ final class MenuBarController {
     var onTogglePause: (() -> Void)?
     var onToggleAutoRecord: (() -> Void)?
     var onOpenFolder: (() -> Void)?
+    var onShowWindow: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
@@ -75,6 +76,15 @@ final class MenuBarController {
 
         menu.addItem(.separator())
 
+        // The window is the reliable surface — this item is how you get it
+        // back when the menu bar is where you happened to look first.
+        let showWindow = NSMenuItem(
+            title: "Show quill window",
+            action: #selector(showWindowClicked),
+            keyEquivalent: "w"
+        )
+        menu.addItem(showWindow)
+
         let openFolder = NSMenuItem(
             title: "Open recordings folder",
             action: #selector(openFolderClicked),
@@ -91,7 +101,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, pauseItem, autoRecordItem, openFolder, quit] {
+        for item in [toggleItem, pauseItem, autoRecordItem, showWindow, openFolder, quit] {
             item.target = self
         }
 
@@ -154,53 +164,15 @@ final class MenuBarController {
         autoRecordStatus.isHidden = !enabled || decision == nil
     }
 
-    // Inlined Lucide feather SVG. Keeping it in source means the executable
-    // has no separate resource bundle to install alongside it — true
-    // single-binary.
-    private static let featherSVG = """
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-    viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-    stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12.67 19a2 2 0 0 0 1.416-.588l6.154-6.172a6 6 0 0 0-8.49-8.49L5.586 9.914A2 2 0 0 0 5 11.328V18a1 1 0 0 0 1 1z"/>
-    <path d="M16 8 2 22"/>
-    <path d="M17.5 15H9"/>
-    </svg>
-    """
-
-    private static let feather: NSImage? = {
-        guard let data = featherSVG.data(using: .utf8),
-              let image = NSImage(data: data)
-        else { return nil }
-        // Menu-bar status icons are nominally 18pt tall; size the SVG to match.
-        image.size = NSSize(width: 16, height: 16)
-        return image
-    }()
-
-    /// The feather, either as a template (idle — the system paints it to match
-    /// the menu bar) or painted in a fixed colour that no appearance can
-    /// override.
+    /// Menu-bar status icons are nominally 18pt tall; 16 leaves a little air.
     private static func icon(color: NSColor?) -> NSImage? {
-        guard let feather else { return nil }
-        guard let color else {
-            let template = feather.copy() as? NSImage
-            template?.isTemplate = true
-            return template
-        }
-        let size = feather.size
-        let tinted = NSImage(size: size)
-        tinted.lockFocus()
-        feather.draw(at: .zero, from: NSRect(origin: .zero, size: size),
-                     operation: .sourceOver, fraction: 1)
-        color.set()
-        NSRect(origin: .zero, size: size).fill(using: .sourceAtop)
-        tinted.unlockFocus()
-        tinted.isTemplate = false
-        return tinted
+        FeatherIcon.image(size: 16, color: color)
     }
 
     @objc private func toggleClicked() { onToggle?() }
     @objc private func pauseClicked() { onTogglePause?() }
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
+    @objc private func showWindowClicked() { onShowWindow?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func quitClicked() { onQuit?() }
 }

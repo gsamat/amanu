@@ -178,6 +178,20 @@ enum Config {
         return settings
     }
 
+    /// Show quill in the Dock (and in ⌘-Tab) rather than running as a
+    /// menu-bar-only accessory. On by default: the menu bar hides its status
+    /// item when it runs out of room, and a recorder whose only indicator can
+    /// silently disappear is a recorder you can't trust.
+    static func dockIcon() -> Bool {
+        load()?["dock_icon"] as? Bool ?? true
+    }
+
+    /// Open the status window at launch. Off for anyone who'd rather start
+    /// from the Dock icon each time.
+    static func showWindowAtLaunch() -> Bool {
+        load()?["window"] as? Bool ?? true
+    }
+
     /// Whether finished sessions have their PCM tracks re-encoded as AAC once
     /// the transcript exists. Recording uncompressed is what makes a session
     /// survive a crash; keeping it uncompressed afterwards just fills the disk.

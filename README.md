@@ -89,6 +89,29 @@ false` keeps the PCM, `keep_uncompressed: true` keeps both.
 
 The format is not an aesthetic choice — see below.
 
+## Where the controls live
+
+Three surfaces showing one state, because the menu bar can't be relied on
+alone:
+
+- **A window.** Small, floating, closable — recording state and elapsed time,
+  Start/Stop, Pause/Resume, the auto-record switch with its current reasoning,
+  and a button to the recordings folder. Closing it hides it; the Dock icon or
+  the menu's **Show quill window** brings it back.
+- **A Dock icon**, which turns red while recording and orange while paused,
+  with the elapsed time as its badge. Clicking it reopens the window.
+- **The menu bar item**, as before.
+
+The window and the Dock icon exist because a status item is not a dependable
+place for the only control of a recorder. When the menu bar runs out of room
+macOS parks the item off-screen — measured at x = −9406 on a laptop with a
+notch — and a menu bar manager can hide it outright. The item stays perfectly
+clickable and completely invisible, which for a program whose entire job is
+answering "am I recording?" is the worst way it can fail.
+
+`dock_icon: false` returns quill to a menu-bar-only accessory; `window: false`
+stops the window opening at launch.
+
 ## Recording by itself
 
 Two independent triggers, either of which is enough:
@@ -282,6 +305,9 @@ Optional, at `~/.config/quill/config.json`:
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
   apps and browsers; `[]` means any app), `ignore_apps` never counts.
+- `dock_icon` — show quill in the Dock and ⌘-Tab (default on). `false` makes
+  it a menu-bar-only accessory again.
+- `window` — open the status window at launch (default on).
 - `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
   exists (default on). `false` leaves every session as PCM, about a gigabyte
   an hour.
@@ -300,6 +326,15 @@ Optional, at `~/.config/quill/config.json`:
 ```sh
 kill -USR1 $(pgrep -x quill)  # start/stop from a hotkey tool
 ```
+
+If the menu bar item is nowhere to be seen, it has been pushed off-screen
+rather than lost — the window and the Dock icon are unaffected. To confirm:
+
+```sh
+osascript -e 'tell application "System Events" to tell process "quill" to get position of menu bar item 1 of menu bar 1'
+```
+
+A negative x means the item is parked outside the display.
 
 ```sh
 quill                        # run the menu-bar daemon (^C to quit)

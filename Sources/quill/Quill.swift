@@ -41,9 +41,22 @@ struct Run: ParsableCommand {
         }
 
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+        // .regular puts quill in the Dock and in ⌘-Tab. That's the point: the
+        // menu bar is not a dependable place for the only control surface of a
+        // recorder — when it fills up macOS parks the status item off-screen
+        // and it stays clickable but invisible. The Dock can't be crowded out.
+        app.setActivationPolicy(Config.dockIcon() ? .regular : .accessory)
+        app.applicationIconImage = FeatherIcon.image(size: 512, color: nil)
 
         let controller = AppController(root: root)
+
+        // NSApp holds its delegate weakly, and a Dock icon is useless if
+        // clicking it does nothing.
+        let delegate = AppDelegate()
+        delegate.onReopen = { MainActor.assumeIsolated { controller.showWindow() } }
+        delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
+        app.delegate = delegate
+        app.mainMenu = Self.mainMenu()
 
         let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         sigint.setEventHandler {
@@ -80,6 +93,59 @@ struct Run: ParsableCommand {
             "quill up · recordings → \(root.path) · ^C to quit\n".utf8
         ))
         app.run()
+        // Retained until the run loop exits: NSApp's delegate reference is
+        // weak, and a deallocated one silently stops handling Dock clicks.
+        withExtendedLifetime(delegate) {}
+    }
+
+    /// A .regular app owns the menu bar while it's focused, and without a main
+    /// menu that bar is empty — no ⌘Q, no window menu. This is the minimum
+    /// that makes the app behave like an app.
+    @MainActor
+    private static func mainMenu() -> NSMenu {
+        let main = NSMenu()
+
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        // Quit routes through terminate so applicationWillTerminate runs and
+        // a live recording is closed properly rather than truncated.
+        appMenu.addItem(withTitle: "Quit quill", action: #selector(NSApplication.terminate(_:)),
+                        keyEquivalent: "q")
+        appItem.submenu = appMenu
+        main.addItem(appItem)
+
+        let windowItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)),
+                           keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimise", action: #selector(NSWindow.performMiniaturize(_:)),
+                           keyEquivalent: "m")
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+
+        return main
+    }
+}
+
+/// Dock behaviour. Clicking the icon of a running app sends a reopen, which is
+/// how the window comes back after you close it; and quill must not quit just
+/// because its only window was closed — it's a recorder, the window is a view
+/// onto it.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onReopen: (() -> Void)?
+    var onTerminate: (() -> Void)?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        onReopen?()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        onTerminate?()
     }
 }
 
@@ -103,6 +169,7 @@ struct Doctor: ParsableCommand {
 final class AppController {
     private let root: URL
     private let menuBar = MenuBarController()
+    private let window = StatusWindow()
     private let transcription = TranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
@@ -120,8 +187,15 @@ final class AppController {
         menuBar.onTogglePause = { [weak self] in self?.togglePause() }
         menuBar.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
+        menuBar.onShowWindow = { [weak self] in self?.showWindow() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
+
+        window.onToggle = { [weak self] in self?.toggle() }
+        window.onTogglePause = { [weak self] in self?.togglePause() }
+        window.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
+        window.onOpenFolder = { [weak self] in self?.openFolder() }
+        if Config.showWindowAtLaunch() { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
         autoRecord.startRecording = { [weak self] trigger, title in
@@ -153,6 +227,7 @@ final class AppController {
             }
         }
         menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
+        window.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
 
         // Runs for the life of the daemon, not just while recording: the menu
         // also shows what the auto-record loop is thinking, and a status line
@@ -168,8 +243,15 @@ final class AppController {
 
     /// Stop any live session cleanly (finalizing files) and exit.
     func shutdown() {
-        stopSession(reason: "app-quit")
+        finishForTermination()
         NSApp.terminate(nil)
+    }
+
+    /// Close a live recording without exiting — the half of shutdown that has
+    /// to happen when the quit came from ⌘Q or the Dock rather than from us.
+    /// Idempotent: stopSession does nothing without a session.
+    func finishForTermination() {
+        stopSession(reason: "app-quit")
     }
 
     private func toggle() {
@@ -195,10 +277,9 @@ final class AppController {
     private func toggleAutoRecord() {
         autoRecord.enabled.toggle()
         if autoRecord.enabled { autoRecord.start() } else { autoRecord.stop() }
-        menuBar.updateAutoRecord(
-            enabled: autoRecord.enabled,
-            decision: autoRecord.enabled ? autoRecord.lastDecision : nil
-        )
+        let decision = autoRecord.enabled ? autoRecord.lastDecision : nil
+        menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
+        window.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
     }
 
     private func startSession(trigger: RecordingSession.Trigger, title: String?) {
@@ -222,7 +303,7 @@ final class AppController {
             return
         }
 
-        menuBar.update(state: .recording, elapsed: "0:00")
+        present(.recording, elapsed: "0:00")
     }
 
     private func stopSession(reason: String = "manual") {
@@ -233,7 +314,7 @@ final class AppController {
             "○ stopped (\(reason)) · \(Self.format(duration)) · \(session.dir.path)\n".utf8
         ))
         self.session = nil
-        menuBar.update(state: .idle, elapsed: nil)
+        present(.idle, elapsed: nil)
 
         // A mic that opened for a few seconds was never a meeting. Throwing
         // these away is what keeps the recordings folder worth opening —
@@ -253,26 +334,43 @@ final class AppController {
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {
+        let text: String?
         switch status {
         case .idle:
-            menuBar.updateTranscription(nil)
+            text = nil
         case .transcribing(let name, let queued):
-            menuBar.updateTranscription(
-                queued > 0 ? "transcribing \(name) · \(queued) queued" : "transcribing \(name)"
-            )
+            text = queued > 0 ? "transcribing \(name) · \(queued) queued" : "transcribing \(name)"
         case .failed(let name):
-            menuBar.updateTranscription("transcription failed · \(name)")
+            text = "transcription failed · \(name)"
         }
+        menuBar.updateTranscription(text)
+        window.updateTranscription(text)
+    }
+
+    /// Bring the status window up — from the Dock icon, the menu, or a second
+    /// launch of an already-running quill.
+    func showWindow() { window.show() }
+
+    /// Reflect state everywhere it's shown at once, so the three surfaces can
+    /// never disagree about whether something is being recorded.
+    private func present(_ state: MenuBarController.State, elapsed: String?) {
+        menuBar.update(state: state, elapsed: elapsed)
+        window.update(state: state, elapsed: elapsed)
+        // The Dock tile is the one indicator nothing can hide or crowd out.
+        NSApp.applicationIconImage = FeatherIcon.image(
+            size: 512,
+            color: FeatherIcon.color(recording: state != .idle, paused: state == .paused)
+        )
+        NSApp.dockTile.badgeLabel = state == .idle ? nil : elapsed
     }
 
     private func tick() {
-        menuBar.updateAutoRecord(
-            enabled: autoRecord.enabled,
-            decision: autoRecord.enabled ? autoRecord.lastDecision : nil
-        )
+        let decision = autoRecord.enabled ? autoRecord.lastDecision : nil
+        menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
+        window.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
         guard let session else { return }
-        menuBar.update(
-            state: session.isPaused ? .paused : .recording,
+        present(
+            session.isPaused ? .paused : .recording,
             elapsed: Self.format(Date().timeIntervalSince(session.startedAt))
         )
     }
