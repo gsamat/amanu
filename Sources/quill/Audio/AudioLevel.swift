@@ -4,6 +4,38 @@ import Foundation
 /// Peak level of a captured buffer, used for two things: knowing when a track
 /// last carried actual speech (the silence backstop that ends a runaway
 /// auto-recording) and muting a track while paused.
+/// How the two tracks are written while recording.
+///
+/// Linear PCM, not AAC, and the reason is the whole point of the program.
+/// AAC is variable-bitrate, so a CAF holding it is undecodable until its packet
+/// table is written — at close. Kill the process mid-meeting and every byte on
+/// disk is unreadable: `Missing packet table. It is required when block size or
+/// frame size are variable.` Measured, not theorized (2026.08.17: 99 KB of AAC
+/// on disk, zero seconds recoverable).
+///
+/// PCM has no packet table. Frames are fixed size, so whatever reached the disk
+/// is decodable, and a stale chunk size in the header is arithmetic to repair.
+/// The cost is about 1 GB per hour across both tracks, held only until the
+/// transcript exists — TrackCompressor then turns each track into AAC and
+/// deletes the PCM.
+enum AudioFormats {
+    /// 16-bit little-endian PCM at the device's own rate. 16 bits because the
+    /// difference from 24 or float is inaudible under speech and halves the
+    /// bytes at risk; the native rate because resampling in the capture
+    /// callback is a second thing that can go wrong during a meeting.
+    static func pcmSettings(sampleRate: Double, channels: AVAudioChannelCount) -> [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channels,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
+    }
+}
+
 enum AudioLevel {
     /// Roughly −40 dBFS. Above the noise floor of a quiet room, below any
     /// speech worth transcribing — the same threshold mygranola settled on

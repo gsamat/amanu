@@ -151,15 +151,12 @@ final class SystemAudioRecorder {
     }
 
     private func makeFile(url: URL, format: AVAudioFormat) throws -> AVAudioFile {
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: format.sampleRate,
-            AVNumberOfChannelsKey: format.channelCount,
-        ]
         do {
             return try AVAudioFile(
                 forWriting: url,
-                settings: settings,
+                settings: AudioFormats.pcmSettings(
+                    sampleRate: format.sampleRate, channels: format.channelCount
+                ),
                 commonFormat: format.commonFormat,
                 interleaved: format.isInterleaved
             )

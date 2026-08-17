@@ -189,15 +189,12 @@ final class MicRecorder: @unchecked Sendable {
             return
         }
 
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatMPEG4AAC,
-            AVSampleRateKey: monoFormat.sampleRate,
-            AVNumberOfChannelsKey: 1,
-        ]
         do {
             file = try AVAudioFile(
                 forWriting: url!,
-                settings: settings,
+                settings: AudioFormats.pcmSettings(
+                    sampleRate: monoFormat.sampleRate, channels: 1
+                ),
                 commonFormat: monoFormat.commonFormat,
                 interleaved: monoFormat.isInterleaved
             )

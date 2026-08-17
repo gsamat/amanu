@@ -178,6 +178,19 @@ enum Config {
         return settings
     }
 
+    /// Whether finished sessions have their PCM tracks re-encoded as AAC once
+    /// the transcript exists. Recording uncompressed is what makes a session
+    /// survive a crash; keeping it uncompressed afterwards just fills the disk.
+    static func compressTracks() -> Bool {
+        load()?["compress_tracks"] as? Bool ?? true
+    }
+
+    /// Keep the PCM next to the compressed tracks instead of deleting it. For
+    /// anyone who wants the original audio — it costs about a gigabyte an hour.
+    static func keepUncompressed() -> Bool {
+        load()?["keep_uncompressed"] as? Bool ?? false
+    }
+
     // MARK: - summary
 
     /// Post-transcript summarization. `backend: auto` tries, in order: the

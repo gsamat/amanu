@@ -150,6 +150,10 @@ actor TranscriptionCoordinator {
             title: meta.title ?? dir.lastPathComponent,
             into: dir
         )
+
+        // Last of all: the audio was recorded uncompressed so it would survive
+        // a crash, and that only needs to hold until the transcript exists.
+        TrackCompressor.compress(sessionDir: dir)
     }
 
     /// One pass per track, speaker taken from the track itself.

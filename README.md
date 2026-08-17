@@ -66,21 +66,28 @@ appended when the calendar knows it:
 
 | File | Contents |
 |---|---|
-| `mic.caf` | your side (default input device, AAC) |
-| `system.caf` | everything the Mac played — the other side of the call (AAC) |
+| `mic.m4a` | your side (default input device) |
+| `system.m4a` | everything the Mac played — the other side of the call |
 | `meta.json` | start/end timestamps, duration, per-track start offsets |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |
 | `summary.md` | topic, key points, decisions, action items, open questions |
 | `transcribe.log` | transcription progress/errors for this session |
-| `mixed.m4a` | both tracks mixed on one clock — only with a diarizing engine |
+| `mixed.m4a` | both tracks on one clock, for a diarizing engine — deleted once the tracks are compressed |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
 
 Two tracks on purpose: speech models do better on clean single-source audio,
 and mic-vs-system is free two-party diarization — `me` vs `them` with no
-speaker-identification model. CAF on purpose: unlike m4a, it needs no
-finalization pass — if the process dies mid-meeting, everything already
-written is still readable.
+speaker-identification model.
+
+While the meeting runs, those two tracks are **uncompressed PCM** in `.caf`,
+about a gigabyte an hour between them. Once the transcript exists they're
+re-encoded to `.m4a` (about 12× smaller) and the PCM is deleted; `meta.json`
+is rewritten to point at the new files first, so an interruption anywhere in
+that sequence still leaves a session whose files exist. `compress_tracks:
+false` keeps the PCM, `keep_uncompressed: true` keeps both.
+
+The format is not an aesthetic choice — see below.
 
 ## Recording by itself
 
@@ -275,6 +282,11 @@ Optional, at `~/.config/quill/config.json`:
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
   apps and browsers; `[]` means any app), `ignore_apps` never counts.
+- `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
+  exists (default on). `false` leaves every session as PCM, about a gigabyte
+  an hour.
+- `keep_uncompressed` — keep the PCM alongside the compressed tracks rather
+  than deleting it (default off).
 - `summary.*` — `enabled`, `backend` (`auto`, `anthropic-api`, `claude-cli`,
   `ollama`, `none`), `language` (unset means the language of the meeting),
   `model`, `ollama_model`, `api_key_path`.
@@ -314,7 +326,7 @@ make uninstall  # remove the binary and the LaunchAgent
 - **Core Audio process tap** (`AudioHardwareCreateProcessTap`, macOS 14.2+) —
   system audio capture via a private aggregate device
 - **AVAudioEngine** — mic capture
-- **AVAudioFile** — streaming AAC encode into CAF
+- **AVAudioFile** — streaming PCM capture, AAC re-encode once the transcript exists
 - **AVMutableComposition** — offset-aware mixdown for the diarizing engine
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
@@ -322,10 +334,31 @@ make uninstall  # remove the binary and the LaunchAgent
 
 ## If quill dies mid-meeting
 
-CAF needs no finalization, so everything already written stays playable after a
-crash, a `kill -9`, or a flat battery. What was missing was anything pointing at
-those files: the transcription queue only considers folders with a `meta.json`,
-and that was written on a clean stop (upstream issue #8).
+**A CAF full of AAC does not survive a crash, whatever the format's reputation
+says.** AAC is variable-bitrate, so the file is undecodable without its packet
+table — and that's written when the file is closed. Kill the process
+mid-meeting and every byte on disk is unreadable:
+
+```
+$ ffmpeg -i system.caf
+Missing packet table. It is required when block size or frame size are variable.
+$ afinfo system.caf | grep duration
+estimated duration: 0.000000 sec
+```
+
+That was measured here on 2026.08.17, not reasoned about: 99 KB of audio
+written, zero seconds recoverable. So recording writes **linear PCM**, which
+has no packet table and no finalization step — whatever reached the disk
+decodes, and the same `kill -9` now yields a playable file with the meeting on
+it. Compression happens afterwards, when the transcript already exists.
+
+SIGTERM is handled rather than ignored, which covers the ordinary cases —
+logout, restart, `launchctl kickstart -k`, `quill install --uninstall` — by
+closing the tracks cleanly instead of dying mid-file.
+
+The other half is knowing the session was there at all. The transcription queue
+only considers folders with a `meta.json`, and that's written on a clean stop
+(upstream issue #8).
 
 So a live session now keeps a small `.recording.json` manifest — the owner's
 PID, the start time, the track names, the clock offsets. On the next launch,
