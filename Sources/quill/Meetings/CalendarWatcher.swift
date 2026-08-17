@@ -17,6 +17,9 @@ final class CalendarWatcher {
         let start: Date
         let end: Date
         let attendees: [String]
+        /// Conference link or location, whichever the event carries — kept so
+        /// the recording folder can say where the call actually happened.
+        let link: String?
         /// True when the event has other people or a conference link — the
         /// difference between a meeting and "dentist, 15:00".
         let looksLikeCall: Bool
@@ -93,12 +96,19 @@ final class CalendarWatcher {
             event.hasNotes ? (event.notes ?? "") : "",
         ].joined(separator: " ").lowercased()
 
+        // The link is worth keeping verbatim; the notes are not — they are as
+        // often a wall of boilerplate or something private as they are useful.
+        let link = [event.url?.absoluteString, event.location]
+            .compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+
         return Meeting(
             id: event.eventIdentifier ?? UUID().uuidString,
             title: event.title ?? "meeting",
             start: event.startDate,
             end: event.endDate,
             attendees: attendees,
+            link: link,
             // Self counts as an attendee, so "other people" means more than one.
             looksLikeCall: attendees.count > 1
                 || Self.conferenceMarkers.contains { haystack.contains($0) }

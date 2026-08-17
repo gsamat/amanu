@@ -22,7 +22,7 @@ final class AutoRecordController {
     /// this type holds no session of its own — there is exactly one recorder,
     /// and it lives in AppController.
     var currentSession: (() -> RecordingSession?)?
-    var startRecording: ((RecordingSession.Trigger, String?) -> Void)?
+    var startRecording: ((RecordingSession.Trigger, MeetingContext) -> Void)?
     var stopRecording: ((String) -> Void)?
 
     /// What the controller is thinking, for the menu. "Why didn't it record?"
@@ -144,7 +144,9 @@ final class AutoRecordController {
                 handledEventIDs.insert(event.id)
                 currentEventEnd = event.end
                 lastDecision = "started from calendar: \(event.title)"
-                startRecording?(.calendar, event.title)
+                // The call app usually grabs the mic a moment after the event
+                // starts, so it may be nil here — the calendar carries the name.
+                startRecording?(.calendar, MeetingContext(meeting: event, app: mic.names.first))
                 return
             }
         }
@@ -168,7 +170,7 @@ final class AutoRecordController {
         let event = calendar?.bestMatch(for: now)
         currentEventEnd = event?.end
         lastDecision = "started from mic activity (\(mic.names.first ?? "call app"))"
-        startRecording?(.micActivity, event?.title)
+        startRecording?(.micActivity, MeetingContext(meeting: event, app: mic.names.first))
     }
 
     // MARK: - stop

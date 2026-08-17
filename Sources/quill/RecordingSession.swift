@@ -16,8 +16,13 @@ final class RecordingSession {
 
     let dir: URL
     let startedAt = Date()
-    let title: String?
+    /// What we knew about the meeting when it started: calendar title, the app
+    /// holding the microphone, attendees, link. Shapes the folder name and
+    /// most of meta.json.
+    let context: MeetingContext
     let trigger: Trigger
+
+    var title: String? { context.title }
 
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
@@ -61,13 +66,17 @@ final class RecordingSession {
     /// meeting title when we know it, suffixed on collision) without starting
     /// capture yet. The timestamp stays the prefix so folders keep sorting
     /// chronologically — the transcription queue relies on that.
-    init(root: URL, title: String? = nil, trigger: Trigger = .manual) throws {
-        self.title = title
+    init(
+        root: URL,
+        context: MeetingContext = .empty,
+        trigger: Trigger = .manual
+    ) throws {
+        self.context = context
         self.trigger = trigger
 
         var base = Self.folderFormat.string(from: startedAt)
-        if let title, !title.isEmpty {
-            base += " " + Self.sanitize(title)
+        if let suffix = context.folderSuffix {
+            base += " " + suffix
         }
         var candidate = root.appendingPathComponent(base, isDirectory: true)
         var n = 2
@@ -130,6 +139,7 @@ final class RecordingSession {
             "stop_reason": reason,
         ]
         if let title { meta["title"] = title }
+        meta.merge(context.metaFields) { current, _ in current }
         if pausedFor > 0 { meta["paused_seconds"] = Int(pausedFor) }
         if !trackEverStalled.isEmpty { meta["stalled_tracks"] = trackEverStalled.sorted() }
 
@@ -263,6 +273,10 @@ final class RecordingSession {
                 "recovered": true,
             ]
             if let title = manifest["title"] as? String { meta["title"] = title }
+            if let app = manifest["app"] as? String { meta["app"] = app }
+            if let calendar = manifest["calendar"] as? [String: Any] {
+                meta["calendar"] = calendar
+            }
 
             write(meta: meta, to: dir)
             try? fm.removeItem(at: manifestURL)
@@ -295,6 +309,7 @@ final class RecordingSession {
             "trigger": trigger.rawValue,
         ]
         if let title { manifest["title"] = title }
+        manifest.merge(context.metaFields) { current, _ in current }
         if let micStart = mic.firstBufferAt, let systemStart = system.firstBufferAt {
             let earliest = min(micStart, systemStart)
             manifest["start_offset_ms"] = [
@@ -316,17 +331,6 @@ final class RecordingSession {
         ) {
             try? data.write(to: dir.appendingPathComponent("meta.json"), options: .atomic)
         }
-    }
-
-    /// Folder-safe version of a meeting title: no path separators, no colons
-    /// (Finder shows them as slashes), and short enough to read in a list.
-    private static func sanitize(_ title: String) -> String {
-        let cleaned = title
-            .components(separatedBy: CharacterSet(charactersIn: "/:\\\n\r\t"))
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
-        return cleaned.count > 60 ? String(cleaned.prefix(60)).trimmingCharacters(in: .whitespaces)
-                                  : cleaned
     }
 
     /// Compare each track file's size against the last poll. Growth clears any

@@ -198,8 +198,8 @@ final class AppController {
         if Config.showWindowAtLaunch() { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
-        autoRecord.startRecording = { [weak self] trigger, title in
-            self?.startSession(trigger: trigger, title: title)
+        autoRecord.startRecording = { [weak self] trigger, context in
+            self?.startSession(trigger: trigger, context: context)
         }
         autoRecord.stopRecording = { [weak self] reason in
             self?.stopSession(reason: reason)
@@ -257,7 +257,7 @@ final class AppController {
     private func toggle() {
         if session == nil {
             autoRecord.noteManualStart()
-            startSession(trigger: .manual, title: calendar?.bestMatch(for: Date())?.title)
+            startSession(trigger: .manual, context: currentContext())
         } else {
             autoRecord.noteManualStop()
             stopSession(reason: "manual")
@@ -282,10 +282,20 @@ final class AppController {
         window.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
     }
 
-    private func startSession(trigger: RecordingSession.Trigger, title: String?) {
+    /// What we can tell about a meeting being started by hand: whichever call
+    /// app is already holding the microphone, plus the calendar's view of now.
+    private func currentContext() -> MeetingContext {
+        let settings = Config.autoRecord()
+        let mic = MicActivityMonitor.check(
+            callApps: settings.callApps, ignoring: settings.ignoreApps
+        )
+        return MeetingContext(meeting: calendar?.bestMatch(for: Date()), app: mic.names.first)
+    }
+
+    private func startSession(trigger: RecordingSession.Trigger, context: MeetingContext) {
         guard session == nil else { return }
         do {
-            let newSession = try RecordingSession(root: root, title: title, trigger: trigger)
+            let newSession = try RecordingSession(root: root, context: context, trigger: trigger)
             try newSession.start()
             session = newSession
             FileHandle.standardError.write(Data(
@@ -294,7 +304,7 @@ final class AppController {
             if trigger != .manual {
                 notifyUser(
                     title: "quill — recording started",
-                    body: title ?? newSession.dir.lastPathComponent
+                    body: context.folderSuffix ?? newSession.dir.lastPathComponent
                 )
             }
         } catch {

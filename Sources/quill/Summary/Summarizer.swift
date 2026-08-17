@@ -21,7 +21,7 @@ enum Summarizer {
     @discardableResult
     static func summarize(
         transcript: Transcript,
-        title: String?,
+        context: [String],
         into dir: URL
     ) async -> String? {
         func log(_ message: String) { appendSessionLog(message, to: dir) }
@@ -41,7 +41,10 @@ enum Summarizer {
             return nil
         }
 
-        let header = title.map { "Meeting: \($0)\n" } ?? ""
+        // Whatever we know about the meeting, above the transcript. Names in
+        // particular: given a participant list, the summarizer writes "Anna
+        // will send the contract" instead of "them will send the contract".
+        let header = context.isEmpty ? "" : context.joined(separator: "\n") + "\n"
         for backend in backends {
             do {
                 log("summarizing with \(backend.name)")

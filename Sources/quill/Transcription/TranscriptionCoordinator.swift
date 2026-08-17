@@ -145,11 +145,12 @@ actor TranscriptionCoordinator {
         // After the transcript, never instead of it: transcript.json is the
         // completion marker, so anything that runs before it risks retiring a
         // session that has no transcript. A failed summary just logs.
-        await Summarizer.summarize(
-            transcript: transcript,
-            title: meta.title ?? dir.lastPathComponent,
-            into: dir
-        )
+        var context = ["Meeting: \(meta.title ?? dir.lastPathComponent)"]
+        if !meta.attendees.isEmpty {
+            context.append("Participants: " + meta.attendees.joined(separator: ", "))
+        }
+        if let app = meta.app { context.append("Recorded from: \(app)") }
+        await Summarizer.summarize(transcript: transcript, context: context, into: dir)
 
         // Last of all: the audio was recorded uncompressed so it would survive
         // a crash, and that only needs to hold until the transcript exists.
@@ -302,9 +303,13 @@ private struct SessionMeta {
     }
 
     let tracks: [Track]
-    /// The meeting's name when the calendar gave us one — it goes into the
-    /// summary prompt, where knowing the subject measurably helps.
+    /// What the session knows about the meeting. All of it goes into the
+    /// summary prompt: knowing the subject, who was in the room and which app
+    /// the call ran in measurably improves what comes back — not least because
+    /// a summarizer given names can use them instead of "me" and "them".
     let title: String?
+    let attendees: [String]
+    let app: String?
 
     func track(for speaker: String) -> Track? {
         tracks.first { $0.speaker == speaker }
@@ -338,7 +343,13 @@ private struct SessionMeta {
         if let system = files["system"] {
             tracks.append(Track(file: system, speaker: "them", offsetMs: offsets["system"] ?? 0))
         }
-        return SessionMeta(tracks: tracks, title: json["title"] as? String)
+        let calendar = json["calendar"] as? [String: Any]
+        return SessionMeta(
+            tracks: tracks,
+            title: (json["title"] as? String) ?? (calendar?["title"] as? String),
+            attendees: calendar?["attendees"] as? [String] ?? [],
+            app: json["app"] as? String
+        )
     }
 }
 

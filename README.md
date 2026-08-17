@@ -61,14 +61,28 @@ transcription speed.
    keeps running and silence is written, so everything after the pause stays
    aligned to the wall clock.
 
-Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`, with the meeting's name
-appended when the calendar knows it:
+Each session lands in `~/Recordings/`, named so a folder listing is readable
+on its own:
+
+```
+2026.08.17-1400 Integration sync (zoom.us)
+2026.08.17-1630 Telegram
+2026.08.17-2039
+```
+
+Timestamp first — the transcription queue orders pending sessions by name and
+relies on that being chronological — then the calendar's title for the meeting,
+then the app that was holding the microphone, which is the one piece of context
+available even with the calendar switched off. Anything unknown is simply left
+out; a manual recording with neither still gets a valid timestamped folder.
+
+Inside:
 
 | File | Contents |
 |---|---|
 | `mic.m4a` | your side (default input device) |
 | `system.m4a` | everything the Mac played — the other side of the call |
-| `meta.json` | start/end timestamps, duration, per-track start offsets |
+| `meta.json` | timestamps, duration, per-track offsets, trigger, stop reason, the app, and the calendar event's title, attendees and link |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |
 | `summary.md` | topic, key points, decisions, action items, open questions |
@@ -169,6 +183,11 @@ decisions, action items, open questions. Three backends, tried in order when
    doesn't spend a minute starting every server you've configured for a one-shot
    prompt.
 3. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
+
+Whatever the session knows about the meeting goes in above the transcript —
+title, participants, the app it ran in. The participant list earns its place:
+given names, the summary says "Anna will send the contract" instead of "them
+will send the contract".
 
 A failed summary is logged and dropped; it never costs the transcript. Long
 transcripts are summarized in parts and the parts summarized together.

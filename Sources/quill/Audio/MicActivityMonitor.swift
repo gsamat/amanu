@@ -124,11 +124,15 @@ enum MicActivityMonitor {
             let bundleId = stringProperty(object, kAudioProcessPropertyBundleID)
                 ?? app?.bundleIdentifier
                 ?? ""
-            let name = app?.localizedName ?? bundleId
-            holders.append(Holder(
-                bundleId: bundleId,
-                name: name.isEmpty ? "pid \(pid)" : name
-            ))
+            // localizedName covers every GUI app; a command-line process that
+            // opens the mic has neither that nor a bundle id, so fall back to
+            // the executable name. Never "pid 39277" — these names end up in
+            // folder names, where a number tells you nothing three weeks later.
+            let name = app?.localizedName
+                ?? executableName(pid: pid)
+                ?? bundleId.split(separator: ".").last.map(String.init)
+                ?? ""
+            holders.append(Holder(bundleId: bundleId, name: name))
         }
         return holders
     }
@@ -157,6 +161,14 @@ enum MicActivityMonitor {
         }
         guard status == noErr else { return nil }
         return ids
+    }
+
+    /// The executable's own name, for processes AppKit knows nothing about.
+    private static func executableName(pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: 256)
+        guard proc_name(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        let name = String(cString: buffer)
+        return name.isEmpty ? nil : name
     }
 
     private static func uint32Property(
@@ -198,3 +210,6 @@ enum MicActivityMonitor {
         return string.isEmpty ? nil : string
     }
 }
+
+@_silgen_name("proc_name")
+private func proc_name(_ pid: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ size: UInt32) -> Int32
