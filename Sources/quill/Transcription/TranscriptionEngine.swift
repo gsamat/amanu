@@ -31,6 +31,15 @@ enum TranscriptionInput: Sendable {
     case mixed
 }
 
+/// A failure that retrying cannot fix: audio with no speech in it, a file that
+/// isn't audio at all. The distinction matters because the queue is persistent
+/// — a session with no transcript is picked up again at every launch, so a
+/// permanent failure retried forever means uploading the same recording to a
+/// paid API on every restart, which is what quill did until 2026.08.17.
+protocol TranscriptionFailure: Error {
+    var isPermanent: Bool { get }
+}
+
 /// A speech-to-text engine quill can run. Engines are prepared lazily (model
 /// download + load) when the transcription queue has work and released when it
 /// drains, so quill never idles holding gigabytes of model weights.

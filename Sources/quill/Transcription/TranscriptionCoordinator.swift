@@ -24,6 +24,12 @@ actor TranscriptionCoordinator {
     /// the tracks, so it's regenerated whenever it's missing.
     private static let mixedFile = "mixed.m4a"
 
+    /// How many times a session may fail before the queue stops offering it.
+    /// The queue lives in the filesystem and is rescanned at every launch, so
+    /// without a limit a session that cannot be transcribed is retried for
+    /// ever — and with a cloud engine, re-uploaded and re-charged every time.
+    private static let maxAttempts = 3
+
     private var queue: [URL] = []
     private var draining = false
     private var engine: TranscriptionEngine?
@@ -59,6 +65,7 @@ actor TranscriptionCoordinator {
             .filter {
                 fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
                     && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+                    && !Self.hasGivenUp(on: $0)
             }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         for dir in pending where !queue.contains(dir) {
@@ -92,10 +99,7 @@ actor TranscriptionCoordinator {
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
-                notifyUser(
-                    title: "quill — transcription failed",
-                    body: "\(dir.lastPathComponent) — see transcribe.log"
-                )
+                recordFailure(error, for: dir)
             }
         }
         await engine?.release()
@@ -105,6 +109,65 @@ actor TranscriptionCoordinator {
         // An enqueue that landed between the loop exiting and the release
         // finishing would otherwise sit until the next enqueue.
         drainIfIdle()
+    }
+
+    /// Count a failure against the session, and retire it once retrying has
+    /// stopped being reasonable — either because the error can't be fixed by
+    /// repeating it, or because we've repeated it enough.
+    ///
+    /// A retired session keeps its audio and gets it compressed: there will
+    /// never be a transcript, so holding a gigabyte an hour of PCM against a
+    /// future attempt is pure waste. Delete `transcription_failed` from
+    /// meta.json to offer it to the queue again.
+    private func recordFailure(_ error: Error, for dir: URL) {
+        let permanent = (error as? TranscriptionFailure)?.isPermanent ?? false
+        let attempts = (Self.metaValue(dir, "transcription_attempts") as? Int ?? 0) + 1
+        var fields: [String: Any] = ["transcription_attempts": attempts]
+
+        if permanent || attempts >= Self.maxAttempts {
+            fields["transcription_failed"] = "\(error)"
+            Self.updateMeta(dir, with: fields)
+            log(dir, permanent
+                ? "giving up: \(error) — retrying cannot change this"
+                : "giving up after \(attempts) attempts")
+            notifyUser(
+                title: "quill — transcription gave up",
+                body: "\(dir.lastPathComponent) — audio kept, see transcribe.log"
+            )
+            TrackCompressor.compress(sessionDir: dir)
+        } else {
+            Self.updateMeta(dir, with: fields)
+            notifyUser(
+                title: "quill — transcription failed",
+                body: "\(dir.lastPathComponent) — see transcribe.log"
+            )
+        }
+    }
+
+    private static func hasGivenUp(on dir: URL) -> Bool {
+        metaValue(dir, "transcription_failed") != nil
+    }
+
+    private static func metaValue(_ dir: URL, _ key: String) -> Any? {
+        guard
+            let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json[key]
+    }
+
+    /// Merge fields into meta.json, leaving everything else alone.
+    private static func updateMeta(_ dir: URL, with fields: [String: Any]) {
+        let url = dir.appendingPathComponent("meta.json")
+        guard
+            let data = try? Data(contentsOf: url),
+            var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return }
+        json.merge(fields) { _, new in new }
+        guard let updated = try? JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
+        ) else { return }
+        try? updated.write(to: url, options: .atomic)
     }
 
     private func transcribe(_ dir: URL) async throws {

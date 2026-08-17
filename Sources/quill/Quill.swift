@@ -180,7 +180,10 @@ final class AppController {
         self.root = root
 
         let settings = Config.autoRecord()
-        calendar = settings.calendar ? CalendarWatcher() : nil
+        // The calendar is worth reading for names even when it isn't a
+        // trigger: "Integration sync (zoom.us)" beats "20:39" in a folder list
+        // whether or not the event is what started the recording.
+        calendar = (Config.useCalendar() || settings.calendar) ? CalendarWatcher() : nil
         autoRecord = AutoRecordController(settings: settings, calendar: calendar)
 
         menuBar.onToggle = { [weak self] in self?.toggle() }
@@ -218,13 +221,12 @@ final class AppController {
             await transcription.resumePending(root: root)
         }
 
-        if settings.enabled {
-            Task { [weak self] in
-                // The permission prompt only appears when the calendar trigger
-                // is on, and it must land before the loop starts asking.
-                await self?.calendar?.requestAccess()
-                self?.autoRecord.start()
-            }
+        Task { [weak self] in
+            // Ask once, before anything wants an answer: the auto-record loop
+            // queries the calendar on its first tick, and a session started in
+            // the meantime would otherwise be named without it.
+            await self?.calendar?.requestAccess()
+            if settings.enabled { self?.autoRecord.start() }
         }
         menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
         window.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)

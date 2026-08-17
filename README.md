@@ -197,7 +197,13 @@ transcripts are summarized in parts and the parts summarized together.
 Built in and automatic, with two engines behind one protocol. Jobs run in a
 serial queue — you can start a new recording while the last one transcribes.
 Unfinished jobs resume on next launch (the filesystem is the queue: a session
-with `meta.json` but no `transcript.json` is pending). Failures append to the
+with `meta.json` but no `transcript.json` is pending). A session that keeps
+failing is eventually retired rather than retried for ever — three attempts, or
+one if the error is of a kind repetition cannot fix, such as audio with no
+speech in it. Retiring writes `transcription_failed` into `meta.json`, keeps
+the audio and compresses it; delete that field to offer the session to the
+queue again. Without this a cloud engine re-uploaded, and re-charged for, the
+same unusable recording at every launch. Failures append to the
 session's `transcribe.log` and never block later jobs.
 
 Set `transcription.language` either way. Both engines do better told than
@@ -324,6 +330,9 @@ Optional, at `~/.config/quill/config.json`:
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
   apps and browsers; `[]` means any app), `ignore_apps` never counts.
+- `calendar` — read the calendar to name sessions after the meeting (default
+  on; costs a one-time permission prompt). Independent of
+  `auto_record.calendar`, which is about *starting* a recording from an event.
 - `dock_icon` — show quill in the Dock and ⌘-Tab (default on). `false` makes
   it a menu-bar-only accessory again.
 - `window` — open the status window at launch (default on).

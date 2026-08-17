@@ -11,6 +11,7 @@ import Foundation
 ///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
 ///       },
 ///       "mic_voice_processing": true,
+///       "calendar": true,
 ///       "auto_record": { "enabled": true, "mic_activity": true, "calendar": false },
 ///       "summary": { "enabled": true, "backend": "auto", "language": "ru" },
 ///       "on_stop": "my-hook"
@@ -176,6 +177,17 @@ enum Config {
         if let v = json["apps"] as? [String] { settings.callApps = v }
         if let v = json["ignore_apps"] as? [String] { settings.ignoreApps = v }
         return settings
+    }
+
+    /// Read the calendar to name sessions after the meeting they belong to.
+    ///
+    /// Separate from `auto_record.calendar`, which is about *starting* a
+    /// recording from a calendar event. Naming is the cheaper, more broadly
+    /// useful half: it costs the same one-time permission prompt but doesn't
+    /// depend on your calendar being an accurate description of what you're
+    /// actually doing.
+    static func useCalendar() -> Bool {
+        load()?["calendar"] as? Bool ?? true
     }
 
     /// Show quill in the Dock (and in ⌘-Tab) rather than running as a

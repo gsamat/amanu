@@ -11,12 +11,20 @@ import Foundation
 /// `transcript.assemblyai.json`. A retry after a crash re-renders from that
 /// file instead of re-uploading and re-paying.
 actor AssemblyAIEngine: TranscriptionEngine {
-    enum EngineError: Error, CustomStringConvertible {
+    enum EngineError: TranscriptionFailure, CustomStringConvertible {
         case noAPIKey
         case http(String, Int, String)
         case transcriptFailed(String)
         case timedOut
         case empty
+
+        /// Only "there was no speech in this audio" is permanent: a silent
+        /// recording will still be silent tomorrow. Everything else here —
+        /// a missing key, an HTTP error, a timeout — is worth another go.
+        var isPermanent: Bool {
+            if case .empty = self { return true }
+            return false
+        }
 
         var description: String {
             switch self {
