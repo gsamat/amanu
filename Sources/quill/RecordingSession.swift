@@ -4,12 +4,26 @@ import Foundation
 /// (mic = you, system = them) plus a meta.json written on clean stop. Tracks
 /// are separate on purpose — whisper does better on clean single-source audio,
 /// and two tracks give free two-party diarization.
+@MainActor
 final class RecordingSession {
     let dir: URL
     let startedAt = Date()
 
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
+
+    // Track-liveness watchdog. Both .caf files grow continuously while their
+    // capture is healthy; a track whose file freezes mid-session (a call app
+    // reconfiguring the input device, a died tap — anything) is a recording
+    // silently going wrong, and the user should hear about it now, not after
+    // the meeting (2026.07.28: a 19min call yielded a 1.7s mic track with no
+    // visible symptom until the transcript came out one-sided).
+    private var watchdog: Timer?
+    private var trackSize: [String: Int64] = [:]
+    private var trackLastGrew: [String: Date] = [:]
+    private var trackStalled: Set<String> = []
+    private static let watchdogInterval: TimeInterval = 15
+    private static let stallThreshold: TimeInterval = 45
 
     private static let folderFormat: DateFormatter = {
         let f = DateFormatter()
@@ -42,10 +56,20 @@ final class RecordingSession {
             system.stop()
             throw error
         }
+        watchdog = Timer.scheduledTimer(
+            withTimeInterval: Self.watchdogInterval, repeats: true
+        ) { [weak self] _ in
+            // Same idiom as AppController's elapsed-time ticker: the timer
+            // fires on the main run loop, so promote that to the type system
+            // rather than capturing non-Sendable state across a boundary.
+            MainActor.assumeIsolated { self?.checkTrackLiveness() }
+        }
     }
 
     /// Stop both tracks and write meta.json.
     func stop() {
+        watchdog?.invalidate()
+        watchdog = nil
         mic.stop()
         system.stop()
 
@@ -73,6 +97,40 @@ final class RecordingSession {
             options: [.prettyPrinted, .sortedKeys]
         ) {
             try? data.write(to: dir.appendingPathComponent("meta.json"))
+        }
+    }
+
+    // MARK: -
+
+    /// Compare each track file's size against the last poll. Growth clears any
+    /// stall state (and announces recovery); a freeze past the threshold
+    /// notifies once per stall episode, so a track that dies, recovers, and
+    /// dies again alerts both times without spamming in between.
+    private func checkTrackLiveness() {
+        let now = Date()
+        for name in ["mic", "system"] {
+            let path = dir.appendingPathComponent("\(name).caf").path
+            guard let size = (try? FileManager.default
+                .attributesOfItem(atPath: path))?[.size] as? Int64 else { continue }
+
+            if size != trackSize[name] {
+                trackSize[name] = size
+                trackLastGrew[name] = now
+                if trackStalled.remove(name) != nil {
+                    notifyUser(
+                        title: "quill: \(name) track recovered",
+                        body: "\(name) audio is being written again."
+                    )
+                }
+            } else if let last = trackLastGrew[name], !trackStalled.contains(name),
+                      now.timeIntervalSince(last) >= Self.stallThreshold {
+                trackStalled.insert(name)
+                notifyUser(
+                    title: "quill: \(name) track stalled",
+                    body: "No \(name) audio written for \(Int(now.timeIntervalSince(last)))s"
+                        + " — the recording may be incomplete."
+                )
+            }
         }
     }
 }

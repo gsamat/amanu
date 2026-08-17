@@ -4,7 +4,12 @@ import Foundation
 ///
 ///     {
 ///       "recordings_dir": "~/Recordings",
-///       "transcription": { "enabled": true, "engine": "parakeet" },
+///       "transcription": {
+///         "enabled": true,
+///         "engine": "parakeet",
+///         "language": "ru",
+///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
+///       },
 ///       "mic_voice_processing": true,
 ///       "on_stop": "my-hook"
 ///     }
@@ -38,10 +43,64 @@ enum Config {
         transcription()?["enabled"] as? Bool ?? true
     }
 
-    /// Configured engine name. Only "parakeet" ships today; the coordinator
-    /// warns and falls back for anything else.
+    /// Configured engine name: "parakeet" (local, default) or "assemblyai"
+    /// (cloud, diarizing). The coordinator warns and falls back to parakeet
+    /// for anything else.
     static func transcriptionEngine() -> String {
         transcription()?["engine"] as? String ?? "parakeet"
+    }
+
+    /// Parakeet model version: "v3" (multilingual, default) or "v2"
+    /// (English-only, marginally higher recall on English).
+    static func transcriptionModel() -> String {
+        transcription()?["model"] as? String ?? "v3"
+    }
+
+    /// Two-letter language code for the recording, e.g. "ru". Both engines do
+    /// better told than guessing: parakeet uses it as a script hint (so
+    /// Russian doesn't come back transliterated), assemblyai as its
+    /// language_code (a wrong one there produces confident phonetic garbage).
+    /// nil means parakeet runs unhinted and assemblyai auto-detects.
+    static func transcriptionLanguage() -> String? {
+        guard let code = transcription()?["language"] as? String, !code.isEmpty else { return nil }
+        return code
+    }
+
+    static let assemblyAIDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/assemblyai/token")
+
+    /// AssemblyAI key, in order: ASSEMBLYAI_API_KEY, an inline `api_key` in the
+    /// config, then a token file (`api_key_path`, defaulting to
+    /// ~/.config/assemblyai/token — the same place the rest of the toolchain
+    /// keeps it).
+    static func assemblyAIKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["ASSEMBLYAI_API_KEY"],
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        if let inline = assemblyAI()?["api_key"] as? String, !inline.trimmed.isEmpty {
+            return inline.trimmed
+        }
+        let path = (assemblyAI()?["api_key_path"] as? String)
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            ?? assemblyAIDefaultKeyPath
+        guard let contents = try? String(contentsOf: path, encoding: .utf8),
+              !contents.trimmed.isEmpty
+        else { return nil }
+        return contents.trimmed
+    }
+
+    /// Override AssemblyAI's default speech model. nil sends nothing and lets
+    /// the API pick.
+    static func assemblyAISpeechModel() -> String? {
+        guard let model = assemblyAI()?["speech_model"] as? String, !model.isEmpty else {
+            return nil
+        }
+        return model
+    }
+
+    private static func assemblyAI() -> [String: Any]? {
+        transcription()?["assemblyai"] as? [String: Any]
     }
 
     private static func transcription() -> [String: Any]? {
@@ -55,6 +114,15 @@ enum Config {
     /// recording meetings through the speakers.
     static func micVoiceProcessing() -> Bool {
         load()?["mic_voice_processing"] as? Bool ?? false
+    }
+
+    /// Whether the transcript merge drops mic segments that duplicate
+    /// overlapping system speech — the echo of a meeting played through the
+    /// speakers into a raw mic. Costs nothing when there's no echo. Set false
+    /// to keep every segment from both tracks. Per-track engines only; a
+    /// diarizing engine transcribes one mixed file and can't duplicate.
+    static func transcriptEchoFilter() -> Bool {
+        load()?["transcript_echo_filter"] as? Bool ?? true
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather
@@ -84,4 +152,10 @@ enum Config {
         }
         return recordingsDir() ?? defaultRoot
     }
+}
+
+private extension String {
+    /// Keys read from files and the environment arrive with trailing
+    /// newlines more often than not.
+    var trimmed: String { trimmingCharacters(in: .whitespacesAndNewlines) }
 }

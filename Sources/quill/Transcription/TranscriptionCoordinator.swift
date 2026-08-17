@@ -1,9 +1,15 @@
 import Foundation
 
 /// Post-recording pipeline: a serial queue of session folders to transcribe.
-/// mic.caf → "me", system.caf → "them"; each track's segments are shifted by
-/// its start offset, merged by timestamp, and written as transcript.json
-/// (canonical) plus transcript.md (readable). The filesystem is the queue —
+///
+/// Per-track engines (parakeet) get mic.caf → "me" and system.caf → "them";
+/// each track's segments are shifted by its start offset and merged by
+/// timestamp. Diarizing engines (assemblyai) instead get a single mixed.m4a
+/// laid out on that same shared clock, and their anonymous speaker labels are
+/// mapped back onto me/them from the source tracks' energy.
+///
+/// Either way the result is transcript.json (canonical) plus transcript.md
+/// (readable). The filesystem is the queue —
 /// `resumePending()` rescans at launch, so a crash or quit mid-transcription
 /// just retries on next run. Failures append to the session's transcribe.log
 /// and never block later jobs.
@@ -13,6 +19,10 @@ actor TranscriptionCoordinator {
         case transcribing(session: String, queued: Int)
         case failed(session: String)
     }
+
+    /// The single mixed-down file diarizing engines transcribe. Derived from
+    /// the tracks, so it's regenerated whenever it's missing.
+    private static let mixedFile = "mixed.m4a"
 
     private var queue: [URL] = []
     private var draining = false
@@ -101,6 +111,44 @@ actor TranscriptionCoordinator {
         let meta = try SessionMeta.read(from: dir)
         let engine = try await preparedEngine()
 
+        var merged: [Transcript.Segment]
+        switch engine.input {
+        case .perTrack:
+            merged = try await transcribePerTrack(dir, meta: meta, engine: engine)
+            merged.sort { $0.start_ms < $1.start_ms }
+            // Only the per-track path can double-transcribe the far end: it
+            // reads both tracks, and a raw mic recording through speakers has
+            // their voice on it too. A diarizing engine sees the mix once, so
+            // there's no duplicate for a filter to find.
+            if Config.transcriptEchoFilter() {
+                let before = merged.count
+                merged = EchoFilter.dropEchoes(merged)
+                if merged.count != before {
+                    log(dir, "echo filter dropped \(before - merged.count) "
+                        + "mic segment(s) duplicating system audio")
+                }
+            }
+        case .mixed:
+            merged = try await transcribeMixed(dir, meta: meta, engine: engine)
+            merged.sort { $0.start_ms < $1.start_ms }
+        }
+
+        let transcript = Transcript(
+            engine: engine.name,
+            model: engine.model,
+            created_at: ISO8601DateFormatter().string(from: Date()),
+            segments: merged
+        )
+        try transcript.write(to: dir)
+        log(dir, "done — \(merged.count) segments")
+    }
+
+    /// One pass per track, speaker taken from the track itself.
+    private func transcribePerTrack(
+        _ dir: URL,
+        meta: SessionMeta,
+        engine: TranscriptionEngine
+    ) async throws -> [Transcript.Segment] {
         var merged: [Transcript.Segment] = []
         for track in meta.tracks {
             let audio = dir.appendingPathComponent(track.file)
@@ -128,27 +176,80 @@ actor TranscriptionCoordinator {
                 )
             }
         }
-        merged.sort { $0.start_ms < $1.start_ms }
+        return merged
+    }
 
-        let transcript = Transcript(
-            engine: engine.name,
-            model: engine.model,
-            created_at: ISO8601DateFormatter().string(from: Date()),
-            segments: merged
-        )
-        try transcript.write(to: dir)
-        log(dir, "done — \(merged.count) segments")
+    /// One pass over mixed.m4a, speaker taken from the engine's diarization
+    /// and then renamed to me/them by matching each utterance back against the
+    /// source tracks. The mix already carries the start offsets, so its
+    /// timestamps need no shifting.
+    private func transcribeMixed(
+        _ dir: URL,
+        meta: SessionMeta,
+        engine: TranscriptionEngine
+    ) async throws -> [Transcript.Segment] {
+        let mixed = dir.appendingPathComponent(Self.mixedFile)
+        if !FileManager.default.fileExists(atPath: mixed.path) {
+            log(dir, "mixing tracks → \(Self.mixedFile)")
+            try await AudioMixer.mix(
+                meta.tracks.map {
+                    AudioMixer.Track(
+                        url: dir.appendingPathComponent($0.file),
+                        offset: TimeInterval($0.offsetMs) / 1000
+                    )
+                },
+                to: mixed
+            )
+        }
+
+        log(dir, "transcribing \(Self.mixedFile) (\(engine.name))")
+        let segments = try await engine.transcribe(mixed)
+
+        let names = meta.track(for: "me").flatMap { mic in
+            meta.track(for: "them").flatMap { system in
+                SpeakerAttribution.resolve(
+                    segments: segments,
+                    mic: dir.appendingPathComponent(mic.file),
+                    micOffset: TimeInterval(mic.offsetMs) / 1000,
+                    system: dir.appendingPathComponent(system.file),
+                    systemOffset: TimeInterval(system.offsetMs) / 1000
+                )
+            }
+        }
+        if let names {
+            let counts = names.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+            log(dir, "speakers: " + counts.sorted { $0.key < $1.key }
+                .map { "\($0.key) ×\($0.value)" }
+                .joined(separator: ", "))
+        } else {
+            log(dir, "couldn't attribute speakers to tracks — keeping diarization labels")
+        }
+
+        return segments.enumerated().map { index, segment in
+            Transcript.Segment(
+                speaker: names?[index] ?? segment.speaker ?? "speaker",
+                start_ms: Int(segment.start * 1000),
+                end_ms: Int(segment.end * 1000),
+                text: segment.text
+            )
+        }
     }
 
     private func preparedEngine() async throws -> TranscriptionEngine {
         if let engine { return engine }
         let configured = Config.transcriptionEngine()
-        if configured != "parakeet" {
+        let engine: TranscriptionEngine
+        switch configured {
+        case "assemblyai":
+            engine = try AssemblyAIEngine()
+        case "parakeet":
+            engine = ParakeetEngine()
+        default:
             FileHandle.standardError.write(Data(
                 "warning: unknown transcription engine \"\(configured)\" — using parakeet\n".utf8
             ))
+            engine = ParakeetEngine()
         }
-        let engine = ParakeetEngine()
         try await engine.prepare()
         self.engine = engine
         return engine
@@ -197,6 +298,10 @@ private struct SessionMeta {
 
     let tracks: [Track]
 
+    func track(for speaker: String) -> Track? {
+        tracks.first { $0.speaker == speaker }
+    }
+
     enum MetaError: Error, CustomStringConvertible {
         case unreadable(URL)
 
@@ -231,7 +336,7 @@ private struct SessionMeta {
 
 /// Canonical transcript. Property names are the JSON schema — this struct
 /// exists to be serialized.
-private struct Transcript: Codable {
+struct Transcript: Codable {
     struct Segment: Codable {
         let speaker: String
         let start_ms: Int
@@ -244,16 +349,21 @@ private struct Transcript: Codable {
     let created_at: String
     let segments: [Segment]
 
-    /// Write transcript.json and render transcript.md. Both writes are atomic
-    /// (temp file + rename), so a partially written transcript never exists on
-    /// disk — resumePending treats presence of transcript.json as "done".
+    /// Render transcript.md, then write transcript.json as the completion
+    /// marker. Both writes are atomic (temp file + rename), and writing the
+    /// JSON last is what makes the ordering matter: resumePending treats its
+    /// presence as "done", so writing it first meant a failed markdown write
+    /// retired the session permanently with half its artifacts.
     func write(to dir: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(self)
-            .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
-        try Data(rendered(title: dir.lastPathComponent).utf8)
+        let json = try encoder.encode(self)
+        let markdown = Data(rendered(title: dir.lastPathComponent).utf8)
+
+        try markdown
             .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
+        try json
+            .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
     }
 
     private func rendered(title: String) -> String {

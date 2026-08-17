@@ -7,8 +7,8 @@
     <key>CFBundleName</key>
     <string>quill</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>quill records your microphone during meetings so you can transcribe them later. Audio never leaves this Mac.</string>
+    <string>quill records your microphone during meetings so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>quill records system audio (the other side of your meetings) so you can transcribe them later. Audio never leaves this Mac.</string>
+    <string>quill records system audio (the other side of your meetings) so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
 </dict>
 </plist>

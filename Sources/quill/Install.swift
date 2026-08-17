@@ -4,8 +4,8 @@ import Foundation
 /// Manage quill's LaunchAgent so the daemon starts at login.
 ///
 /// We deliberately do NOT use SMAppService.mainApp here — that requires a full
-/// .app bundle. Since quill ships as a single binary in /usr/local/bin, a
-/// plain LaunchAgent plist is the simpler, more honest mechanism.
+/// .app bundle. Since quill ships as a single binary, a plain LaunchAgent
+/// plist is the simpler, more honest mechanism.
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Install or remove the launch-at-login LaunchAgent."
@@ -34,14 +34,18 @@ struct Install: ParsableCommand {
 
     // MARK: -
 
-    private static let label = "com.digimata.quill"
+    static let label = "com.digimata.quill"
 
-    private var plistURL: URL {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return home
+    /// Where the LaunchAgent lives. Shared with `quill doctor`, which reports
+    /// whether it's installed — without it, system audio records silence
+    /// (rca-002).
+    static var agentPlistURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
-            .appendingPathComponent("\(Self.label).plist")
+            .appendingPathComponent("\(label).plist")
     }
+
+    private var plistURL: URL { Self.agentPlistURL }
 
     private func writeAgent() throws {
         let binary = try resolveBinaryPath()
@@ -94,25 +98,36 @@ struct Install: ParsableCommand {
         }
     }
 
+    /// The agent points at whichever binary you ran `quill install` from —
+    /// there's no canonical install path to assume, and there shouldn't be
+    /// (`~/.local/bin` needs no sudo; `/usr/local/bin` doesn't exist on a
+    /// stock Mac).
+    ///
+    /// Asking dyld beats trusting argv[0]: a shell invoking quill off PATH
+    /// usually passes an absolute path, but nothing guarantees it, and the
+    /// consequence of getting it wrong is an agent that silently never starts.
+    /// Symlinks are resolved so TCC sees the same path the daemon runs from.
     private func resolveBinaryPath() throws -> String {
-        // /usr/local/bin/quill is the canonical install path. Honor a real
-        // location if running from elsewhere (e.g. dev).
-        let candidate = "/usr/local/bin/quill"
-        if FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-        // Fall back to the running executable's resolved path.
-        let argv0 = CommandLine.arguments.first ?? "quill"
-        if argv0.hasPrefix("/"), FileManager.default.isExecutableFile(atPath: argv0) {
+        var size = UInt32(PATH_MAX)
+        var buffer = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
             FileHandle.standardError.write(Data(
-                "note: /usr/local/bin/quill not found; using \(argv0)\n".utf8
+                "couldn't locate the running quill binary\n".utf8
             ))
-            return argv0
+            throw ExitCode(1)
         }
-        FileHandle.standardError.write(Data(
-            "couldn't locate the quill binary. install it to /usr/local/bin/quill first.\n".utf8
-        ))
-        throw ExitCode(1)
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        let path = URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self))
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        guard FileManager.default.isExecutableFile(atPath: path) else {
+            FileHandle.standardError.write(Data(
+                "resolved binary path is not executable: \(path)\n".utf8
+            ))
+            throw ExitCode(1)
+        }
+        return path
     }
 
     private func uid() -> uid_t { getuid() }
