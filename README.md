@@ -1,9 +1,10 @@
 # quill
 
-A minimal macOS meeting recorder + transcriber. One menu-bar click records
-your mic and all system audio as two separate tracks; when you stop, quill
-transcribes both and writes a speaker-tagged transcript. On-device by default —
-nothing leaves the machine unless you opt into the cloud engine.
+A minimal macOS meeting recorder + transcriber. It records your mic and all
+system audio as two separate tracks — on a menu-bar click, or on its own when a
+call starts — then transcribes both, writes a speaker-tagged transcript, and
+summarizes it. On-device by default: nothing leaves the machine unless you opt
+into the cloud engine.
 
 Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot), same skeleton: single
 Swift binary, menu-bar tray, no app bundle.
@@ -53,7 +54,15 @@ transcription speed.
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
 
-Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
+4. **Or don't touch it at all.** With auto-record on (the default), quill starts
+   when a call app opens the microphone and stops when the call ends — see
+   [Recording by itself](#recording-by-itself).
+5. **Pause** from the menu for the part you'd rather not have on tape. Capture
+   keeps running and silence is written, so everything after the pause stays
+   aligned to the wall clock.
+
+Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`, with the meeting's name
+appended when the calendar knows it:
 
 | File | Contents |
 |---|---|
@@ -62,6 +71,7 @@ Each session lands in `~/Recordings/<yyyy.MM.dd-HHmm>/`:
 | `meta.json` | start/end timestamps, duration, per-track start offsets |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading |
+| `summary.md` | topic, key points, decisions, action items, open questions |
 | `transcribe.log` | transcription progress/errors for this session |
 | `mixed.m4a` | both tracks mixed on one clock — only with a diarizing engine |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
@@ -71,6 +81,67 @@ and mic-vs-system is free two-party diarization — `me` vs `them` with no
 speaker-identification model. CAF on purpose: unlike m4a, it needs no
 finalization pass — if the process dies mid-meeting, everything already
 written is still readable.
+
+## Recording by itself
+
+Two independent triggers, either of which is enough:
+
+- **A call app opens the microphone** and holds it for `start_delay_seconds`.
+  This needs no per-app integration and no calendar — it fires for Zoom, Teams,
+  Meet in a browser tab, Slack huddles, Telegram, FaceTime.
+- **A calendar event that looks like a call** just started: more than one
+  attendee, or a conference link in the location, URL, or notes. Off by default
+  because it costs a permission prompt and is only as good as your calendar.
+
+Attribution is by whitelist (`auto_record.apps`), not by "someone opened the
+mic". Dictation tools, Voice Memos and a browser tab checking levels all open
+the microphone, and every false positive is a recording of whatever was in the
+room. A missed meeting costs one click; a false one costs privacy. Set
+`"apps": []` to count any app instead.
+
+Stopping is the part that has to be right, because the failure mode is
+unbounded. Three rules, any of which ends the session:
+
+- nobody has held the mic for `stop_delay_seconds` **and** the far end has been
+  quiet that long;
+- **silence on both tracks** for `silence_stop_minutes`, whatever the mic says.
+  This is the backstop: an app that never releases the input device would
+  otherwise keep a recording alive indefinitely — mygranola, quill's ancestor,
+  produced three back-to-back recordings totalling about fifteen hours in one
+  night this way;
+- `max_duration_minutes`, the hard ceiling, which applies to manual recordings
+  too.
+
+An automatic recording shorter than `min_duration_seconds` is deleted rather
+than transcribed — that's what a mic opening for a few seconds is. Manual
+recordings are never auto-stopped and never discarded: if you pressed the
+button, only you decide.
+
+The menu shows what the loop is currently thinking ("waiting", "Zoom on the mic
+for 7s", "quiet for 40s"), which is the difference between debugging a missed
+recording and guessing at it. The checkbox next to it turns the whole thing off
+immediately, without touching the config file.
+
+Requires macOS 14.4 for per-process microphone attribution. Below that, quill
+can't tell your call from its own capture, so auto-record stays off rather than
+recording itself in a loop.
+
+## Summaries
+
+After the transcript is written, quill writes `summary.md`: topic, key points,
+decisions, action items, open questions. Three backends, tried in order when
+`summary.backend` is `auto`:
+
+1. **Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
+   `~/.config/anthropic/token`.
+2. **The local `claude` CLI** — bills against the subscription already signed in
+   on this machine instead of per token. Invoked with an empty MCP config, so it
+   doesn't spend a minute starting every server you've configured for a one-shot
+   prompt.
+3. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
+
+A failed summary is logged and dropped; it never costs the transcript. Long
+transcripts are summarized in parts and the parts summarized together.
 
 ## Transcription
 
@@ -153,6 +224,22 @@ Optional, at `~/.config/quill/config.json`:
     "language": "ru",
     "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
   },
+  "auto_record": {
+    "enabled": true,
+    "mic_activity": true,
+    "calendar": false,
+    "start_delay_seconds": 12,
+    "stop_delay_seconds": 90,
+    "min_duration_seconds": 45,
+    "silence_stop_minutes": 10,
+    "max_duration_minutes": 300,
+    "ignore_apps": []
+  },
+  "summary": {
+    "enabled": true,
+    "backend": "auto",
+    "language": "ru"
+  },
   "on_stop": "my-hook"
 }
 ```
@@ -184,12 +271,23 @@ Optional, at `~/.config/quill/config.json`:
   the voice unit is live, macOS ducks other playback slightly (`.min` ducking
   is configured, but it can't be zeroed). On headphones there's no echo to
   cancel, so raw capture is the better default.
+- `auto_record.*` — when quill records on its own; see
+  [Recording by itself](#recording-by-itself). `apps` is the whitelist of
+  bundle-id prefixes that count as a call (defaults to the known conferencing
+  apps and browsers; `[]` means any app), `ignore_apps` never counts.
+- `summary.*` — `enabled`, `backend` (`auto`, `anthropic-api`, `claude-cli`,
+  `ollama`, `none`), `language` (unset means the language of the meeting),
+  `model`, `ollama_model`, `api_key_path`.
 - `on_stop` — shell command spawned with the session directory as its
-  argument, **after the transcript is written** (or right after recording if
-  transcription is disabled). Wire it to whatever comes next: summarization,
-  filing, indexing.
+  argument, **after the transcript and summary are written** (or right after
+  recording if transcription is disabled). Wire it to whatever comes next:
+  filing, indexing, posting.
 
 ## CLI
+
+```sh
+kill -USR1 $(pgrep -x quill)  # start/stop from a hotkey tool
+```
 
 ```sh
 quill                        # run the menu-bar daemon (^C to quit)
@@ -221,6 +319,26 @@ make uninstall  # remove the binary and the LaunchAgent
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
 - **NSStatusItem** — the whole UI
+
+## If quill dies mid-meeting
+
+CAF needs no finalization, so everything already written stays playable after a
+crash, a `kill -9`, or a flat battery. What was missing was anything pointing at
+those files: the transcription queue only considers folders with a `meta.json`,
+and that was written on a clean stop (upstream issue #8).
+
+So a live session now keeps a small `.recording.json` manifest — the owner's
+PID, the start time, the track names, the clock offsets. On the next launch,
+quill adopts every manifest whose owner process is gone, writes the `meta.json`
+the clean-stop path would have written (`"stop_reason": "recovered-after-crash"`),
+and lets the session through the normal queue. A manifest with a live owner is
+left strictly alone, and a session with no audio in it is skipped rather than
+queued empty.
+
+While recording, both tracks are watched for stalls: a `.caf` that stops growing
+for 45 seconds notifies you then and there, and the fact is recorded in
+`meta.json` as `stalled_tracks` — a one-sided transcript should be explainable
+afterwards, not a mystery.
 
 ## Gotchas
 

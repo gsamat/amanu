@@ -41,8 +41,25 @@ final class SystemAudioRecorder {
     private struct LockedState {
         var file: AVAudioFile?
         var firstBufferAt: Date?
+        var lastSoundAt: Date?
+        var levelMeasurable = true
+        var muted = false
     }
     private let state = OSAllocatedUnfairLock(initialState: LockedState())
+
+    /// Wall-clock time of the last buffer louder than the noise floor — the
+    /// far end saying something. nil means nothing audible yet.
+    var lastSoundAt: Date? { state.withLock { $0.lastSoundAt } }
+
+    /// False once a buffer arrived in a sample format we can't measure.
+    var levelMeasurable: Bool { state.withLock { $0.levelMeasurable } }
+
+    /// While muted the tap keeps running and silence is written instead of the
+    /// audio, so the track stays wall-clock aligned across a pause.
+    var isMuted: Bool {
+        get { state.withLock { $0.muted } }
+        set { state.withLock { $0.muted = newValue } }
+    }
 
     private var file: AVAudioFile? {
         get { state.withLock { $0.file } }
@@ -161,16 +178,39 @@ final class SystemAudioRecorder {
                 bufferListNoCopy: inInputData,
                 deallocator: nil
             ) else { return }
-            do {
-                try file.write(from: buffer)
-            } catch {
-                FileHandle.standardError.write(Data("system track write failed: \(error)\n".utf8))
-            }
+            self.writeTracked(buffer, to: file)
         }
         guard status == noErr, let procID else { throw RecorderError.ioProcCreationFailed(status) }
 
         status = AudioDeviceStart(aggregateID, procID)
         guard status == noErr else { throw RecorderError.deviceStartFailed(status) }
+    }
+
+    /// Write one tapped buffer, tracking its level on the way through and
+    /// substituting silence while paused.
+    private func writeTracked(_ buffer: AVAudioPCMBuffer, to file: AVAudioFile) {
+        let peak = AudioLevel.peak(of: buffer)
+        let muted: Bool = state.withLock { s in
+            if let peak {
+                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = Date() }
+            } else {
+                s.levelMeasurable = false
+            }
+            return s.muted
+        }
+
+        var outgoing = buffer
+        if muted {
+            // The tap's buffer is Core Audio's memory, borrowed no-copy — the
+            // silence has to be written into a buffer of our own.
+            guard let silent = AudioLevel.silence(like: buffer) else { return }
+            outgoing = silent
+        }
+        do {
+            try file.write(from: outgoing)
+        } catch {
+            FileHandle.standardError.write(Data("system track write failed: \(error)\n".utf8))
+        }
     }
 
     private func cleanup() {

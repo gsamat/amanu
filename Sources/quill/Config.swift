@@ -11,6 +11,8 @@ import Foundation
 ///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
 ///       },
 ///       "mic_voice_processing": true,
+///       "auto_record": { "enabled": true, "mic_activity": true, "calendar": false },
+///       "summary": { "enabled": true, "backend": "auto", "language": "ru" },
 ///       "on_stop": "my-hook"
 ///     }
 ///
@@ -123,6 +125,105 @@ enum Config {
     /// diarizing engine transcribes one mixed file and can't duplicate.
     static func transcriptEchoFilter() -> Bool {
         load()?["transcript_echo_filter"] as? Bool ?? true
+    }
+
+    // MARK: - auto-record
+
+    /// When and how quill starts recording by itself.
+    ///
+    /// The defaults encode one asymmetry: a missed meeting costs a click, an
+    /// unwanted recording costs privacy and disk. So starting takes sustained
+    /// evidence (a known call app holding the mic for `startDelay`), stopping
+    /// is generous (`stopDelay` of nobody on the mic), short auto-recordings
+    /// are thrown away entirely, and two independent backstops — silence and a
+    /// hard cap — end a session no matter what the mic says.
+    struct AutoRecordSettings {
+        var enabled = true
+        var micActivity = true
+        var calendar = false
+        /// How long a call app must hold the mic before this is a meeting.
+        var startDelay: TimeInterval = 12
+        /// How long nobody may hold the mic before the meeting is over.
+        var stopDelay: TimeInterval = 90
+        /// Auto-recordings shorter than this are deleted, not transcribed.
+        var minDuration: TimeInterval = 45
+        /// Hard ceiling on any auto-recording.
+        var maxDuration: TimeInterval = 300 * 60
+        /// Silence on *both* tracks for this long ends the session regardless
+        /// of who holds the mic. The backstop that would have caught
+        /// mygranola's overnight 15-hour run.
+        var silenceStop: TimeInterval = 10 * 60
+        /// Bundle-id prefixes that count as a call. Empty means any process.
+        var callApps: [String] = MicActivityMonitor.defaultCallApps
+        /// Extra bundle ids / process names to never count.
+        var ignoreApps: [String] = []
+    }
+
+    static func autoRecord() -> AutoRecordSettings {
+        var settings = AutoRecordSettings()
+        guard let json = load()?["auto_record"] as? [String: Any] else { return settings }
+
+        if let v = json["enabled"] as? Bool { settings.enabled = v }
+        if let v = json["mic_activity"] as? Bool { settings.micActivity = v }
+        if let v = json["calendar"] as? Bool { settings.calendar = v }
+        if let v = json["start_delay_seconds"] as? Double { settings.startDelay = v }
+        if let v = json["stop_delay_seconds"] as? Double { settings.stopDelay = v }
+        if let v = json["min_duration_seconds"] as? Double { settings.minDuration = v }
+        if let v = json["max_duration_minutes"] as? Double { settings.maxDuration = v * 60 }
+        if let v = json["silence_stop_minutes"] as? Double { settings.silenceStop = v * 60 }
+        // An explicit empty list is meaningful here ("count any app"), so this
+        // reads presence rather than non-emptiness.
+        if let v = json["apps"] as? [String] { settings.callApps = v }
+        if let v = json["ignore_apps"] as? [String] { settings.ignoreApps = v }
+        return settings
+    }
+
+    // MARK: - summary
+
+    /// Post-transcript summarization. `backend: auto` tries, in order: the
+    /// Anthropic API if a key is around, then the local `claude` CLI (which
+    /// bills to your subscription rather than per token), then ollama.
+    struct SummarySettings {
+        var enabled = true
+        var backend = "auto"
+        /// Language for the summary itself; the transcript's own language is
+        /// whatever was spoken. nil means "same language as the meeting".
+        var language: String?
+        var model = "claude-sonnet-5"
+        var ollamaModel = "qwen3:8b"
+        var apiKeyPath: URL?
+    }
+
+    static func summary() -> SummarySettings {
+        var settings = SummarySettings()
+        guard let json = load()?["summary"] as? [String: Any] else { return settings }
+
+        if let v = json["enabled"] as? Bool { settings.enabled = v }
+        if let v = json["backend"] as? String, !v.isEmpty { settings.backend = v }
+        if let v = json["language"] as? String, !v.isEmpty { settings.language = v }
+        if let v = json["model"] as? String, !v.isEmpty { settings.model = v }
+        if let v = json["ollama_model"] as? String, !v.isEmpty { settings.ollamaModel = v }
+        if let v = json["api_key_path"] as? String, !v.isEmpty {
+            settings.apiKeyPath = URL(fileURLWithPath: (v as NSString).expandingTildeInPath)
+        }
+        return settings
+    }
+
+    static let anthropicDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/anthropic/token")
+
+    /// Anthropic key, in order: ANTHROPIC_API_KEY, then a token file
+    /// (`summary.api_key_path`, defaulting to ~/.config/anthropic/token).
+    static func anthropicKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"],
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        let path = summary().apiKeyPath ?? anthropicDefaultKeyPath
+        guard let contents = try? String(contentsOf: path, encoding: .utf8),
+              !contents.trimmed.isEmpty
+        else { return nil }
+        return contents.trimmed
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather

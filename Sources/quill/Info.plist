@@ -10,5 +10,7 @@
     <string>quill records your microphone during meetings so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>quill records system audio (the other side of your meetings) so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>quill reads your calendar to name recordings after the meeting and, if you enable it, to start recording when a scheduled call begins. Calendar data never leaves the machine.</string>
 </dict>
 </plist>

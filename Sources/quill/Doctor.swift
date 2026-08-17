@@ -21,7 +21,73 @@ enum DoctorReport {
             checkSystemAudio(),
             checkRecordingsRoot(recordingsRoot),
             checkTranscription(),
+            checkAutoRecord(),
+            checkSummary(),
         ]
+    }
+
+    /// Says out loud what quill will do on its own, because the surprising
+    /// failure mode of an automatic recorder is not that it fails — it's that
+    /// it records something you didn't expect it to.
+    static func checkAutoRecord() -> Check {
+        let settings = Config.autoRecord()
+        guard settings.enabled else {
+            return Check(
+                name: "auto-record",
+                status: .ok,
+                remediation: nil
+            )
+        }
+        guard #available(macOS 14.4, *) else {
+            return Check(
+                name: "auto-record",
+                status: .warn("needs macOS 14.4 for per-process mic detection — start recordings by hand"),
+                remediation: nil
+            )
+        }
+        var triggers: [String] = []
+        if settings.micActivity {
+            triggers.append(settings.callApps.isEmpty
+                ? "any app opening the mic"
+                : "\(settings.callApps.count) known call apps")
+        }
+        if settings.calendar { triggers.append("calendar events") }
+        guard !triggers.isEmpty else {
+            return Check(
+                name: "auto-record",
+                status: .warn("on, but every trigger is disabled"),
+                remediation: "set auto_record.mic_activity or auto_record.calendar"
+            )
+        }
+        return Check(
+            name: "auto-record",
+            status: .warn("on — will record automatically from " + triggers.joined(separator: " and ")),
+            remediation: "turn it off in the menu, or set auto_record.enabled=false"
+        )
+    }
+
+    static func checkSummary() -> Check {
+        let settings = Config.summary()
+        guard settings.enabled, settings.backend != "none" else {
+            return Check(name: "summary", status: .ok, remediation: nil)
+        }
+        if Config.anthropicKey() != nil {
+            return Check(name: "summary", status: .ok, remediation: nil)
+        }
+        let claude = [
+            FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin/claude").path,
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude",
+        ].contains { FileManager.default.isExecutableFile(atPath: $0) }
+        if claude {
+            return Check(name: "summary", status: .ok, remediation: nil)
+        }
+        return Check(
+            name: "summary",
+            status: .warn("no Anthropic key and no claude CLI — will fall back to ollama"),
+            remediation: "put a key in ~/.config/anthropic/token, or run ollama, or set summary.enabled=false"
+        )
     }
 
     static func checkMicrophone() -> Check {

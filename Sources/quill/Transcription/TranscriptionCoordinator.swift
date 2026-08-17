@@ -141,6 +141,15 @@ actor TranscriptionCoordinator {
         )
         try transcript.write(to: dir)
         log(dir, "done — \(merged.count) segments")
+
+        // After the transcript, never instead of it: transcript.json is the
+        // completion marker, so anything that runs before it risks retiring a
+        // session that has no transcript. A failed summary just logs.
+        await Summarizer.summarize(
+            transcript: transcript,
+            title: meta.title ?? dir.lastPathComponent,
+            into: dir
+        )
     }
 
     /// One pass per track, speaker taken from the track itself.
@@ -271,15 +280,7 @@ actor TranscriptionCoordinator {
     }
 
     private func log(_ dir: URL, _ message: String) {
-        let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
-        let url = dir.appendingPathComponent("transcribe.log")
-        if let handle = FileHandle(forWritingAtPath: url.path) {
-            handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
-            try? handle.close()
-        } else {
-            try? Data(line.utf8).write(to: url)
-        }
+        appendSessionLog(message, to: dir)
     }
 
     private func publish(_ status: Status) {
@@ -297,6 +298,9 @@ private struct SessionMeta {
     }
 
     let tracks: [Track]
+    /// The meeting's name when the calendar gave us one — it goes into the
+    /// summary prompt, where knowing the subject measurably helps.
+    let title: String?
 
     func track(for speaker: String) -> Track? {
         tracks.first { $0.speaker == speaker }
@@ -330,7 +334,7 @@ private struct SessionMeta {
         if let system = files["system"] {
             tracks.append(Track(file: system, speaker: "them", offsetMs: offsets["system"] ?? 0))
         }
-        return SessionMeta(tracks: tracks)
+        return SessionMeta(tracks: tracks, title: json["title"] as? String)
     }
 }
 

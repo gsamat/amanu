@@ -44,6 +44,9 @@ final class MicRecorder: @unchecked Sendable {
         var file: AVAudioFile?
         var firstBufferAt: Date?
         var lastBufferAt: Date?
+        var lastSoundAt: Date?
+        var levelMeasurable = true
+        var muted = false
     }
     private let state = OSAllocatedUnfairLock(initialState: LockedState())
 
@@ -67,6 +70,22 @@ final class MicRecorder: @unchecked Sendable {
     private var lastBufferAt: Date? {
         get { state.withLock { $0.lastBufferAt } }
         set { state.withLock { $0.lastBufferAt = newValue } }
+    }
+
+    /// Wall-clock time of the last buffer that carried something louder than
+    /// the noise floor. nil means nothing audible has been captured yet.
+    var lastSoundAt: Date? { state.withLock { $0.lastSoundAt } }
+
+    /// False once a buffer arrived in a sample format we can't measure —
+    /// callers must then treat "silent" as "unknown" rather than as silence.
+    var levelMeasurable: Bool { state.withLock { $0.levelMeasurable } }
+
+    /// While muted, capture continues but silence is written in place of the
+    /// real audio: the file keeps growing on the wall clock, so timestamps
+    /// after the pause stay true, and nothing said in the room is recorded.
+    var isMuted: Bool {
+        get { state.withLock { $0.muted } }
+        set { state.withLock { $0.muted = newValue } }
     }
 
     // Main-thread only: the observer is registered on the main queue and
@@ -243,11 +262,33 @@ final class MicRecorder: @unchecked Sendable {
                 }
             }
 
-            do {
-                try file.write(from: buffer)
-            } catch {
-                FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
+            self.writeTracked(buffer, to: file)
+        }
+    }
+
+    /// Write one captured buffer, recording its level on the way through and
+    /// substituting silence while paused. Both taps funnel through here so the
+    /// pause and the level tracking can't diverge between the two paths.
+    private func writeTracked(_ buffer: AVAudioPCMBuffer, to file: AVAudioFile) {
+        let peak = AudioLevel.peak(of: buffer)
+        let muted: Bool = state.withLock { s in
+            if let peak {
+                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = Date() }
+            } else {
+                s.levelMeasurable = false
             }
+            return s.muted
+        }
+
+        var outgoing = buffer
+        if muted {
+            guard let silent = AudioLevel.silence(like: buffer) else { return }
+            outgoing = silent
+        }
+        do {
+            try file.write(from: outgoing)
+        } catch {
+            FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
         }
     }
 
@@ -280,10 +321,11 @@ final class MicRecorder: @unchecked Sendable {
                     // the one-shot convert only handles equal rates.
                     try Self.convertResampling(buffer, to: mono, using: converter)
                 }
-                try file.write(from: mono)
             } catch {
-                FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
+                FileHandle.standardError.write(Data("mic downmix failed: \(error)\n".utf8))
+                return
             }
+            self.writeTracked(mono, to: file)
         }
     }
 

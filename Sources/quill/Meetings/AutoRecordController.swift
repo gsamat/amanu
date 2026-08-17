@@ -1,0 +1,229 @@
+import Foundation
+
+/// Decides on its own when a meeting starts and ends.
+///
+/// Two independent triggers, either of which is enough: a call app opens the
+/// microphone and keeps it open, or a calendar event that looks like a call
+/// just started. Stopping is deliberately reluctant — an auto-recording ends
+/// only once nobody is holding the mic *and* nothing has come out of the
+/// speakers for a while. Recording a few extra silent minutes costs megabytes;
+/// stopping early costs the meeting.
+///
+/// Two backstops exist because the primary rule can be defeated by an app that
+/// holds the microphone long after a call ends: silence on both tracks, and a
+/// hard duration ceiling. mygranola shipped without the first one and produced
+/// three back-to-back recordings totalling about fifteen hours in one night.
+///
+/// Manual recordings are never touched: if you pressed the button, only you
+/// decide when it stops.
+@MainActor
+final class AutoRecordController {
+    /// Asks the owner for state and tells it what to do. Kept as callbacks so
+    /// this type holds no session of its own — there is exactly one recorder,
+    /// and it lives in AppController.
+    var currentSession: (() -> RecordingSession?)?
+    var startRecording: ((RecordingSession.Trigger, String?) -> Void)?
+    var stopRecording: ((String) -> Void)?
+
+    /// What the controller is thinking, for the menu. "Why didn't it record?"
+    /// is otherwise a question you can only answer with a debugger.
+    private(set) var lastDecision = "waiting"
+
+    /// Runtime override from the menu bar, independent of the config file.
+    /// Turning auto-record off in the menu must be instant and obvious.
+    var enabled: Bool {
+        didSet {
+            if !enabled { lastDecision = "auto-record off" }
+            micActiveSince = nil
+        }
+    }
+
+    private let calendar: CalendarWatcher?
+    private var timer: Timer?
+    private var micActiveSince: Date?
+    private var micIdleSince: Date?
+    private var handledEventIDs = Set<String>()
+    private var cooldownUntil: Date?
+    private var lastCalendarCheck = Date.distantPast
+    private var currentEventEnd: Date?
+
+    private static let tick: TimeInterval = 5
+    /// A calendar query is the expensive part of the loop, and events don't
+    /// start more precisely than this anyway.
+    private static let calendarInterval: TimeInterval = 25
+    /// How late an event may be picked up after its start time.
+    private static let calendarWindow: TimeInterval = 3 * 60
+    /// After a manual stop, don't immediately re-arm — the call is usually
+    /// still open, and the user just said they didn't want it recorded.
+    private static let manualStopCooldown: TimeInterval = 15 * 60
+
+    init(settings: Config.AutoRecordSettings, calendar: CalendarWatcher?) {
+        self.enabled = settings.enabled
+        self.calendar = calendar
+    }
+
+    func start() {
+        timer?.invalidate()
+        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    /// The user started a recording by hand — don't treat it as ours.
+    func noteManualStart() {
+        currentEventEnd = nil
+        cooldownUntil = nil
+    }
+
+    /// The user stopped a recording by hand. Whatever is holding the mic, they
+    /// don't want it recorded; stay out of the way for a while, and consider
+    /// the current calendar event dealt with.
+    func noteManualStop() {
+        cooldownUntil = Date().addingTimeInterval(Self.manualStopCooldown)
+        micActiveSince = nil
+        currentEventEnd = nil
+        if let event = calendar?.bestMatch(for: Date()) {
+            handledEventIDs.insert(event.id)
+        }
+    }
+
+    // MARK: -
+
+    private func tick() {
+        let settings = Config.autoRecord()
+        guard enabled, settings.enabled else {
+            lastDecision = "auto-record off"
+            return
+        }
+
+        let now = Date()
+        let mic = MicActivityMonitor.check(
+            callApps: settings.callApps,
+            ignoring: settings.ignoreApps
+        )
+
+        if mic.active {
+            if micActiveSince == nil { micActiveSince = now }
+            micIdleSince = nil
+        } else {
+            micActiveSince = nil
+            if micIdleSince == nil { micIdleSince = now }
+        }
+
+        if let session = currentSession?() {
+            evaluateStop(session: session, settings: settings, now: now, mic: mic)
+        } else {
+            evaluateStart(settings: settings, now: now, mic: mic)
+        }
+    }
+
+    // MARK: - start
+
+    private func evaluateStart(
+        settings: Config.AutoRecordSettings,
+        now: Date,
+        mic: MicActivityMonitor.Result
+    ) {
+        if let until = cooldownUntil, now < until {
+            lastDecision = "paused after a manual stop"
+            return
+        }
+
+        if settings.calendar, let calendar,
+           now.timeIntervalSince(lastCalendarCheck) >= Self.calendarInterval {
+            lastCalendarCheck = now
+            let started = calendar.justStarted(now: now, window: Self.calendarWindow)
+            if let event = started.first(where: { !handledEventIDs.contains($0.id) }) {
+                handledEventIDs.insert(event.id)
+                currentEventEnd = event.end
+                lastDecision = "started from calendar: \(event.title)"
+                startRecording?(.calendar, event.title)
+                return
+            }
+        }
+
+        guard settings.micActivity else {
+            lastDecision = "waiting for a calendar event"
+            return
+        }
+        guard let since = micActiveSince else {
+            lastDecision = mic.allHolders.isEmpty
+                ? "waiting"
+                : "mic held by \(mic.allHolders.joined(separator: ", ")) — not a call app"
+            return
+        }
+
+        let held = now.timeIntervalSince(since)
+        guard held >= settings.startDelay else {
+            lastDecision = "\(mic.names.joined(separator: ", ")) on the mic for \(Int(held))s"
+            return
+        }
+        let event = calendar?.bestMatch(for: now)
+        currentEventEnd = event?.end
+        lastDecision = "started from mic activity (\(mic.names.first ?? "call app"))"
+        startRecording?(.micActivity, event?.title)
+    }
+
+    // MARK: - stop
+
+    private func evaluateStop(
+        session: RecordingSession,
+        settings: Config.AutoRecordSettings,
+        now: Date,
+        mic: MicActivityMonitor.Result
+    ) {
+        let elapsed = now.timeIntervalSince(session.startedAt)
+
+        // The ceiling applies to manual recordings too: whatever this is, it
+        // stopped being a meeting hours ago.
+        if elapsed > settings.maxDuration {
+            lastDecision = "stopped at the duration ceiling"
+            stopRecording?("max-duration")
+            return
+        }
+        guard session.trigger != .manual else {
+            lastDecision = "manual recording in progress"
+            return
+        }
+
+        let micQuietFor = now.timeIntervalSince(session.lastMicSoundAt ?? session.startedAt)
+        let farEndQuietFor = now.timeIntervalSince(session.lastSystemSoundAt ?? session.startedAt)
+
+        // Backstop: nobody has said anything on either track for a long while.
+        // Independent of who holds the microphone, which is the point — this is
+        // what catches an app that never lets the device go.
+        if session.levelsMeasurable, min(micQuietFor, farEndQuietFor) > settings.silenceStop {
+            lastDecision = "stopped after \(Int(settings.silenceStop / 60)) min of silence"
+            stopRecording?("silence")
+            return
+        }
+
+        // The scheduled meeting is over, the mic is free, and the far end has
+        // gone quiet: three agreeing signals, stop without waiting out the
+        // full idle delay.
+        if let end = currentEventEnd, now > end.addingTimeInterval(120),
+           !mic.active, farEndQuietFor > 60 {
+            lastDecision = "stopped — calendar event ended"
+            stopRecording?("calendar-event-ended")
+            return
+        }
+
+        let micIdleFor = micIdleSince.map { now.timeIntervalSince($0) } ?? 0
+        if !mic.active, micIdleFor > settings.stopDelay, farEndQuietFor > settings.stopDelay {
+            lastDecision = "stopped — the call ended"
+            stopRecording?("call-ended")
+            return
+        }
+
+        lastDecision = mic.active
+            ? "meeting in progress"
+            : "quiet for \(Int(min(micIdleFor, farEndQuietFor)))s"
+    }
+}
