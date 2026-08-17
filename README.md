@@ -108,7 +108,8 @@ The format is not an aesthetic choice — see below.
 Three surfaces showing one state, because the menu bar can't be relied on
 alone:
 
-- **A window.** Small, floating, closable — recording state and elapsed time,
+- **A window.** Small and ordinary — it sits in the normal stacking order and
+  goes behind whatever you bring forward. Recording state and elapsed time,
   Start/Stop, Pause/Resume, the auto-record switch with its current reasoning,
   and a button to the recordings folder. Closing it hides it; the Dock icon or
   the menu's **Show quill window** brings it back.

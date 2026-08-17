@@ -1,6 +1,6 @@
 import AppKit
 
-/// A small floating window with the same controls as the menu bar.
+/// A small ordinary window with the same controls as the menu bar.
 ///
 /// It exists because the menu bar is not a dependable place to put the only
 /// control surface of a recorder. When it runs out of room macOS parks the
@@ -18,7 +18,7 @@ final class StatusWindow {
     var onToggleAutoRecord: (() -> Void)?
     var onOpenFolder: (() -> Void)?
 
-    private let panel: NSPanel
+    private let panel: NSWindow
     private let icon = NSImageView()
     private let stateLabel = NSTextField(labelWithString: "idle")
     private let transcriptionLabel = NSTextField(labelWithString: "")
@@ -29,17 +29,19 @@ final class StatusWindow {
     private let decisionLabel = NSTextField(labelWithString: "")
 
     init() {
-        panel = NSPanel(
+        panel = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 168),
-            // A utility panel: it floats above ordinary windows and doesn't
-            // take focus away from whatever you're doing during the meeting.
-            styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         panel.title = "quill"
-        panel.isFloatingPanel = true
-        panel.level = .floating
+        // An ordinary window at the ordinary level: it goes behind whatever
+        // you bring forward, like everything else. State that must be visible
+        // without hunting for a window is the Dock icon's job — it turns red
+        // while recording — so this one doesn't need to sit on top of your
+        // work all day.
+        panel.level = .normal
         panel.hidesOnDeactivate = false
         // Closing must hide, not destroy: the Dock icon reopens this window.
         panel.isReleasedWhenClosed = false
@@ -108,9 +110,12 @@ final class StatusWindow {
         update(state: .idle, elapsed: nil)
     }
 
-    /// Bring the window up without stealing keyboard focus from the meeting.
+    /// Bring the window up. orderFront rather than makeKey: at login this
+    /// runs unattended, and a window that grabs the keyboard while you're
+    /// typing is its own kind of rude. Clicking the Dock icon activates the
+    /// app anyway, which brings it properly forward.
     func show() {
-        panel.orderFrontRegardless()
+        panel.orderFront(nil)
     }
 
     func toggleVisibility() {
