@@ -23,6 +23,21 @@ enum SpeakerAttribution {
     /// meeting in one pass.
     private static let bucket: TimeInterval = 0.1
 
+    /// Absolute RMS floor, about −46 dBFS: below this a bucket is room tone,
+    /// fan noise or a hot preamp, not somebody talking.
+    ///
+    /// Normalizing each track against its own p90 is what makes two different
+    /// gains comparable — and it's also why this floor has to exist. A track
+    /// that carries no speech at all still gets normalized against its own
+    /// noise, so its noise comes out at the same relative level as the other
+    /// track's speech and can win the comparison outright. Measured on a real
+    /// one-sided session (2026.08.17): the far end spoke on the system track
+    /// at −22 dB mean, the mic held nothing but room noise at −62 dB, and
+    /// every utterance was credited to "me". A floor in absolute terms is the
+    /// only thing that separates the two cases, because after normalization
+    /// they look identical.
+    private static let speechFloor: Float = 0.005
+
     private enum Side {
         case me, them
         var name: String { self == .me ? "me" : "them" }
@@ -184,7 +199,12 @@ enum SpeakerAttribution {
             let last = min(buckets.count - 1, Int(end / SpeakerAttribution.bucket))
             guard first <= last, first < buckets.count else { return 0 }
             var sum: Double = 0
-            for i in first...last { sum += Double(buckets[i]) }
+            // Buckets under the absolute floor contribute nothing: a track
+            // with only room noise under this utterance must lose to one with
+            // speech, however the two normalize.
+            for i in first...last where buckets[i] >= SpeakerAttribution.speechFloor {
+                sum += Double(buckets[i])
+            }
             return sum / Double(last - first + 1) / Double(reference)
         }
     }

@@ -53,6 +53,21 @@ struct Run: ParsableCommand {
         sigint.resume()
         signal(SIGINT, SIG_IGN)
 
+        // Logout, restart, `launchctl kickstart -k`, `quill install
+        // --uninstall` — all of them send SIGTERM, and the default action for
+        // it kills us outright. That matters more than it looks: an AAC track
+        // is unreadable until its packet table is written at close, so an
+        // unhandled SIGTERM mid-meeting doesn't lose the last few seconds, it
+        // loses the whole recording. Handling it turns a reboot into a clean
+        // stop with a finished file and a meta.json.
+        let sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        sigterm.setEventHandler {
+            FileHandle.standardError.write(Data("\nSIGTERM — finalizing\n".utf8))
+            MainActor.assumeIsolated { controller.shutdown() }
+        }
+        sigterm.resume()
+        signal(SIGTERM, SIG_IGN)
+
         // Start/stop from a hotkey tool: kill -USR1 $(pgrep -x quill)
         let sigusr1 = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         sigusr1.setEventHandler {

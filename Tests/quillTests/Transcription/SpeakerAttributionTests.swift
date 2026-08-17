@@ -131,6 +131,36 @@ struct SpeakerAttributionTests {
                 == ["me", "me", "them"])
     }
 
+    /// The failure this floor exists for, measured on a real session: the far
+    /// end spoke on the system track, the mic carried nothing but room noise,
+    /// and per-track normalization made that noise look exactly like speech —
+    /// every utterance came back credited to "me".
+    ///
+    /// The mechanism is worth stating, because it is not obvious: normalizing
+    /// against a track's own p90 means a *uniform* track (noise) always reads
+    /// at ~1.0, while a track carrying real speech reads below its own p90
+    /// wherever the speaker pauses. So noise beats speech whenever the
+    /// utterance window contains a breath.
+    @Test("A track holding only room noise loses to the one holding speech")
+    func noiseOnlyTrackLosesToSpeech() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-noise-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let noisy = dir.appendingPathComponent("mic.caf")
+        let speech = dir.appendingPathComponent("system.caf")
+        // An open mic in a quiet room: continuous, featureless, about −60 dBFS.
+        try Self.writeTrack(to: noisy, seconds: 10, bursts: [(0, 10)], gain: 0.001)
+        // The far end talking, with a pause where someone drew breath.
+        try Self.writeTrack(to: speech, seconds: 10, bursts: [(3, 4), (4.5, 5)], gain: 0.7)
+
+        #expect(
+            SpeakerAttribution.resolve(
+                segments: [Self.seg(3.0, 5.0, "A")],
+                mic: noisy, micOffset: 0, system: speech, systemOffset: 0) == ["them"])
+    }
+
     @Test("A missing track refuses to attribute rather than guessing")
     func missingTrackRefuses() throws {
         let f = try Fixture()
