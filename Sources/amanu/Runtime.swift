@@ -36,7 +36,7 @@ enum Runtime {
 
     static var bundleURL: URL? { appBundle?.bundleURL }
 
-    /// The executable to point a symlink or a launchd job at.
+    /// The executable to point the command-line symlink at.
     static var executableURL: URL {
         (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
             .resolvingSymlinksInPath()

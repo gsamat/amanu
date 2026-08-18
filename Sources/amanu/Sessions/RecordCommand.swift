@@ -4,9 +4,9 @@ import Foundation
 
 /// Start or stop a recording in the amanu that is already running.
 ///
-/// It never records anything itself. System audio is granted to the copy
-/// launchd started, and a second recorder launched from a terminal captures
-/// digital silence (see `.issues/rca-002`) — so this asks the running one and
+/// It never records anything itself. System audio is granted to the
+/// application, and a second recorder launched from a terminal captures
+/// digital silence (see `.issues/rca-002`) — so this asks the running app and
 /// says so plainly when nobody answers.
 struct Record: ParsableCommand {
     static let configuration = CommandConfiguration(

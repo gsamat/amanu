@@ -30,7 +30,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private let launchRow = AccessRow(
         title: "Start at login",
-        detail: "System audio is only ever granted to the copy launchd starts.",
+        detail: "So a meeting is never missed because nobody opened amanu.",
         action: "Install",
         grantedNote: "installed")
     private let micRow = AccessRow(

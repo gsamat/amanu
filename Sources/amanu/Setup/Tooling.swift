@@ -7,7 +7,7 @@ import Foundation
 /// same wrong answer ("not installed") about a tool that is sitting right
 /// there:
 ///
-/// 1. **The daemon's PATH is not yours.** launchd hands its jobs a minimal
+/// 1. **The app's PATH is not yours.** macOS hands a launched app a minimal
 ///    environment, so anything installed through homebrew's node, mise, volta,
 ///    fnm or bun is invisible to us and visible to you. Asking the login shell
 ///    is the only way to see what you see.
@@ -176,7 +176,7 @@ enum Tooling {
                !fromEnvironment.isEmpty {
                 return fromEnvironment
             }
-            // launchd doesn't set SHELL; the account record always has one.
+            // A launched app has no SHELL; the account record always has one.
             if let record = getpwuid(getuid()), let shell = record.pointee.pw_shell {
                 return String(cString: shell)
             }

@@ -3,12 +3,10 @@ import ServiceManagement
 
 /// Start at login, for the application bundle.
 ///
-/// The bare binary had to ship its own LaunchAgent plist, because system audio
-/// is only captured by the copy launchd owns (.issues/rca-002) and a plist was
-/// the only way to be that copy. A signed bundle is its own responsible
-/// process — the spike in `spike/tcc-bundle` measured it — so the plist is no
-/// longer buying anything, and `SMAppService.mainApp` is what macOS shows in
-/// Login Items, where someone would look for it.
+/// A signed bundle is its own responsible process for system audio — the
+/// spike in `spike/tcc-bundle` measured it — so amanu registers itself the way
+/// every other application does, and appears in Login Items where someone
+/// would look for it.
 enum LoginItem {
     enum State: Equatable {
         /// Registered, and macOS will start it at the next login.

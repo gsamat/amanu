@@ -48,7 +48,7 @@ struct Run: ParsableCommand {
 
         let root = Config.resolveRoot(cliOverride: out)
 
-        // launchd starts us in `/`, and every process we spawn inherits that.
+        // An app is started in `/`, and every process we spawn inherits that.
         // An agent CLI started at the root of the disk goes looking around it,
         // and macOS bills the privacy prompts it earns to us — we are the
         // responsible process for everything we launch. Sit in the recordings
