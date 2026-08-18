@@ -43,6 +43,16 @@ contains it silently invalidates the app's own seal. The failure does not
 appear here — it appears as a Gatekeeper rejection on somebody else's Mac,
 after the release is public. `make app` signs in the right order; keep it.
 
+## The release binary is not at `.build/release/amanu`
+
+The build is universal, and the two `--arch` flags that make it so move the
+product to `.build/apple/Products/Release/amanu`. A stale single-architecture
+binary can still be sitting at the old path from an earlier `swift build`, and
+nothing about copying it into the bundle looks wrong: it signs, it notarizes,
+it launches here. It is arm64 only, and it fails on exactly the machines the
+universal build exists for. `make app` checks both slices are present for this
+reason; keep the check if you touch the target.
+
 ## Nothing writes to shared key files
 
 `~/.config/assemblyai`, `~/.config/anthropic` and `~/.config/openai` are read,
