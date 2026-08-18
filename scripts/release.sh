@@ -27,6 +27,10 @@ ROOT=$PWD
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
+# Named explicitly: this checkout also has an `upstream` remote pointing at the
+# project amanu was forked from, and gh picks a remote on its own — which meant
+# the first release attempt tried to publish into somebody else's repository.
+REPO="gsamat/amanu"
 VERSION=$(sed -n 's/^VERSION *?= *//p' Makefile)
 BUILD=$(git rev-list --count HEAD)
 TAG="v$VERSION"
@@ -36,10 +40,6 @@ ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")"
 SPARKLE_KEY="$HOME/.appstoreconnect/amanu-sparkle-ed25519.key"
 SPARKLE_BIN=$(find .build/artifacts/sparkle -type d -name bin 2>/dev/null | head -1)
 SITE="$HOME/Documents/проекты/samatme3"
-# Named explicitly: this checkout also has an `upstream` remote pointing at the
-# project amanu was forked from, and gh picks a remote on its own — which meant
-# the first release attempt tried to publish into somebody else's repository.
-REPO="gsamat/amanu"
 NOTES="docs/release-notes-$TAG.md"
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
