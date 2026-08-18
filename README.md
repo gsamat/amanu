@@ -38,11 +38,10 @@ small status window. Closing the window doesn't stop it — that's the point of
 a recorder — and **Start at login** in Setup registers it the way every other
 app does, through Login Items in System Settings.
 
-The first launch also retires the old installation, if there is one: it stops
-and removes the LaunchAgent this program used to write, and points
-`~/.local/bin/amanu` at the executable inside the bundle so scripts and agents
-keep working. The binary it replaces is moved aside with the date, never
-deleted.
+The first launch points `~/.local/bin/amanu` at the executable inside the
+bundle, so scripts and agents keep working and reach the same signed program
+the app runs. A binary already sitting there is moved aside with the date,
+never deleted.
 
 `make` on its own builds and signs the app; `make run-app` launches it the way
 Finder would. There is no other way to install amanu, and no daemon.

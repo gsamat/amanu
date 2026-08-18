@@ -25,10 +25,9 @@ changing either.
   through `SMAppService`. `Login Items` in System Settings shows it.
 - `~/Library/LaunchAgents/me.samat.amanu.plist` is **gone** — the app retired
   it on first launch. The binary it used to start was moved to
-  `~/.local/bin/amanu.legacy-20260818`. Nothing writes a LaunchAgent any more:
-  the code that did was deleted, and `LegacyMigration` is the only place that
-  still knows the plist's name, so it can take one off a machine that has it.
-  Delete that too once the first native release has been out for a while.
+  `~/.local/bin/amanu.legacy-20260818`. Nothing writes or reads a LaunchAgent
+  any more — this was the only machine that ever had one, it has been migrated,
+  and the code that knew about it is gone.
 - `~/.local/bin/amanu` is a symlink into the bundle. Scripts and agents that
   call `amanu …` still work, and they now reach the same executable the app
   runs.
@@ -93,8 +92,10 @@ Nothing here is designed yet beyond the chapter in
   will compare those numbers forever.
 - A GitHub release with the DMG and its checksum. The existing v0.1.0 release
   notes describe copying a binary out of a disk image; the new ones describe
-  dragging an app, and should say what happens to the old installation (it is
-  retired automatically — see `LegacyMigration`).
+  dragging an app, and should say what to do about an old installation: quit
+  it, and delete `~/Library/LaunchAgents/me.samat.amanu.plist` and
+  `~/.local/bin/amanu`. amanu no longer does that for anyone — this machine was
+  the only one that needed it.
 
 ### 3. Sparkle, or a deliberate decision not to
 

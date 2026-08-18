@@ -39,20 +39,11 @@ struct Run: ParsableCommand {
             return
         }
 
-        // Retiring the LaunchAgent that starts the old bare binary. Runs
-        // before anything can record, and does nothing at all on a machine
-        // that never had one.
-        let migration = LegacyMigration.run()
-        if migration.stoppedAgent || migration.removedPlist || migration.linkedCLI {
+        // Keep the command line pointing at this bundle, so agents and
+        // scripts reach the same signed program the app runs.
+        if case .success(true) = AgentCLI.install() {
             FileHandle.standardError.write(Data(
-                ("migrated from the standalone binary:"
-                    + (migration.stoppedAgent ? " stopped the LaunchAgent," : "")
-                    + (migration.removedPlist ? " removed its plist," : "")
-                    + (migration.linkedCLI ? " pointed ~/.local/bin/amanu at the app," : "")
-                    + " done\n").utf8))
-        }
-        for note in migration.notes {
-            FileHandle.standardError.write(Data("migration: \(note)\n".utf8))
+                "pointed \(AgentCLI.path.path) at this app\n".utf8))
         }
 
         let root = Config.resolveRoot(cliOverride: out)

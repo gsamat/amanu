@@ -42,15 +42,4 @@ struct Install: ParsableCommand {
             ? "! registered — allow amanu in System Settings → General → Login Items"
             : "✓ amanu will start at login")
     }
-
-    /// The job the bare binary used to install. Nothing writes one any more;
-    /// `LegacyMigration` is the last code that reads this, to take an old one
-    /// off a machine that still has it.
-    static let label = "me.samat.amanu"
-
-    static var agentPlistURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/LaunchAgents", isDirectory: true)
-            .appendingPathComponent("\(label).plist")
-    }
 }
