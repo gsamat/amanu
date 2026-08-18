@@ -5,8 +5,12 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 
 ## Start here
 
-- `docs/HANDOFF.md` — where the project stands and what is left. Read it first;
-  it is kept current on purpose.
+- `docs/pitfalls.md` — the constraints that are not visible from the code that
+  depends on them, and the places believed correct on reasoning alone. Read it
+  before changing anything about signing, the bundle, or where keys live.
+- `.issues/` — what is known to be wrong, `status:` in the frontmatter. The
+  `rca-*` files are post-mortems and worth reading for the failure modes even
+  where they are closed.
 - `docs/releasing.md` — how to cut a release. **Read it in full before running
   `make release`.** Publishing is one command, and the failures are all in the
   parts that are not.
@@ -21,7 +25,7 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 ```sh
 make app                                 # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/    # replace the installed copy
-swift test                               # 138 tests
+swift test                               # 145 tests
 ```
 
 Quit the running app before replacing `/Applications/Amanu.app` — deleting a

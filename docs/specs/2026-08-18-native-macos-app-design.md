@@ -9,9 +9,10 @@
 > notification doorbell plus a symlinked CLI, and the socket the plan called
 > for is not being built.
 >
-> Everything from **Packaging and updates** onwards is still a plan: there is
-> no DMG of the application, no notarization pass, no Sparkle, no release.
-> `docs/HANDOFF.md` tracks what is left.
+> **Packaging and updates** has since been built too, and shipped as v0.2.0:
+> a notarized, stapled disk image, Sparkle behind a signed appcast, and
+> `scripts/release.sh` doing the whole thing fail-closed. `docs/releasing.md`
+> is the runbook.
 
 ## Goal
 

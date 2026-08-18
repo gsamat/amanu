@@ -156,7 +156,7 @@ otherwise.
 - **It updates itself**, through Sparkle and a signed appcast, and it will not
   interrupt a meeting to do it: a check that comes due while recording is
   skipped, and an install offered anyway is held until the recording stops.
-- **A test suite**, which upstream has none of. 138 tests, most of them
+- **A test suite**, which upstream has none of. 145 tests, most of them
   regression tests for the failures listed above — the absolute level floor in
   speaker attribution, the compressed-track verification, the recovery of an
   interrupted session, the mix keeping its timing across a sample-rate

@@ -189,4 +189,6 @@ release notes rendered as HTML, download, verify, install and relaunch. If it
 finds nothing, the build number did not go up. If it finds the update and then
 refuses it, the feed and the asset disagree — re-sign and redeploy the feed.
 
-Finally, tell `docs/HANDOFF.md` what changed. The next person starts there.
+Finally, if anything bit you on the way through, write it into
+`docs/pitfalls.md` — that file is the whole reason this one is as short as it
+is, and every entry in it was paid for by somebody doing this at night.

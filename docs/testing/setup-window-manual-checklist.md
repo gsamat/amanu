@@ -150,6 +150,13 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
 - **By hand:** confirm **Install it** is visible only for a CLI that is
   missing. With both installed, neither link shows, and the only way to see the
   other state is to not have one.
+- **By hand:** walk that link end to end — with a CLI missing, install it,
+  reopen Setup, and confirm the row changes from `not here` to `answers · …`.
+  Detection is cached for the life of the process and Setup drops the cache
+  when it opens; before it did, the person who followed the link and came back
+  was told `not here` until they restarted the app. Nothing automated covers
+  this: `Tooling` searches real paths like `~/.local/bin` and takes no
+  injection.
 - On **My own key**, switch between Anthropic and OpenAI. Confirm the key
   placeholder changes between `sk-ant-…` and `sk-…`, and that **Get a key**
   changes between `console.anthropic.com/settings/keys` and
