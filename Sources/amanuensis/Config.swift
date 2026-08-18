@@ -46,11 +46,16 @@ enum Config {
         transcription()?["enabled"] as? Bool ?? true
     }
 
-    /// Configured engine name: "parakeet" (local, default) or "assemblyai"
-    /// (cloud, diarizing). The coordinator warns and falls back to parakeet
-    /// for anything else.
+    /// Configured engine: `auto` (default), `parakeet` (local) or
+    /// `assemblyai` (cloud, diarizing).
+    ///
+    /// `auto` means "the best one available right now": assemblyai when there
+    /// is a key and the API answers, parakeet otherwise. That ordering is
+    /// deliberate — assemblyai is better on Russian and tells apart several
+    /// people sharing one channel, and parakeet needs neither network nor
+    /// account, so it is what should catch a session recorded on a train.
     static func transcriptionEngine() -> String {
-        transcription()?["engine"] as? String ?? "parakeet"
+        transcription()?["engine"] as? String ?? "auto"
     }
 
     /// Parakeet model version: "v3" (multilingual, default) or "v2"

@@ -93,7 +93,22 @@ actor TranscriptionCoordinator {
             let dir = queue.removeFirst()
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
-                try await transcribe(dir)
+                do {
+                    try await transcribe(dir)
+                } catch {
+                    // The network can go away between the reachability probe
+                    // and the upload. One retry on the local engine, so a
+                    // dropped connection costs minutes rather than the
+                    // transcript.
+                    guard Config.transcriptionEngine() == "auto",
+                          engineIsCloud(), Self.looksLikeNetworkTrouble(error)
+                    else { throw error }
+                    log(dir, "cloud transcription failed (\(error)) — retrying locally")
+                    await engine?.release()
+                    engine = ParakeetEngine()
+                    try await engine?.prepare()
+                    try await transcribe(dir)
+                }
                 notifyUser(title: "amanuensis — transcript ready", body: dir.lastPathComponent)
                 runHook(for: dir)
             } catch {
@@ -119,6 +134,24 @@ actor TranscriptionCoordinator {
     /// never be a transcript, so holding a gigabyte an hour of PCM against a
     /// future attempt is pure waste. Delete `transcription_failed` from
     /// meta.json to offer it to the queue again.
+    private func engineIsCloud() -> Bool {
+        engine?.input == .mixed
+    }
+
+    /// Network-shaped failures, the ones a local engine can rescue. A bad key
+    /// or a rejected file is not one of them — retrying locally would still be
+    /// right, but silently swapping engines for every failure hides real
+    /// problems.
+    private static func looksLikeNetworkTrouble(_ error: Error) -> Bool {
+        let urlErrorCodes: Set<URLError.Code> = [
+            .notConnectedToInternet, .networkConnectionLost, .timedOut,
+            .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+            .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed,
+        ]
+        if let urlError = error as? URLError { return urlErrorCodes.contains(urlError.code) }
+        return "\(error)".contains("offline") || "\(error)".contains("timed out")
+    }
+
     private func recordFailure(_ error: Error, for dir: URL) {
         let permanent = (error as? TranscriptionFailure)?.isPermanent ?? false
         let attempts = (Self.metaValue(dir, "transcription_attempts") as? Int ?? 0) + 1
@@ -321,15 +354,46 @@ actor TranscriptionCoordinator {
             engine = try AssemblyAIEngine()
         case "parakeet":
             engine = ParakeetEngine()
+        case "auto":
+            engine = await Self.bestAvailableEngine()
         default:
             FileHandle.standardError.write(Data(
-                "warning: unknown transcription engine \"\(configured)\" — using parakeet\n".utf8
+                "warning: unknown transcription engine \"\(configured)\" — choosing automatically\n".utf8
             ))
-            engine = ParakeetEngine()
+            engine = await Self.bestAvailableEngine()
         }
         try await engine.prepare()
         self.engine = engine
         return engine
+    }
+
+    /// Cloud when it's actually usable, local otherwise. Checked at the moment
+    /// there is work rather than at launch, because the answer changes: the
+    /// laptop that recorded a meeting on a train is transcribing it on a train.
+    private static func bestAvailableEngine() async -> TranscriptionEngine {
+        guard Config.assemblyAIKey() != nil else { return ParakeetEngine() }
+        guard await assemblyAIReachable() else {
+            FileHandle.standardError.write(Data(
+                "assemblyai unreachable — transcribing locally with parakeet\n".utf8
+            ))
+            return ParakeetEngine()
+        }
+        return (try? AssemblyAIEngine()) ?? ParakeetEngine()
+    }
+
+    /// A short, cheap "is the API there" probe. Any HTTP answer counts,
+    /// including an unauthorized one: the question is whether the network is
+    /// up, not whether the key is good.
+    private static func assemblyAIReachable() async -> Bool {
+        var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript")!)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        do {
+            _ = try await URLSession.shared.data(for: request)
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Fires the configured on_stop shell command with the session directory
