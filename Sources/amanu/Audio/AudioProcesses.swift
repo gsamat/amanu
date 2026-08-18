@@ -163,8 +163,11 @@ enum AudioProcesses {
     private static func executableName(pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: 256)
         guard proc_name(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let name = String(cString: buffer)
-        return name.isEmpty ? nil : name
+        // `proc_name` null-terminates, so stop at the terminator rather than
+        // decoding all 256 bytes — the rest of the buffer is zeroes, and
+        // handing them to String is what the deprecated `init(cString:)` did.
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return bytes.isEmpty ? nil : String(decoding: bytes, as: UTF8.self)
     }
 }
 
