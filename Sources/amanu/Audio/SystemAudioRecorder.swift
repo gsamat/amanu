@@ -53,6 +53,7 @@ final class SystemAudioRecorder {
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
     private let queue = DispatchQueue(label: "me.samat.amanu.system-tap")
+    private let liveAudio = LiveAudioBufferRelay()
     private(set) var isRecording = false
 
     // Thread-safe shared state: accessed from both the main thread and the
@@ -128,6 +129,15 @@ final class SystemAudioRecorder {
             AudioDeviceStop(aggregateID, procID)
         }
         cleanup()
+        liveAudio.install(nil)
+    }
+
+    func installLiveAudioSink(_ sink: LiveAudioBufferRelay.Sink?) {
+        liveAudio.install(sink)
+    }
+
+    func setLiveAudioPaused(_ paused: Bool) {
+        liveAudio.isPaused = paused
     }
 
     /// Re-point the tap at the app's processes as they come and go — a
@@ -304,6 +314,7 @@ final class SystemAudioRecorder {
         }
         do {
             try file.write(from: outgoing)
+            liveAudio.forward(outgoing)
         } catch {
             FileHandle.standardError.write(Data("system track write failed: \(error)\n".utf8))
         }

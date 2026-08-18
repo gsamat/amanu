@@ -27,6 +27,8 @@ final class RecordingSession {
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
 
+    typealias LiveAudioSink = LiveAudioBufferRelay.Sink
+
     /// Written at start, removed on clean stop. Its presence in a folder with
     /// no meta.json is what tells the next launch "this session was
     /// interrupted" — without it, a crash leaves perfectly good CAF files that
@@ -168,6 +170,14 @@ final class RecordingSession {
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(Self.manifestFile))
     }
 
+    /// Attach/detach optional live-ASR consumers without touching the durable
+    /// recording. Installing midway through a meeting deliberately receives
+    /// only new buffers, so enabling live text never performs catch-up work.
+    func installLiveAudioSinks(mic micSink: LiveAudioSink?, system systemSink: LiveAudioSink?) {
+        mic.installLiveAudioSink(micSink)
+        system.installLiveAudioSink(systemSink)
+    }
+
     // MARK: - pause
 
     private(set) var isPaused = false
@@ -182,6 +192,8 @@ final class RecordingSession {
         guard !isPaused else { return }
         isPaused = true
         pausedSince = Date()
+        mic.setLiveAudioPaused(true)
+        system.setLiveAudioPaused(true)
         mic.isMuted = true
         system.isMuted = true
     }
@@ -193,6 +205,8 @@ final class RecordingSession {
         pausedSince = nil
         mic.isMuted = false
         system.isMuted = false
+        mic.setLiveAudioPaused(false)
+        system.setLiveAudioPaused(false)
     }
 
     // MARK: - levels

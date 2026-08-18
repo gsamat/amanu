@@ -47,6 +47,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let engineCards = ChoiceGroup()
     private let language = NSTextField()
     private let keepAudio = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let liveTranscription = NSSwitch()
+    private let liveStatus = NSTextField(labelWithString: "")
+    private let liveModelStore = LiveTranscriptionModelStore()
+    private var liveDownloadTask: Task<Void, Never>?
+    private var liveDownloading = false
     private let assemblyKey = NSSecureTextField()
     private let assemblyStatus = NSTextField(labelWithString: "")
     private let parakeetStatus = NSTextField(labelWithString: "")
@@ -94,7 +99,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         form.addArrangedSubview(header("Transcription"))
         form.addArrangedSubview(transcriptionCards())
         form.addArrangedSubview(languageRow())
-        form.addArrangedSubview(box([keepAudioRow()]))
+        form.addArrangedSubview(box([keepAudioRow(), liveTranscriptionRow()]))
 
         form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
         form.addArrangedSubview(summariesHeader())
@@ -272,6 +277,35 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 + "an hour lighter, and nothing left to transcribe again if the result is wrong.")
     }
 
+    private func liveTranscriptionRow() -> NSView {
+        liveTranscription.target = self
+        liveTranscription.action = #selector(liveTranscriptionToggled)
+        liveStatus.font = .systemFont(ofSize: 11)
+        liveStatus.textColor = .secondaryLabelColor
+
+        let title = NSTextField(labelWithString: "I want a live transcript during meetings")
+        let detail = NSTextField(labelWithString:
+            "Downloads a roughly 600 MB Core ML package of NVIDIA Nemotron from "
+                + "FluidInference on Hugging Face. Audio never leaves this Mac; the final "
+                + "transcript still uses Parakeet.")
+        detail.font = .systemFont(ofSize: 11)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byWordWrapping
+        detail.maximumNumberOfLines = 3
+        detail.preferredMaxLayoutWidth = 500
+
+        let text = NSStackView(views: [title, detail, liveStatus])
+        text.orientation = .vertical
+        text.alignment = .leading
+        text.spacing = 2
+        let stack = NSStackView(views: [liveTranscription, text])
+        stack.orientation = .horizontal
+        stack.alignment = .top
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        return stack
+    }
+
     private func summariesHeader() -> NSView {
         summariesOn.target = self
         summariesOn.action = #selector(summariesToggled)
@@ -407,6 +441,53 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     @objc private func keepAudioChanged() {
         Config.update(path: ["keep_audio"], value: keepAudio.state == .on ? true : nil)
+    }
+
+    @objc private func liveTranscriptionToggled() {
+        let enabled = liveTranscription.state == .on
+        Config.update(path: ["live_transcription", "enabled"], value: enabled ? true : nil)
+        if enabled {
+            commitLanguage()
+            downloadLiveModel()
+        } else {
+            liveDownloadTask?.cancel()
+            liveDownloadTask = nil
+            liveDownloading = false
+            refresh()
+        }
+    }
+
+    private func downloadLiveModel() {
+        guard !liveDownloading else { return }
+        let prompt = LiveTranscriptionLanguage.prompt(for:
+            language.stringValue.isEmpty ? Config.transcriptionLanguage() : language.stringValue)
+        if liveModelStore.isReady(language: prompt) {
+            liveStatus.stringValue = "downloaded"
+            refresh()
+            return
+        }
+        liveDownloading = true
+        liveStatus.stringValue = "preparing download…"
+        refresh()
+        liveDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await liveModelStore.download(language: prompt) { [weak self] fraction in
+                    Task { @MainActor in
+                        self?.liveStatus.stringValue = "downloading — \(Int(fraction * 100))% of about 600 MB"
+                    }
+                }
+                liveStatus.stringValue = liveModelStore.isReady(language: prompt)
+                    ? "downloaded" : "download incomplete — turn off and on to retry"
+            } catch is CancellationError {
+                liveStatus.stringValue = "download paused"
+            } catch {
+                liveStatus.stringValue = "download failed: \(error.localizedDescription)"
+            }
+            liveDownloading = false
+            liveDownloadTask = nil
+            refresh()
+        }
     }
 
     @objc private func autoRecordToggled() {
@@ -696,6 +777,16 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
         keepAudio.state = Config.keepAudio() ? .on : .off
 
+        liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
+        let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        if liveModelStore.isReady(language: livePrompt) {
+            liveStatus.stringValue = "downloaded"
+        } else if !liveDownloading, Config.liveTranscriptionEnabled(), liveStatus.stringValue.isEmpty {
+            liveStatus.stringValue = "about 600 MB — downloads when switched on"
+        } else if !Config.liveTranscriptionEnabled() {
+            liveStatus.stringValue = "optional"
+        }
+
         let version = ParakeetEngine.configuredVersion()
         let downloaded = AsrModels.modelsExist(
             at: AsrModels.defaultCacheDirectory(for: version), version: version)
@@ -736,6 +827,12 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsSystemAudioTest(systemAudio) {
             return { [weak self] in Task { await self?.testSystemAudio() } }
         }
+        if Config.liveTranscriptionEnabled() {
+            let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+            if !liveModelStore.isReady(language: prompt), !liveDownloading {
+                return { [weak self] in self?.downloadLiveModel() }
+            }
+        }
         return nil
     }
 
@@ -744,6 +841,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsLaunchAgentHandoff { outstanding.append("start at login") }
         if SetupPermissions.microphone() != .granted { outstanding.append("microphone") }
         if systemAudio != .heard { outstanding.append("system audio") }
+        if Config.liveTranscriptionEnabled() {
+            let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+            if !liveModelStore.isReady(language: prompt) { outstanding.append("live model") }
+        }
 
         footerNote.stringValue = outstanding.isEmpty
             ? "Everything amanu needs is granted."
@@ -757,8 +858,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             }
             if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }
             if SetupPermissions.needsSystemAudioTest(systemAudio) { return "Allow and test" }
+            if liveDownloading { return "Downloading live model…" }
+            if outstanding.contains("live model") { return "Download live model" }
             return "Done"
         }()
+        primary.isEnabled = !liveDownloading
     }
 
     private func report(_ row: AccessRow, _ message: String) {

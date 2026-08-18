@@ -76,6 +76,18 @@ enum Config {
         return code
     }
 
+    /// Whether a meeting should feed the optional local streaming model while
+    /// it is being recorded. This is deliberately opt-in: recording and the
+    /// canonical post-meeting transcript do not depend on the extra model.
+    static func liveTranscriptionEnabled() -> Bool {
+        liveTranscriptionEnabled(in: load())
+    }
+
+    static func liveTranscriptionEnabled(in json: [String: Any]?) -> Bool {
+        let settings = json?["live_transcription"] as? [String: Any]
+        return settings?["enabled"] as? Bool ?? false
+    }
+
     static let assemblyAIDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/assemblyai/token")
 
