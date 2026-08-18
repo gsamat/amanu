@@ -2,7 +2,7 @@ import AppKit
 import CoreAudio
 import Foundation
 
-/// The system's per-process audio objects (macOS 14.4+), which are how amanuensis
+/// The system's per-process audio objects (macOS 14.4+), which are how amanu
 /// answers both of its questions about other apps: who is holding the
 /// microphone, and whose output should end up on the far-end track.
 enum AudioProcesses {

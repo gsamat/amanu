@@ -4,7 +4,7 @@ import Foundation
 /// UserNotifications entitlement requirements (which need an app bundle).
 func notifyUser(title: String, body: String) {
     // Tests exercise code paths that notify; nobody wants a banner per test.
-    guard ProcessInfo.processInfo.environment["AMANUENSIS_NO_NOTIFY"] == nil else { return }
+    guard ProcessInfo.processInfo.environment["AMANU_NO_NOTIFY"] == nil else { return }
     func quoted(_ s: String) -> String {
         "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"") + "\""

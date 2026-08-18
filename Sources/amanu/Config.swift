@@ -1,6 +1,6 @@
 import Foundation
 
-/// Optional user config at ~/.config/amanuensis/config.json:
+/// Optional user config at ~/.config/amanu/config.json:
 ///
 ///     {
 ///       "recordings_dir": "~/Recordings",
@@ -23,7 +23,7 @@ import Foundation
 /// after recording when transcription is disabled.
 enum Config {
     static let path = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/amanuensis/config.json")
+        .appendingPathComponent(".config/amanu/config.json")
 
     static let defaultRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Recordings", isDirectory: true)
@@ -135,7 +135,7 @@ enum Config {
 
     // MARK: - auto-record
 
-    /// When and how amanuensis starts recording by itself.
+    /// When and how amanu starts recording by itself.
     ///
     /// The defaults encode one asymmetry: a missed meeting costs a click, an
     /// unwanted recording costs privacy and disk. So starting takes sustained
@@ -210,7 +210,7 @@ enum Config {
         load()?["calendar"] as? Bool ?? true
     }
 
-    /// Show amanuensis in the Dock (and in ⌘-Tab) rather than running as a
+    /// Show amanu in the Dock (and in ⌘-Tab) rather than running as a
     /// menu-bar-only accessory. On by default: the menu bar hides its status
     /// item when it runs out of room, and a recorder whose only indicator can
     /// silently disappear is a recorder you can't trust.

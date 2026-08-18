@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import amanuensis
+@testable import amanu
 
 /// Folder names are the index of the whole archive: three weeks later the
 /// question is never "what happened at 20:39", it's "where's that call with
@@ -10,7 +10,7 @@ import Testing
 struct SessionNamingTests {
     private func makeRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("amanuensis-naming-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("amanu-naming-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }

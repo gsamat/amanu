@@ -32,7 +32,7 @@ actor ParakeetEngine: TranscriptionEngine {
 
     /// The configured model version, warning and falling back rather than
     /// silently transcribing with one the user didn't ask for. Shared with
-    /// `amanuensis doctor` so the cache check can't drift from what we download.
+    /// `amanu doctor` so the cache check can't drift from what we download.
     static func configuredVersion() -> AsrModelVersion {
         switch Config.transcriptionModel() {
         case "v3": return .v3

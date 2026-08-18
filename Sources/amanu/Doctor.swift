@@ -26,7 +26,7 @@ enum DoctorReport {
         ]
     }
 
-    /// Says out loud what amanuensis will do on its own, because the surprising
+    /// Says out loud what amanu will do on its own, because the surprising
     /// failure mode of an automatic recorder is not that it fails — it's that
     /// it records something you didn't expect it to.
     static func checkAutoRecord() -> Check {
@@ -105,7 +105,7 @@ enum DoctorReport {
             return Check(
                 name: "microphone",
                 status: .fail("denied"),
-                remediation: "System Settings → Privacy & Security → Microphone → enable for amanuensis (or your terminal)"
+                remediation: "System Settings → Privacy & Security → Microphone → enable for amanu (or your terminal)"
             )
         @unknown default:
             return Check(name: "microphone", status: .fail("unknown state"), remediation: nil)
@@ -115,9 +115,9 @@ enum DoctorReport {
     /// There is no public API to query the system-audio-capture TCC state
     /// without side effects. But the *structural* precondition is checkable,
     /// and it's the one that actually bites: TCC attributes the tap request to
-    /// the responsible process, so a terminal-launched amanuensis has no identity
+    /// the responsible process, so a terminal-launched amanu has no identity
     /// to grant, raises no prompt, and records a full-length silent file
-    /// (rca-002). Under launchd amanuensis is its own responsible process.
+    /// (rca-002). Under launchd amanu is its own responsible process.
     static func checkSystemAudio() -> Check {
         // Reparented to launchd — either we were started by it, or our parent
         // already exited. For the daemon this is the case that matters.
@@ -131,14 +131,14 @@ enum DoctorReport {
         guard FileManager.default.fileExists(atPath: Install.agentPlistURL.path) else {
             return Check(
                 name: "system audio",
-                status: .warn("no LaunchAgent — a terminal-launched amanuensis records SILENT system audio"),
-                remediation: "amanuensis install --launch-at-login, then record via the agent (see .issues/rca-002)"
+                status: .warn("no LaunchAgent — a terminal-launched amanu records SILENT system audio"),
+                remediation: "amanu install --launch-at-login, then record via the agent (see .issues/rca-002)"
             )
         }
         return Check(
             name: "system audio",
             status: .warn("LaunchAgent installed; this process isn't under it"),
-            remediation: "record via the agent — system audio captured from a terminal-launched amanuensis is silent"
+            remediation: "record via the agent — system audio captured from a terminal-launched amanu is silent"
         )
     }
 

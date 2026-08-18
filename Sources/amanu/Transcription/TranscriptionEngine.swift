@@ -35,14 +35,14 @@ enum TranscriptionInput: Sendable {
 /// isn't audio at all. The distinction matters because the queue is persistent
 /// — a session with no transcript is picked up again at every launch, so a
 /// permanent failure retried forever means uploading the same recording to a
-/// paid API on every restart, which is what amanuensis did until 2026.08.17.
+/// paid API on every restart, which is what amanu did until 2026.08.17.
 protocol TranscriptionFailure: Error {
     var isPermanent: Bool { get }
 }
 
-/// A speech-to-text engine amanuensis can run. Engines are prepared lazily (model
+/// A speech-to-text engine amanu can run. Engines are prepared lazily (model
 /// download + load) when the transcription queue has work and released when it
-/// drains, so amanuensis never idles holding gigabytes of model weights.
+/// drains, so amanu never idles holding gigabytes of model weights.
 protocol TranscriptionEngine: Sendable {
     /// Short engine identifier recorded as transcript.json provenance.
     var name: String { get }

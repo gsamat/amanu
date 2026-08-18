@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import amanuensis
+@testable import amanu
 
 /// Crash recovery: a session interrupted by a crash, a kill, or a flat battery
 /// must come back through the normal transcription queue on the next launch.
@@ -20,7 +20,7 @@ struct RecordingRecoveryTests {
     ) throws -> (root: URL, session: URL) {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
-            .appendingPathComponent("amanuensis-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("amanu-\(UUID().uuidString)", isDirectory: true)
         let session = root.appendingPathComponent("2026.08.17-1200", isDirectory: true)
         try fm.createDirectory(at: session, withIntermediateDirectories: true)
 
@@ -54,7 +54,7 @@ struct RecordingRecoveryTests {
     @Test("An interrupted session is adopted and queued like a clean one")
     func interruptedSessionIsRecovered() throws {
         // A PID above the system's maximum: nothing can be running there, which
-        // is exactly the state a crashed amanuensis leaves behind.
+        // is exactly the state a crashed amanu leaves behind.
         let (root, session) = try makeInterruptedSession(pid: 999_999, title: "Sync")
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -82,7 +82,7 @@ struct RecordingRecoveryTests {
 
     @Test("A session owned by a live process is left strictly alone")
     func liveSessionIsNotTouched() throws {
-        // Our own PID stands in for a second amanuensis mid-recording.
+        // Our own PID stands in for a second amanu mid-recording.
         let own = ProcessInfo.processInfo.processIdentifier
         let (root, session) = try makeInterruptedSession(pid: own)
         defer { try? FileManager.default.removeItem(at: root) }

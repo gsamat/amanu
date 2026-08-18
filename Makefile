@@ -1,10 +1,10 @@
-# amanuensis — build, sign, install.
+# amanu — build, sign, install.
 #
 # Signing is not cosmetic here. macOS attributes the microphone and Screen &
 # System Audio Recording grants to the binary's code signature; SwiftPM only
 # ad-hoc signs, which means the identity *is* the hash, so every rebuild looks
 # like a brand-new program and macOS asks for permission again (leaving a trail
-# of dead amanuensis entries in System Settings). Signing with a real identity gives
+# of dead amanu entries in System Settings). Signing with a real identity gives
 # the binary a stable designated requirement, and the grants survive rebuilds.
 #
 #   make            build + sign
@@ -17,8 +17,8 @@
 
 PREFIX  ?= $(HOME)/.local
 BINDIR   = $(PREFIX)/bin
-BUILT    = .build/release/amanuensis
-INSTALLED = $(BINDIR)/amanuensis
+BUILT    = .build/release/amanu
+INSTALLED = $(BINDIR)/amanu
 
 # Prefer Developer ID (distributable, long-lived) over Apple Development
 # (fine for a machine-local tool). Falls back to ad-hoc so a clean checkout on
@@ -42,7 +42,7 @@ build:
 
 # --identifier pins the signature to the same bundle ID the embedded
 # Info.plist and the LaunchAgent label use, so System Settings shows one
-# coherent "amanuensis" rather than a path.
+# coherent "amanu" rather than a path.
 #
 # --timestamp keeps the signature valid after the certificate expires (Apple
 # Development certs last a year). It needs the network, so fall back to an
@@ -54,10 +54,10 @@ build:
 sign: build
 	@echo "signing as: $(SIGN_ID)"
 	@codesign --force --sign "$(SIGN_ID)" \
-		--identifier me.samat.amanuensis \
+		--identifier me.samat.amanu \
 		--timestamp $(BUILT) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
-		--identifier me.samat.amanuensis \
+		--identifier me.samat.amanu \
 		--timestamp=none $(BUILT)
 	@codesign --verify --strict --verbose=2 $(BUILT)
 
@@ -69,7 +69,7 @@ install: sign
 	@cp $(BUILT) $(INSTALLED).new
 	@mv -f $(INSTALLED).new $(INSTALLED)
 	@echo "installed → $(INSTALLED)"
-	@command -v amanuensis >/dev/null 2>&1 \
+	@command -v amanu >/dev/null 2>&1 \
 		|| echo "note: $(BINDIR) is not on your PATH"
 
 uninstall:

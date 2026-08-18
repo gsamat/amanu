@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Puts amanuensis's me/them back on top of a diarizing engine's anonymous labels.
+/// Puts amanu's me/them back on top of a diarizing engine's anonymous labels.
 ///
 /// The engine only ever sees the mix, so all it can say is "A" and "B". But we
 /// still have the two source tracks, and they answer the question directly:

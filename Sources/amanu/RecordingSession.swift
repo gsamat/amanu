@@ -253,7 +253,7 @@ final class RecordingSession {
                 continue
             }
 
-            // A live owner means a second amanuensis is recording into this folder
+            // A live owner means a second amanu is recording into this folder
             // right now. Leave it strictly alone. (A recycled PID could fool
             // this; the cost is deferring recovery to the next launch, which
             // is the safe direction to be wrong in.)
@@ -309,7 +309,7 @@ final class RecordingSession {
                 "recovered \(recovered.count) interrupted recording(s)\n".utf8
             ))
             notifyUser(
-                title: "amanuensis — interrupted recording recovered",
+                title: "amanu — interrupted recording recovered",
                 body: recovered.map { $0.lastPathComponent }.joined(separator: ", ")
             )
         }
@@ -372,7 +372,7 @@ final class RecordingSession {
                 trackLastGrew[name] = now
                 if trackStalled.remove(name) != nil {
                     notifyUser(
-                        title: "amanuensis: \(name) track recovered",
+                        title: "amanu: \(name) track recovered",
                         body: "\(name) audio is being written again."
                     )
                 }
@@ -381,7 +381,7 @@ final class RecordingSession {
                 trackStalled.insert(name)
                 trackEverStalled.insert(name)
                 notifyUser(
-                    title: "amanuensis: \(name) track stalled",
+                    title: "amanu: \(name) track stalled",
                     body: "No \(name) audio written for \(Int(now.timeIntervalSince(last)))s"
                         + " — the recording may be incomplete."
                 )
@@ -427,7 +427,7 @@ final class RecordingSession {
         guard youSpokeRecently, farEndSilentFor > 300 else { return }
         farEndWarningShown = true
         notifyUser(
-            title: "amanuensis: nothing from the far end",
+            title: "amanu: nothing from the far end",
             body: "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent"
                 + " for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong."
         )

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import amanuensis
+@testable import amanu
 
 /// Which processes count as "a call is happening", and which of them the
 /// system-audio tap should follow. Both decisions are whitelist-shaped, and

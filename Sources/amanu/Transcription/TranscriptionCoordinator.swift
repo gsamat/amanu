@@ -109,7 +109,7 @@ actor TranscriptionCoordinator {
                     try await engine?.prepare()
                     try await transcribe(dir)
                 }
-                notifyUser(title: "amanuensis — transcript ready", body: dir.lastPathComponent)
+                notifyUser(title: "amanu — transcript ready", body: dir.lastPathComponent)
                 runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
@@ -164,14 +164,14 @@ actor TranscriptionCoordinator {
                 ? "giving up: \(error) — retrying cannot change this"
                 : "giving up after \(attempts) attempts")
             notifyUser(
-                title: "amanuensis — transcription gave up",
+                title: "amanu — transcription gave up",
                 body: "\(dir.lastPathComponent) — audio kept, see transcribe.log"
             )
             TrackCompressor.compress(sessionDir: dir)
         } else {
             Self.updateMeta(dir, with: fields)
             notifyUser(
-                title: "amanuensis — transcription failed",
+                title: "amanu — transcription failed",
                 body: "\(dir.lastPathComponent) — see transcribe.log"
             )
         }
