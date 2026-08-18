@@ -239,17 +239,21 @@ enum Config {
 
     // MARK: - summary
 
-    /// Post-transcript summarization. `backend: auto` tries, in order: the
-    /// Anthropic API if a key is around, then the local `claude` CLI (which
-    /// bills to your subscription rather than per token), then ollama.
+    /// Post-transcript summarization. `backend: auto` walks the chain in
+    /// LLMBackend: the local `claude` CLI, the Anthropic API, the `codex` CLI,
+    /// the OpenAI API, then ollama — subscriptions before metered keys.
     struct SummarySettings {
         var enabled = true
         var backend = "auto"
+        /// Summarizing is where a cheap model quietly costs you something:
+        /// a missed decision in a meeting you'll never listen to again. The
+        /// difference between tiers is a few cents per meeting, so the default
+        /// is the strong one.
         var openAIModel = "gpt-5"
         /// Language for the summary itself; the transcript's own language is
         /// whatever was spoken. nil means "same language as the meeting".
         var language: String?
-        var model = "claude-sonnet-5"
+        var model = "claude-opus-5"
         var ollamaModel = "qwen3:8b"
         var apiKeyPath: URL?
     }

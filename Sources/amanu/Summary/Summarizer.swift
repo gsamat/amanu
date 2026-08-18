@@ -2,11 +2,8 @@ import Foundation
 
 /// Turns a finished transcript into `summary.md`.
 ///
-/// Four backends behind one interface, tried in order when `backend` is
-/// `auto`: whichever cloud key you have put on the machine — Anthropic first,
-/// then OpenAI — then the local `claude` CLI (which bills to the subscription
-/// already signed in here rather than per token), then ollama for the
-/// fully-offline case.
+/// The backend chain lives in LLMBackend: subscription CLIs first, then API
+/// keys, then ollama. Summarizing is just one caller of it.
 ///
 /// Nothing here is allowed to fail loudly. A missing summary is an
 /// inconvenience; a transcript lost because summarizing threw is a lost
@@ -36,7 +33,7 @@ enum Summarizer {
             return nil
         }
 
-        let backends = available(settings)
+        let backends = LLMBackend.available(preference: settings.backend)
         guard !backends.isEmpty else {
             log("summary skipped — no backend available")
             return nil
@@ -53,16 +50,20 @@ enum Summarizer {
                     body: body, header: header, settings: settings, backend: backend
                 )
                 let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !text.isEmpty else { throw SummaryError.emptyResponse(backend.name) }
+                guard !text.isEmpty else { throw LLMError.emptyResponse(backend.name) }
                 try Data((text + "\n").utf8).write(
                     to: dir.appendingPathComponent("summary.md"), options: .atomic
                 )
                 log("summary written by \(backend.name)")
                 return backend.name
             } catch {
-                // Try the next backend: an expired key or a stopped ollama
-                // shouldn't cost the summary when another route works.
-                log("summary via \(backend.name) failed: \(error)")
+                // Falling through is the expected path when a subscription is
+                // spent, so say which kind of failure this was — otherwise a
+                // healthy hand-off reads like something broke.
+                let spent = (error as? LLMError)?.isUsageLimit ?? false
+                log(spent
+                    ? "\(backend.name) is out of allowance — trying the next backend"
+                    : "summary via \(backend.name) failed: \(error)")
             }
         }
         return nil
@@ -120,7 +121,7 @@ enum Summarizer {
         body: String,
         header: String,
         settings: Config.SummarySettings,
-        backend: Backend
+        backend: LLMBackend
     ) async throws -> String {
         let system = systemPrompt(language: settings.language)
         if body.count <= maxCharsPerCall {
@@ -171,215 +172,4 @@ enum Summarizer {
         return chunks
     }
 
-    // MARK: - backends
-
-    private struct Backend {
-        let name: String
-        let call: (String, String) async throws -> String
-    }
-
-    private static func available(_ settings: Config.SummarySettings) -> [Backend] {
-        let anthropicKey = Config.anthropicKey()
-        let openAIKey = Config.openAIKey()
-        let cli = claudePath()
-
-        switch settings.backend {
-        case "anthropic-api":
-            guard let anthropicKey else { return [] }
-            return [anthropic(key: anthropicKey, model: settings.model)]
-        case "openai":
-            guard let openAIKey else { return [] }
-            return [openAI(key: openAIKey, model: settings.openAIModel)]
-        case "claude-cli":
-            guard let cli else { return [] }
-            return [claudeCLI(path: cli)]
-        case "ollama":
-            return [ollama(model: settings.ollamaModel)]
-        default:
-            // Whichever key is on the machine, then the subscription CLI, then
-            // the offline model. Every step is a fallback for the one before,
-            // so a summary survives an expired key or a plane.
-            var backends: [Backend] = []
-            if let anthropicKey {
-                backends.append(anthropic(key: anthropicKey, model: settings.model))
-            }
-            if let openAIKey { backends.append(openAI(key: openAIKey, model: settings.openAIModel)) }
-            if let cli { backends.append(claudeCLI(path: cli)) }
-            backends.append(ollama(model: settings.ollamaModel))
-            return backends
-        }
-    }
-
-    private static func openAI(key: String, model: String) -> Backend {
-        Backend(name: "openai") { system, prompt in
-            var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 600
-            request.setValue("application/json", forHTTPHeaderField: "content-type")
-            request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": model,
-                "messages": [
-                    ["role": "system", "content": system],
-                    ["role": "user", "content": prompt],
-                ],
-            ])
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                // The API's own message names the problem — a model that
-                // doesn't exist on this account, a spent quota — and it is
-                // worth reading rather than paraphrasing.
-                throw SummaryError.http(
-                    http.statusCode, String(decoding: data.prefix(400), as: UTF8.self))
-            }
-            guard
-                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let choices = json["choices"] as? [[String: Any]],
-                let message = choices.first?["message"] as? [String: Any],
-                let text = message["content"] as? String
-            else { throw SummaryError.malformedResponse("openai") }
-            return text
-        }
-    }
-
-    private static func anthropic(key: String, model: String) -> Backend {
-        Backend(name: "anthropic-api") { system, prompt in
-            var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 600
-            request.setValue("application/json", forHTTPHeaderField: "content-type")
-            request.setValue(key, forHTTPHeaderField: "x-api-key")
-            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": model,
-                "max_tokens": 4000,
-                "system": system,
-                "messages": [["role": "user", "content": prompt]],
-            ])
-
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
-                throw SummaryError.http(http.statusCode, String(decoding: data.prefix(400), as: UTF8.self))
-            }
-            guard
-                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let content = json["content"] as? [[String: Any]]
-            else { throw SummaryError.malformedResponse("anthropic-api") }
-            return content
-                .filter { $0["type"] as? String == "text" }
-                .compactMap { $0["text"] as? String }
-                .joined()
-        }
-    }
-
-    /// The CLI is handed an empty MCP config on purpose: summarizing needs no
-    /// tools, and without this it starts every MCP server the user has
-    /// configured — minutes of startup for a one-shot prompt.
-    private static func claudeCLI(path: String) -> Backend {
-        Backend(name: "claude-cli") { system, prompt in
-            try await runProcess(
-                executable: path,
-                arguments: [
-                    "-p", system,
-                    "--output-format", "text",
-                    "--mcp-config", #"{"mcpServers":{}}"#,
-                    "--strict-mcp-config",
-                ],
-                input: prompt,
-                timeout: 1800
-            )
-        }
-    }
-
-    private static func ollama(model: String) -> Backend {
-        Backend(name: "ollama") { system, prompt in
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/generate")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 1800
-            request.setValue("application/json", forHTTPHeaderField: "content-type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "model": model,
-                "prompt": "\(system)\n\n\(prompt)",
-                "stream": false,
-                "options": ["temperature": 0.2, "num_ctx": 32768],
-            ])
-
-            let (data, _) = try await URLSession.shared.data(for: request)
-            guard
-                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                var text = json["response"] as? String
-            else { throw SummaryError.malformedResponse("ollama") }
-            // Local reasoning models emit a thinking block before the answer.
-            if let end = text.range(of: "</think>") {
-                text = String(text[end.upperBound...])
-            }
-            return text
-        }
-    }
-
-    private static func claudePath() -> String? {
-        let candidates = [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/claude").path,
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
-        ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-
-    /// Run a command with stdin, a deadline, and no shell in between.
-    private static func runProcess(
-        executable: String,
-        arguments: [String],
-        input: String,
-        timeout: TimeInterval
-    ) async throws -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-
-        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-        task.standardInput = stdin
-        task.standardOutput = stdout
-        task.standardError = stderr
-
-        try task.run()
-        // Write and close before reading: the child blocks on EOF, we'd block
-        // on its output, and neither would move.
-        try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
-        try? stdin.fileHandleForWriting.close()
-
-        let killer = DispatchWorkItem { if task.isRunning { task.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        defer { killer.cancel() }
-
-        let out = stdout.fileHandleForReading.readDataToEndOfFile()
-        let err = stderr.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-
-        guard task.terminationStatus == 0 else {
-            throw SummaryError.exit(
-                Int(task.terminationStatus),
-                String(decoding: err.prefix(400), as: UTF8.self)
-            )
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-}
-
-enum SummaryError: Error, CustomStringConvertible {
-    case emptyResponse(String)
-    case malformedResponse(String)
-    case http(Int, String)
-    case exit(Int, String)
-
-    var description: String {
-        switch self {
-        case .emptyResponse(let backend): return "\(backend) returned nothing"
-        case .malformedResponse(let backend): return "\(backend) returned an unexpected shape"
-        case .http(let code, let body): return "HTTP \(code): \(body)"
-        case .exit(let code, let stderr): return "exited \(code): \(stderr)"
-        }
-    }
 }

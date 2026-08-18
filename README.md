@@ -200,16 +200,26 @@ recording itself in a loop.
 ## Summaries
 
 After the transcript is written, amanu writes `summary.md`: topic, key points,
-decisions, action items, open questions. Three backends, tried in order when
-`summary.backend` is `auto`:
+decisions, action items, open questions. With `summary.backend` on `auto` it
+walks this chain, using the first that answers:
 
-1. **Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
+1. **The local `claude` CLI** — bills against the subscription already signed
+   in on this machine rather than per token. Invoked with an empty MCP config,
+   so it doesn't spend a minute starting every server you've configured for a
+   one-shot prompt.
+2. **The Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
    `~/.config/anthropic/token`.
-2. **The local `claude` CLI** — bills against the subscription already signed in
-   on this machine instead of per token. Invoked with an empty MCP config, so it
-   doesn't spend a minute starting every server you've configured for a one-shot
-   prompt.
-3. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
+3. **The `codex` CLI**, then **the OpenAI API** — same idea on the other side.
+4. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
+
+Subscriptions before metered keys, and a spent allowance is not an error: when
+a CLI reports it is out, the log says so plainly and the next backend takes
+over.
+
+The default model is the strong one (`claude-opus-5`, `summary.model`). A
+summary is where a cheap model quietly costs you something — a decision missed
+in a meeting nobody will listen to again — and the difference between tiers is
+a few cents per meeting.
 
 Whatever the session knows about the meeting goes in above the transcript —
 title, participants, the app it ran in. The participant list earns its place:
