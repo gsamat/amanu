@@ -84,9 +84,30 @@ enum SetupState {
         try? data.write(to: stateURL, options: .atomic)
     }
 
-    /// Forget, so the window opens again — what `amanu setup` does when it
-    /// can't reach a running daemon to ask it politely.
+    /// Forget that the window has been through, so it opens again — what
+    /// `amanu setup` does when it can't reach a running daemon to ask it
+    /// politely.
+    ///
+    /// The heard tone is a measurement of the machine, not a record of what
+    /// someone has read, so it survives. Deleting the file wholesale meant
+    /// every `amanu setup` threw away the evidence and the window opened
+    /// demanding a system-audio test that had passed minutes earlier.
     static func reset(at stateURL: URL = path) {
-        try? FileManager.default.removeItem(at: stateURL)
+        guard
+            let data = try? Data(contentsOf: stateURL),
+            var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let heard = json["system_audio_heard_at"]
+        else {
+            try? FileManager.default.removeItem(at: stateURL)
+            return
+        }
+        json = ["system_audio_heard_at": heard]
+        guard let rewritten = try? JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
+        ) else {
+            try? FileManager.default.removeItem(at: stateURL)
+            return
+        }
+        try? rewritten.write(to: stateURL, options: .atomic)
     }
 }

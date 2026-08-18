@@ -67,6 +67,12 @@ struct SetupTests {
 
         #expect(SetupState.systemAudioHeardAt(at: state) == heard)
         #expect(SetupState.isPending(at: state) == false)
+
+        // `amanu setup` resets the window's own state; a measurement of the
+        // machine is not part of that.
+        SetupState.reset(at: state)
+        #expect(SetupState.isPending(at: state))
+        #expect(SetupState.systemAudioHeardAt(at: state) == heard)
     }
 
     @Test("First-run setup bypasses a denied microphone, not a broken recordings folder")
