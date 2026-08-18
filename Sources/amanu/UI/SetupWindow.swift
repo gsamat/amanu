@@ -39,7 +39,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         grantedNote: "allowed")
     private let audioRow = AccessRow(
         title: "System audio",
-        detail: "Everyone else's side. Without it they are recorded as silence.",
+        detail: "",
         action: "Allow and test",
         grantedNote: "heard the tone")
     private let calendarRow = AccessRow(
@@ -389,7 +389,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         autoRecord.action = #selector(autoRecordToggled)
         return SetupLayout.row(
             leading: autoRecord,
-            title: SetupLayout.title("Start recording by itself when a call app takes the mic"),
+            title: SetupLayout.title("Start recording automatically when a call app takes the mic"),
             detail: SetupLayout.detail(
                 "And stop when it lets go. Recordings shorter than a minute are thrown away.",
                 lines: 2, width: 520))
@@ -1026,7 +1026,7 @@ private final class AccessRow: NSView {
         // reasoning underneath is there to talk someone into granting it, and
         // it has nothing left to say once they have.
         let settled = state == .granted && override == nil
-        detail.isHidden = settled
+        detail.isHidden = settled || detail.stringValue.isEmpty
         note.stringValue = noteOverride ?? {
             switch state {
             case .granted: return grantedNote

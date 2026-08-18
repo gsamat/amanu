@@ -47,6 +47,11 @@ actor LiveTranscriptionCoordinator {
     private var isRecording = false
     private var startedAt = Date()
     private var update: (@Sendable (Snapshot) -> Void)?
+    /// Handing the recorders their sinks is deferred until the model is
+    /// actually consuming audio — see `startPipeline`.
+    private var attach: (@Sendable (SessionSinks?) -> Void)?
+    private var pendingSinks: SessionSinks?
+    private var drops: [Date] = []
 
     private var loadTask: Task<Void, Never>?
     private var consumerTasks: [Task<Void, Never>] = []
@@ -70,30 +75,32 @@ actor LiveTranscriptionCoordinator {
     func beginRecording(
         enabled: Bool,
         language: String,
-        update: @escaping @Sendable (Snapshot) -> Void
-    ) -> SessionSinks? {
+        update: @escaping @Sendable (Snapshot) -> Void,
+        attach: @escaping @Sendable (SessionSinks?) -> Void
+    ) {
         stopPipeline(releaseSharedModels: true)
         self.update = update
+        self.attach = attach
         startedAt = Date()
         isRecording = true
         status = enabled ? .loading : .paused
         let epoch = transcript.beginRecording(enabled: enabled)
         publish()
-        guard enabled else { return nil }
-        return startPipeline(language: language, epoch: epoch)
+        guard enabled else { return }
+        startPipeline(language: language, epoch: epoch)
     }
 
-    /// Returns replacement sinks when enabling and nil when disabling or when
-    /// the model is unavailable. The caller detaches old sinks before awaiting
-    /// this method so no audio can enter a closing epoch.
-    func setEnabled(_ enabled: Bool, language: String) async -> SessionSinks? {
-        guard isRecording else { return nil }
+    /// The caller detaches the old sinks before calling this, so no audio can
+    /// enter a closing epoch; new sinks arrive through `attach` once the model
+    /// is loaded and consuming.
+    func setEnabled(_ enabled: Bool, language: String) {
+        guard isRecording else { return }
         stopPipeline(releaseSharedModels: false)
         let epoch = transcript.setEnabled(enabled)
         status = enabled ? .loading : .paused
         publish()
-        guard enabled else { return nil }
-        return startPipeline(language: language, epoch: epoch)
+        guard enabled else { return }
+        startPipeline(language: language, epoch: epoch)
     }
 
     func finishRecording() async {
@@ -111,12 +118,20 @@ actor LiveTranscriptionCoordinator {
         sharedModels = nil
     }
 
-    private func startPipeline(language: String, epoch: Int) -> SessionSinks? {
+    /// Builds the queues and their sinks but does not hand the sinks over.
+    ///
+    /// Loading Nemotron takes several seconds, and audio pushed into a queue
+    /// nobody is reading yet fills five seconds of buffer and then overflows —
+    /// which used to be reported as "your Mac couldn't keep up" before a
+    /// single word had been transcribed. The recorders start feeding the
+    /// queues at the moment the model starts consuming them, and not before.
+    private func startPipeline(language: String, epoch: Int) {
         guard modelStore.isReady(language: language) else {
             status = .modelMissing
             publish()
-            return nil
+            return
         }
+        drops.removeAll(keepingCapacity: true)
 
         let micPair = AsyncStream<AudioPacket>.makeStream(
             bufferingPolicy: .bufferingOldest(48))
@@ -124,8 +139,9 @@ actor LiveTranscriptionCoordinator {
             bufferingPolicy: .bufferingOldest(48))
         continuations = [micPair.continuation, systemPair.continuation]
 
-        let micSink = makeSink(continuation: micPair.continuation, epoch: epoch)
-        let systemSink = makeSink(continuation: systemPair.continuation, epoch: epoch)
+        pendingSinks = SessionSinks(
+            mic: makeSink(continuation: micPair.continuation, epoch: epoch),
+            system: makeSink(continuation: systemPair.continuation, epoch: epoch))
         loadTask = Task { [weak self] in
             guard let self else { return }
             await self.loadAndConsume(
@@ -135,7 +151,6 @@ actor LiveTranscriptionCoordinator {
                 epoch: epoch
             )
         }
-        return SessionSinks(mic: micSink, system: systemSink)
     }
 
     nonisolated private func makeSink(
@@ -188,12 +203,16 @@ actor LiveTranscriptionCoordinator {
             }
 
             managers = [micManager, systemManager]
-            status = .live
-            publish()
             consumerTasks = [
                 consume(mic, with: micManager, epoch: epoch),
                 consume(system, with: systemManager, epoch: epoch),
             ]
+            status = .live
+            publish()
+            if let sinks = pendingSinks {
+                pendingSinks = nil
+                attach?(sinks)
+            }
         } catch is CancellationError {
             return
         } catch {
@@ -241,8 +260,19 @@ actor LiveTranscriptionCoordinator {
         publish()
     }
 
+    /// A dropped buffer here and there is what a bounded queue is for. Live
+    /// text is a preview, and losing a fifth of a second of it is not worth
+    /// tearing the pipeline down — falling steadily behind is.
+    private static let dropWindow: TimeInterval = 5
+    private static let dropsBeforeGivingUp = 20
+
     private func pipelineOverloaded(epoch: Int) {
         guard transcript.epoch == epoch else { return }
+        let now = Date()
+        drops.append(now)
+        drops.removeAll { now.timeIntervalSince($0) > Self.dropWindow }
+        guard drops.count >= Self.dropsBeforeGivingUp else { return }
+
         stopPipeline(releaseSharedModels: false)
         transcript.invalidateActiveEpoch()
         status = .overloaded
@@ -261,6 +291,8 @@ actor LiveTranscriptionCoordinator {
     /// cleanup is scheduled separately; shared models are retained across a
     /// temporary disable and released at the end of the recording.
     private func stopPipeline(releaseSharedModels: Bool) {
+        pendingSinks = nil
+        attach?(nil)
         let detached = detachPipeline()
         let oldManagers = detached.managers
         if !oldManagers.isEmpty {

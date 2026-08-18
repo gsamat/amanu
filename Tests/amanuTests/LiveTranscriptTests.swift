@@ -185,11 +185,15 @@ struct LiveTranscriptTests {
         let coordinator = LiveTranscriptionCoordinator(
             modelStore: LiveTranscriptionModelStore(root: missingRoot))
 
-        let sinks = await coordinator.beginRecording(
-            enabled: true, language: "ru-RU", update: { _ in })
+        let attached = OSAllocatedUnfairLock<Bool>(initialState: false)
+        await coordinator.beginRecording(
+            enabled: true,
+            language: "ru-RU",
+            update: { _ in },
+            attach: { sinks in attached.withLock { $0 = $0 || sinks != nil } })
         let snapshot = await coordinator.snapshot
 
-        #expect(sinks == nil)
+        #expect(attached.withLock { $0 } == false)
         #expect(snapshot.isEnabled)
         #expect(snapshot.status == .modelMissing)
         #expect(snapshot.entries.isEmpty)
@@ -207,13 +211,22 @@ struct LiveTranscriptTests {
 
         let updates = OSAllocatedUnfairLock<LiveTranscriptionCoordinator.Snapshot?>(
             initialState: nil)
+        let attached = OSAllocatedUnfairLock<LiveTranscriptionCoordinator.SessionSinks?>(
+            initialState: nil)
         let coordinator = LiveTranscriptionCoordinator(modelStore: store)
-        let sinks = try #require(await coordinator.beginRecording(
+        await coordinator.beginRecording(
             enabled: true,
-            language: "ru-RU"
-        ) { snapshot in
-            updates.withLock { $0 = snapshot }
-        })
+            language: "ru-RU",
+            update: { snapshot in updates.withLock { $0 = snapshot } },
+            attach: { sinks in attached.withLock { $0 = sinks } })
+
+        // The sinks are handed over only once the model is loaded and its
+        // consumers are running — the recorders must never feed a queue that
+        // nobody is reading yet.
+        for _ in 0..<600 where attached.withLock({ $0 }) == nil {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let sinks = try #require(attached.withLock { $0 })
 
         func readFixture() throws -> AVAudioPCMBuffer {
             let file = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))

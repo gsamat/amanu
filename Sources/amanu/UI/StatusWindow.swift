@@ -266,7 +266,11 @@ final class StatusWindow {
         let wasAtBottom = documentHeight - visibleBottom < 24
         liveText.textStorage?.setAttributedString(rendered)
         if wasAtBottom { liveText.scrollToEndOfDocument(nil) }
-        showLiveText(!snapshot.entries.isEmpty || snapshot.isEnabled)
+        // An empty bordered box under a failed or idle live section is just a
+        // hole in the window: show it while there is text, or while text is
+        // on its way.
+        let expecting = snapshot.status == .loading || snapshot.status == .live
+        showLiveText(!snapshot.entries.isEmpty || expecting)
     }
 
     /// Grow only on the way in, and only from a compact window: someone who

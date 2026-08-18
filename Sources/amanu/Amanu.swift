@@ -421,11 +421,8 @@ final class AppController {
         // flight is rejected by the coordinator's epoch check.
         session.installLiveAudioSinks(mic: nil, system: nil)
         let language = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
-        Task { [weak self, weak session] in
-            guard let self, let session else { return }
-            let sinks = await liveTranscription.setEnabled(enabled, language: language)
-            guard self.session === session else { return }
-            session.installLiveAudioSinks(mic: sinks?.mic, system: sinks?.system)
+        Task { [liveTranscription] in
+            await liveTranscription.setEnabled(enabled, language: language)
         }
     }
 
@@ -467,16 +464,24 @@ final class AppController {
         guard let newSession = session else { return }
         let liveEnabled = Config.liveTranscriptionEnabled()
         let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
-        Task { [weak self, weak newSession] in
-            guard let self, let newSession else { return }
-            let sinks = await liveTranscription.beginRecording(
+        Task { [weak self, liveTranscription] in
+            await liveTranscription.beginRecording(
                 enabled: liveEnabled,
-                language: liveLanguage
-            ) { [weak self] snapshot in
-                Task { @MainActor in self?.showLive(snapshot) }
-            }
-            guard self.session === newSession else { return }
-            newSession.installLiveAudioSinks(mic: sinks?.mic, system: sinks?.system)
+                language: liveLanguage,
+                update: { [weak self] snapshot in
+                    Task { @MainActor in self?.showLive(snapshot) }
+                },
+                // The sinks arrive when Nemotron starts consuming, which is
+                // several seconds after the recording began. Only the session
+                // that asked for them may have them.
+                attach: { [weak self] sinks in
+                    Task { @MainActor in
+                        guard let self, self.session === newSession else { return }
+                        newSession.installLiveAudioSinks(
+                            mic: sinks?.mic, system: sinks?.system)
+                    }
+                }
+            )
         }
 
         present(.recording, elapsed: "0:00")
