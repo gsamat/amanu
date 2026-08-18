@@ -84,8 +84,10 @@ Inside:
 | `system.m4a` | everything the Mac played — the other side of the call |
 | `meta.json` | timestamps, duration, per-track offsets, trigger, stop reason, the app, and the calendar event's title, attendees and link |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
-| `transcript.md` | the same transcript rendered for reading |
+| `transcript.md` | the same transcript rendered for reading, with names where they're known |
+| `speakers.json` | who each speaker label is, where the name came from, and the line that proves it |
 | `summary.md` | topic, key points, decisions, action items, open questions |
+| `Finish processing.command` | double-click to finish whatever is still missing, wherever the folder now lives |
 | `transcribe.log` | transcription progress/errors for this session |
 | `mixed.m4a` | both tracks on one clock, for a diarizing engine — deleted once the tracks are compressed |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
@@ -234,6 +236,48 @@ finish the job. A meeting summarized on a plane still gets its summary that
 evening. A backend that answered badly is marked `failed` instead and not
 retried.
 
+## Speaker names
+
+A transcript comes out of the recognizer saying `me` and `them A`. Before the
+summary is written, amanu tries to put real people to those labels, using the
+calendar's attendee list and the meeting itself — people say each other's
+names out loud, and that is the evidence.
+
+You are resolved without asking anyone: `user_name`, else the account's full
+name, else `me`. The account name is only used when it reads as a person's —
+"Samat Galimov" yes, "samat" and "Samat's MacBook" no.
+
+The rest go to a model, and two rules stand between its answer and the file:
+
+1. **Only high confidence is applied.** Reasoning from who was invited rather
+   than from what was said doesn't qualify. A label nobody could identify
+   stays `them A`, which is honest; a wrong name is a transcript that lies.
+2. **The justifying quote has to exist.** The model must cite the line its
+   answer came from, and that line is checked against the transcript. A model
+   that invents a name usually invents its source too.
+
+Names live in `speakers.json`, never in `transcript.json` — the canonical
+transcript keeps the recognizer's own labels for ever. `transcript.md` is
+rendered from both, so naming is re-runnable and reversible.
+
+**Manage recordings…** (menu bar, the window, or `amanu sessions`) lists every
+session with what's still owed on it. Selecting one shows how the meeting
+opened and, per speaker, their first and longest turn with a field for the
+name. A name typed there is marked `manual` and no later run overwrites it.
+
+### When there's no network
+
+Naming and summarizing both need a model, which a laptop on a train hasn't
+got. Neither fails: the session is marked `deferred` and picked up later — at
+the next launch, when the network comes back, from the recordings window, or
+from the `Finish processing.command` script now written into every session
+folder. That script passes its own location, so a folder moved out of
+`~/Recordings` still finishes, and it holds no logic of its own, so it can't
+go stale.
+
+An answer that came back malformed is marked `failed` instead and not retried;
+delete the key from `meta.json` to offer it again.
+
 ## Transcription
 
 Built in and automatic, with two engines behind one protocol. Jobs run in a
@@ -362,12 +406,18 @@ Optional, at `~/.config/amanu/config.json`:
   the key itself. `ASSEMBLYAI_API_KEY` wins over both.
 - `transcription.assemblyai.speech_model` — override AssemblyAI's default
   model. Unset sends nothing and lets the API pick.
-- `mic_voice_processing` — Apple's echo cancellation on the mic (default off).
-  Set `true` when recording meetings through the speakers, so playback doesn't
-  bleed into the mic track and get transcribed twice as "me". The trade: while
-  the voice unit is live, macOS ducks other playback slightly (`.min` ducking
-  is configured, but it can't be zeroed). On headphones there's no echo to
-  cancel, so raw capture is the better default.
+- `mic_voice_processing` — Apple's echo cancellation on the mic (default on).
+  A meeting held through the speakers otherwise lands on both tracks, and
+  everything downstream has to work around a mic track that isn't only yours.
+  The trade: while the voice unit is live, macOS ducks other playback slightly
+  (`.min` ducking is configured, but it can't be zeroed), and on headphones it
+  cancels an echo that was never there. `false` records raw.
+- `user_name` — what to call you instead of "me" in a named transcript. Unset
+  falls back to the account's full name, and to "me" when that isn't a
+  person's name (a login, "Samat's MacBook", "User").
+- `speaker_names.*` — `enabled` (default on), `backend` (same chain as
+  summaries), `model` (Anthropic model for this pass; unset uses the
+  summary's).
 - `auto_record.*` — when amanu records on its own; see
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
@@ -412,6 +462,9 @@ A negative x means the item is parked outside the display.
 amanu                        # run the menu-bar daemon (^C to quit)
 amanu run --out <dir>        # custom recordings root (default ~/Recordings)
 amanu doctor                 # check permissions, recordings folder, models/keys
+amanu sessions               # what's recorded and what's still owed on it
+amanu sessions --pending     # only the sessions with work outstanding
+amanu process <folder>       # finish one session: names, summary, or both
 amanu install --launch-at-login
 amanu install --uninstall
 ```

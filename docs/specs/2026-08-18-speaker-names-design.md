@@ -86,11 +86,18 @@ keys. `speakers_status` mirrors `summary_status` exactly:
 - `failed: <reason>` — retrying won't help.
 - absent — nothing to do.
 
-Retry accounting uses `LLMError.isTransient`. A transient failure — offline,
-connection refused, spent allowance — does not count an attempt, because the
-machine was never given a chance to succeed. A model that answered with garbage
-does count, and three of those retire the step. Without that split, a week
-offline would burn every session's attempts on nothing.
+Which of the two a failure is comes from `LLMError.isTransient`: offline,
+connection refused and a spent allowance are transient, while an answer that
+came back malformed is not — the model replied, it just replied badly, and
+asking again won't change that.
+
+*Changed during implementation.* The design called for a counter, retiring a
+step after three bad answers. There is no counter: a non-transient failure
+marks the step `failed` on the first occurrence, exactly as `Summarizer`
+already does. Two states matching one rule beat two states matching two, and
+the case a counter would rescue — a model that answers badly once and well the
+next time — is rare enough not to justify a second retry policy sitting beside
+the first. Clearing the key by hand offers the session again.
 
 Triggers: daemon start, the end of a transcription, the network coming back
 (`NWPathMonitor`), the button, the script.
