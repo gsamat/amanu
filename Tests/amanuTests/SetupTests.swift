@@ -198,6 +198,25 @@ struct SetupTests {
         #expect(header.arrangedSubviews.first is NSSwitch)
     }
 
+    @Test("The Summaries switch is connected to something")
+    @MainActor
+    func summariesSwitchIsWired() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let heading = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Summaries" })
+        let header = try #require(heading.superview as? NSStackView)
+        let toggle = try #require(header.arrangedSubviews.first as? NSSwitch)
+
+        // An NSSwitch slides under the finger whether or not anyone is
+        // listening, so "it moved" is not evidence that it did anything. This
+        // asks the only question that separates the two.
+        #expect(toggle.target != nil)
+        #expect(toggle.action != nil)
+    }
+
     @Test("Ollama is a full summary card with the official install link")
     @MainActor
     func ollamaIsInstallableChoiceCard() throws {

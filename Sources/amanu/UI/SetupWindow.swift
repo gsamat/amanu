@@ -347,6 +347,15 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             detail: "Same deal, on your OpenAI subscription.",
             accessories: [link("Install it", "https://developers.openai.com/codex/cli/")])
 
+        // Without this the switch still slides when you push it — NSSwitch
+        // animates itself — while nothing at all happens: the choice is never
+        // written, the cards below stay live, and every meeting is summarised
+        // by a program the person just told to stop. It went unwired from the
+        // day the section was built, because the only check for it was a
+        // manual one nobody had run.
+        summariesOn.target = self
+        summariesOn.action = #selector(summariesToggled)
+
         keyProvider.selectedSegment = 0
         keyProvider.target = self
         keyProvider.action = #selector(keyProviderChanged)
