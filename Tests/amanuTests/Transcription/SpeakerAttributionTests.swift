@@ -89,15 +89,44 @@ struct SpeakerAttributionTests {
                 == ["me", "them", "me"])
     }
 
-    /// The case that per-label attribution got wrong: a diarizer that merges
-    /// two similar voices into one label still has to come out split, because
-    /// the source tracks disagree even when the model doesn't.
-    @Test("One merged label is still split by track")
-    func oneLabelStillSplitByTrack() throws {
+    /// The bug that stopped speaker naming working at all. A room mic hears
+    /// the far end coming out of the speakers, so a minority of one person's
+    /// utterances reads as louder on mic.caf; deciding the side per utterance
+    /// turned that person into two speakers, and the naming pass then dutifully
+    /// put the same name on both. On the real sessions of 18 August this
+    /// happened to every voice in every meeting — `2026.08.18-1502` came out of
+    /// two speakers as four labels, and `-1303` out of six as twelve.
+    ///
+    /// Here A is loud on the system track twice and on the mic once, which is
+    /// exactly that shape, and it has to stay one speaker.
+    @Test("A voice that leaks into the other track is still one speaker")
+    func leakageDoesNotSplitAVoice() throws {
         let f = try Fixture()
         #expect(
-            f.resolve([Self.seg(0.1, 1.9, "A"), Self.seg(3.1, 4.9, "A"), Self.seg(6.1, 7.9, "A")])
-                == ["me", "them", "me"])
+            f.resolve([Self.seg(0.1, 1.9, "A"), Self.seg(3.1, 3.9, "A"), Self.seg(4.0, 4.9, "A")])
+                == ["them", "them", "them"])
+    }
+
+    /// The invariant the naming pass rests on, stated on its own: whatever the
+    /// tracks say utterance by utterance, a diarization label comes back as one
+    /// name. Two names for one voice is two people as far as `speakers.json` is
+    /// concerned, and no amount of evidence in the transcript can tell them
+    /// apart afterwards, because there is nothing there to tell apart.
+    @Test("One diarized voice never becomes two speakers")
+    func aVoiceKeepsOneName() throws {
+        let f = try Fixture()
+        // A talks on the mic and leaks once into the far track; B does the
+        // reverse. Both come back as one name each, on opposite sides.
+        let segments = [
+            Self.seg(0.1, 1.0, "A"), Self.seg(1.1, 1.9, "A"), Self.seg(3.1, 3.5, "A"),
+            Self.seg(3.6, 4.0, "B"), Self.seg(4.1, 4.9, "B"), Self.seg(6.1, 7.9, "B"),
+        ]
+        let resolved = try #require(f.resolve(segments))
+        var namesPerVoice: [String: Set<String>] = [:]
+        for (segment, name) in zip(segments, resolved) {
+            namesPerVoice[segment.speaker!, default: []].insert(name)
+        }
+        #expect(namesPerVoice.mapValues(\.count) == ["A": 1, "B": 1])
     }
 
     @Test("Segments with no diarization label still get a side")
