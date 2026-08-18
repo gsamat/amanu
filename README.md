@@ -1,31 +1,18 @@
 # amanu
 
-Meeting recorder for the Mac. It sits there, and afterwards you have the
-recording, the transcript and the summary in a folder.
+Meeting recorder for the Mac. Afterwards the recording, the transcript and
+the summary are in a folder.
 
-- **Records every meeting by itself.** A call app opens the microphone, or a
-  calendar event starts, and amanu starts — mic and system audio on two
-  separate tracks. No button to remember.
-- **Transcribes by itself.** With a network and an AssemblyAI token it goes to
-  AssemblyAI, which tells apart several people sharing the far-end channel;
-  with neither it runs parakeet locally on the machine. It decides when there
-  is work to do, so a meeting recorded on a train still gets a transcript on
-  the train.
-- **Puts names to the speakers.** `them A` becomes the person who was on the
-  call — from the calendar's invitees and from people saying each other's
-  names out loud, and only when a line in the transcript proves it.
-- **Summarizes by itself.** Topic, key points, decisions, action items, open
-  questions — through Anthropic or OpenAI, whichever you've given it a
-  subscription or a key for, or through ollama with no account at all.
-- **Shows what it's doing.** A Dock icon that turns red while recording with
-  the elapsed time on it, a small ordinary window for status and controls, and
-  the menu bar item — three surfaces, because a menu bar that has run out of
-  room hides the only control of a recorder without telling you.
-- **Lists what it has recorded** and what is still owed on each session —
-  transcript, names, summary — with the buttons to finish it, correct a name,
-  or throw the meeting away.
-- **Everything in one folder per meeting**, under `~/Recordings`: the audio,
-  `transcript.md`, `summary.md`, and the metadata that produced them.
+- **Records every meeting automatically.**
+- **Transcribes by itself** — AssemblyAI if there's a network and a token,
+  parakeet on the machine if not.
+- **Names the speakers** — from the calendar and from the transcript itself.
+- **Writes the summary by itself** — Anthropic, OpenAI or ollama, whichever
+  you've given it.
+- **Dock icon and a small window** — status, and the controls for a recording.
+- **A list of recordings** — what's done, what's still owed, and the buttons
+  to finish it.
+- **One folder per meeting** in `~/Recordings` — audio, transcript, summary.
 
 On-device by default: nothing leaves the machine unless you hand it a cloud
 token.
