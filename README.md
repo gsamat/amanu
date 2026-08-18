@@ -12,7 +12,8 @@ the summary are in a folder.
 - **Dock icon and a small window** — status, and the controls for a recording.
 - **A list of recordings** — what's done, what's still owed, and the buttons
   to finish it.
-- **One folder per meeting** in `~/Recordings` — audio, transcript, summary.
+- **One folder per meeting** in `~/Recordings` — transcript, summary, and
+  optional audio.
 
 On-device by default: nothing leaves the machine unless you hand it a cloud
 token.
@@ -28,7 +29,7 @@ past the point of a patch — [what changed and why](FORK.md).
 ```sh
 cd amanu
 make install                      # build, sign, → ~/.local/bin/amanu
-amanu install --launch-at-login   # required for system audio — see Gotchas
+amanu                              # first run opens Setup
 ```
 
 No sudo: `~/.local/bin` is yours, and `/usr/local/bin` doesn't exist on a
@@ -57,13 +58,14 @@ transcription speed.
 
 ## How to use
 
-1. **Run it** via the LaunchAgent (`amanu install --launch-at-login`). Running
-   `amanu` from a terminal records the mic fine, but the system-audio track
-   comes out silent — see Gotchas.
-2. **Click the feather in the menu bar → Start recording.** First use prompts
-   for microphone and System Audio Recording permissions. While recording, the
-   icon turns red with a running elapsed counter, and macOS shows the purple
-   recording indicator.
+1. **Run `amanu`.** On the first run, Setup installs the LaunchAgent before it
+   asks for access, requests microphone/system-audio/calendar permissions, and
+   lets you choose transcription, summaries, and whether audio is kept. It also
+   detects working Claude Code and Codex CLIs, including Codex bundled with the
+   ChatGPT desktop app. Reopen it later from either menu or with `amanu setup`.
+2. **Click the feather in the menu bar → Start recording.** While recording,
+   the icon turns red with a running elapsed counter, and macOS shows the
+   purple recording indicator.
 3. **Click → Stop recording** when the meeting ends. Transcription starts
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
@@ -96,8 +98,8 @@ Inside:
 
 | File | Contents |
 |---|---|
-| `mic.m4a` | your side (default input device) |
-| `system.m4a` | everything the Mac played — the other side of the call |
+| `mic.m4a` | your side (when **Keep audio** is on) |
+| `system.m4a` | the other side of the call (when **Keep audio** is on) |
 | `meta.json` | timestamps, duration, per-track offsets, trigger, stop reason, the app, and the calendar event's title, attendees and link |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading, with names where they're known |
@@ -105,7 +107,7 @@ Inside:
 | `summary.md` | topic, key points, decisions, action items, open questions |
 | `Finish processing.command` | double-click to finish whatever is still missing, wherever the folder now lives |
 | `transcribe.log` | transcription progress/errors for this session |
-| `mixed.m4a` | both tracks on one clock, for a diarizing engine — deleted once the tracks are compressed |
+| `mixed.m4a` | temporary mix for a diarizing engine; removed after transcription |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
 
 Two tracks on purpose: speech models do better on clean single-source audio,
@@ -113,11 +115,12 @@ and mic-vs-system is free two-party diarization — `me` vs `them` with no
 speaker-identification model.
 
 While the meeting runs, those two tracks are **uncompressed PCM** in `.caf`,
-about a gigabyte an hour between them. Once the transcript exists they're
-re-encoded to `.m4a` (about 12× smaller) and the PCM is deleted; `meta.json`
-is rewritten to point at the new files first, so an interruption anywhere in
-that sequence still leaves a session whose files exist. `compress_tracks:
-false` keeps the PCM, `keep_uncompressed: true` keeps both.
+about a gigabyte an hour between them. Once `transcript.json` has been written,
+the audio is deleted by default; naming and summaries read the transcript and
+do not need it. A failed transcription always keeps the recording so it can be
+tried again. Turn on `keep_audio` to retain successful recordings; then they
+are re-encoded to `.m4a` (about 12× smaller) by default. `compress_tracks:
+false` keeps PCM, and `keep_uncompressed: true` keeps PCM beside the AAC copy.
 
 The format is not an aesthetic choice — see [If amanu dies
 mid-meeting](#if-amanu-dies-mid-meeting).
@@ -137,8 +140,8 @@ alone:
   with the elapsed time as its badge. Clicking it opens the window, and
   clicking it again — with amanu already in front — puts it away.
 - **The menu bar item**, as before: the same state and the same controls,
-  plus **Manage recordings…** and **Settings…** — the latter also on ⌘, from
-  the app menu.
+  plus **Manage recordings…**, **Settings…**, and **Setup…**. Settings and Setup
+  are also in the app menu.
 
 The window and the Dock icon exist because a status item is not a dependable
 place for the only control of a recorder. When the menu bar runs out of room
@@ -439,6 +442,7 @@ Optional, at `~/.config/amanu/config.json`:
 ```json
 {
   "recordings_dir": "~/Recordings",
+  "keep_audio": false,
   "transcription": {
     "enabled": true,
     "engine": "auto",
@@ -513,11 +517,14 @@ Optional, at `~/.config/amanu/config.json`:
 - `dock_icon` — show amanu in the Dock and ⌘-Tab (default on). `false` makes
   it a menu-bar-only accessory again.
 - `window` — open the status window at launch (default on).
+- `keep_audio` — keep audio after a successful transcript (default off). Audio
+  is always kept when transcription fails. Turning this on is what makes
+  **Re-transcribe** available for completed sessions.
 - `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
-  exists (default on). `false` leaves every session as PCM, about a gigabyte
-  an hour.
+  exists (default on). Only applies when `keep_audio` is on; `false` leaves
+  every retained session as PCM, about a gigabyte an hour.
 - `keep_uncompressed` — keep the PCM alongside the compressed tracks rather
-  than deleting it (default off).
+  than deleting it (default off; only applies when `keep_audio` is on).
 - `summary.*` — `enabled`, `backend` (`auto`, `claude-cli`, `anthropic-api`,
   `codex-cli`, `openai-api`, `ollama`, or `none` to skip summarizing without
   turning off the rest), `language` (unset means the language of the meeting),
@@ -535,6 +542,7 @@ Optional, at `~/.config/amanu/config.json`:
 ```sh
 amanu                        # run the menu-bar daemon (^C to quit)
 amanu run --out <dir>        # custom recordings root (default ~/Recordings)
+amanu setup                  # reopen first-run setup in the running daemon
 amanu doctor                 # check permissions, recordings folder, models/keys
 amanu sessions               # what's recorded and what's still owed on it
 amanu sessions --pending     # only the sessions with work outstanding
@@ -584,8 +592,8 @@ A negative x means the item is parked outside the display.
   photo library)
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
-- **AppKit** — the whole UI by hand: a status item, the Dock icon, and three
-  plain windows (status, recordings, settings). No SwiftUI
+- **AppKit** — the whole UI by hand: a status item, the Dock icon, and four
+  plain windows (status, recordings, settings, setup). No SwiftUI
 
 ## If amanu dies mid-meeting
 

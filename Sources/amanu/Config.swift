@@ -11,6 +11,7 @@ import Foundation
 ///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
 ///       },
 ///       "mic_voice_processing": true,
+///       "keep_audio": false,
 ///       "calendar": true,
 ///       "auto_record": { "enabled": true, "mic_activity": true, "calendar": false },
 ///       "summary": { "enabled": true, "backend": "auto", "language": "ru" },
@@ -278,6 +279,23 @@ enum Config {
     /// anyone who wants the original audio — it costs about a gigabyte an hour.
     static func keepUncompressed() -> Bool {
         load()?["keep_uncompressed"] as? Bool ?? false
+    }
+
+    /// Whether the audio outlives the transcript it was recorded for.
+    ///
+    /// Off by default, and that is a real trade rather than a tidy-up: a
+    /// meeting is about a gigabyte an hour, and once it has been written down
+    /// almost nobody plays it back. What it costs is the only cure for a bad
+    /// transcript — a wrong language, a worse engine, a name the model got
+    /// backwards — because re-transcribing needs the audio and nothing else
+    /// can reconstruct it. Turn it on and `compress_tracks` decides the format
+    /// the archive is kept in; off, that setting has nothing left to act on.
+    ///
+    /// Only ever applies to a session that got its transcript. A session that
+    /// failed keeps its audio whatever this says — that recording is the only
+    /// copy of the meeting, and the next attempt is all it has.
+    static func keepAudio() -> Bool {
+        load()?["keep_audio"] as? Bool ?? false
     }
 
     // MARK: - summary

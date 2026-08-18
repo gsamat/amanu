@@ -50,6 +50,11 @@ enum SessionInventory {
         /// Named speakers over total speakers, once there is a transcript.
         let namedSpeakers: (named: Int, total: Int)?
         let sizeBytes: Int64
+        /// Whether the recording is still on disk. False for a session whose
+        /// audio was discarded after transcribing, and for one somebody
+        /// cleaned out with the Finder — the difference doesn't matter to
+        /// anything asking, which is always asking "can this be done again".
+        let hasAudio: Bool
 
         /// Whether anything is left to do that a person might want to trigger.
         var isOutstanding: Bool {
@@ -148,8 +153,18 @@ enum SessionInventory {
                 blocked: transcriptStep != .done
             ),
             namedSpeakers: counts,
-            sizeBytes: size(of: dir)
+            sizeBytes: size(of: dir),
+            hasAudio: audioSurvives(dir, meta: meta)
         )
+    }
+
+    /// Asked of the disk, not of meta.json: `files` records what was recorded,
+    /// and stays true after the files are gone.
+    private static func audioSurvives(_ dir: URL, meta: [String: Any]) -> Bool {
+        guard let files = meta["files"] as? [String: String] else { return false }
+        return files.values.contains {
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path)
+        }
     }
 
     /// One step's state, from its artifact and the session's own note about it.

@@ -217,16 +217,23 @@ actor TranscriptionCoordinator {
         try transcript.write(to: dir)
         log(dir, "done — \(merged.count) segments")
 
+        // The audio was recorded uncompressed so it would survive a crash, and
+        // that only had to hold until the transcript existed. It does now, so
+        // the tracks are compressed — or deleted, if `keep_audio` is off.
+        //
+        // Before naming and summarizing rather than after, because both of
+        // those want a language model and can sit for hours waiting for one,
+        // and neither reads the audio: they work from the transcript. Making
+        // the gigabyte wait for a model it isn't going to be shown to would be
+        // paying twice for nothing.
+        TrackCompressor.settle(sessionDir: dir)
+
         // After the transcript, never instead of it: transcript.json is the
         // completion marker, so anything that runs before it risks retiring a
         // session that has no transcript. Naming and summarizing both just log
         // when they can't run, and are picked up again by a later sweep.
         SessionScript.install(in: dir)
         await PostProcessor.finish(dir)
-
-        // Last of all: the audio was recorded uncompressed so it would survive
-        // a crash, and that only needs to hold until the transcript exists.
-        TrackCompressor.compress(sessionDir: dir)
     }
 
     /// One pass per track, speaker taken from the track itself.

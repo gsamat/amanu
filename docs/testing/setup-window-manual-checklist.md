@@ -1,0 +1,110 @@
+# Setup window: manual verification
+
+Run this only after the current meeting and recording have ended. Installing
+and kickstarting the LaunchAgent replaces the running daemon, so neither step
+belongs in the middle of a recording.
+
+## Before installing
+
+- Confirm the menu and status window both say the recording has stopped.
+- Confirm the just-finished session has readable audio files before replacing
+  the daemon.
+- Run the automated checks from the repository:
+
+  ```sh
+  AMANU_NO_NOTIFY=1 swift test
+  swift build -c release
+  ```
+
+## Install and first launch
+
+1. Install the signed build and restart the LaunchAgent:
+
+   ```sh
+   make install
+   launchctl kickstart -k gui/$(id -u)/me.samat.amanu
+   ```
+
+2. Confirm there is one daemon, not two:
+
+   ```sh
+   pgrep -fl '(^|/)amanu( |$)'
+   ```
+
+3. Confirm Setup opens automatically and the ordinary status window does not
+   open in front of it.
+4. Confirm **Start at login** is green. It must not say that this copy was
+   started outside launchd.
+
+## Access
+
+- Microphone: click **Allow**, accept the macOS prompt, and confirm the row
+  turns green. If it was previously denied, confirm the button opens the right
+  System Settings pane.
+- System audio: click **Allow and test**, accept the prompt, hear the short
+  tone, and confirm the row says it heard the tone. Deny once only if it is
+  convenient to verify that the same action can be retried afterwards.
+- Calendar: verify both Allow and Open Settings paths. Calendar is optional and
+  must not block the Done button.
+- Close Setup with the red window button once and confirm this behaves like
+  **Later**: the window closes and the daemon continues running.
+
+## Transcription
+
+- Confirm **Whichever works** is selected by default.
+- Confirm the Parakeet card says either **downloaded** or approximately 600 MB.
+  If the model is absent, start Download and verify that the byte progress
+  changes without freezing the window.
+- Confirm the AssemblyAI card always shows **Get a key** and the link opens the
+  signup page.
+- If an AssemblyAI key is available, paste it and verify **key works**. Do not
+  put the key in `config.json`; it should land in
+  `~/.config/assemblyai/token` with mode 0600.
+- Change the meeting language, close Setup, reopen it, and verify the value was
+  persisted.
+
+## Summaries
+
+- Confirm the Claude Code card is selected for the default `auto` fallback
+  chain and shows a visible `answers · <version>` status when Claude runs.
+- Confirm Codex is detected from either PATH or the copy bundled in
+  ChatGPT.app, and its version status is visible.
+- Confirm **Install it** is visible only for a CLI that is missing.
+- On **My own key**, switch between Anthropic and OpenAI. Confirm the key
+  placeholder and **Get a key** destination both change.
+- If keys are available, paste each one and verify **key works** without a paid
+  completion. Confirm the files are mode 0600:
+
+  ```sh
+  stat -f '%Sp %N' ~/.config/anthropic/token ~/.config/openai/token
+  ```
+
+- Confirm the Ollama row reports whether it is running and names up to two
+  installed models.
+- Turn Summaries off and confirm all backend choices become disabled; turn it
+  back on afterwards.
+
+## Audio retention
+
+1. Leave **Keep the audio after transcribing** off. Make a short manual test
+   recording with both microphone speech and Mac playback, then stop it.
+2. Wait for `transcript.json` to appear. Confirm:
+   - `transcript.json`, `transcript.md`, and the summary remain;
+   - mic, system, and mixed audio files are gone;
+   - `meta.json` contains `"audio_discarded": true`;
+   - **Re-transcribe** is disabled for that session.
+3. Turn **Keep audio** on and make another short recording. After transcription,
+   confirm mic/system `.m4a` files remain and **Re-transcribe** is enabled.
+4. Optional failure-path check: temporarily select AssemblyAI without a usable
+   key, record a few seconds, and confirm a failed transcript keeps the source
+   audio. Restore the engine to **Whichever works** immediately afterwards.
+
+## Reopening and restart behavior
+
+- While the daemon is running, execute `amanu setup`. Confirm the existing
+  process opens Setup, the command exits, and `pgrep` still shows one daemon.
+- Click **Later** or **Done**, restart the LaunchAgent, and confirm Setup does
+  not open automatically again.
+- Reopen Setup from both the menu-bar menu and the app menu.
+- Make one final ordinary meeting test and verify auto-record, transcription,
+  speaker naming, summary generation, and the recordings list still work.

@@ -247,7 +247,10 @@ final class RecordingsWindow: NSObject {
     private func updateButtons() {
         let item = selected
         finishButton.isEnabled = !working && (item?.isOutstanding ?? false)
-        retranscribeButton.isEnabled = !working && item != nil
+        // Nothing to transcribe again once the audio is gone — and offering it
+        // would be the cruellest button in the window, since pressing it
+        // throws away the transcript that is now the only record there is.
+        retranscribeButton.isEnabled = !working && (item?.hasAudio ?? false)
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
         busyLabel.stringValue = working ? "working…" : ""
@@ -278,7 +281,7 @@ final class RecordingsWindow: NSObject {
     /// asks first — and says what survives, because the answer ("the audio")
     /// is the part that makes it safe.
     @objc private func retranscribeClicked() {
-        guard let item = selected else { return }
+        guard let item = selected, item.hasAudio else { return }
         let alert = NSAlert()
         alert.messageText = "Transcribe \(item.title ?? item.name) again?"
         alert.informativeText = """

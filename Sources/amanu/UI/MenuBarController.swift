@@ -26,6 +26,7 @@ final class MenuBarController {
     var onShowRecordings: (() -> Void)?
     var onShowWindow: (() -> Void)?
     var onShowSettings: (() -> Void)?
+    var onShowSetup: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
@@ -111,6 +112,13 @@ final class MenuBarController {
         )
         menu.addItem(settings)
 
+        let setup = NSMenuItem(
+            title: "Setup…",
+            action: #selector(showSetupClicked),
+            keyEquivalent: ""
+        )
+        menu.addItem(setup)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -120,7 +128,10 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, pauseItem, autoRecordItem, showWindow, openFolder, recordings, settings, quit] {
+        for item in [
+            toggleItem, pauseItem, autoRecordItem, showWindow, openFolder,
+            recordings, settings, setup, quit,
+        ] {
             item.target = self
         }
 
@@ -193,6 +204,7 @@ final class MenuBarController {
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
     @objc private func showWindowClicked() { onShowWindow?() }
     @objc private func showSettingsClicked() { onShowSettings?() }
+    @objc private func showSetupClicked() { onShowSetup?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
     @objc private func quitClicked() { onQuit?() }

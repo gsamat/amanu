@@ -211,14 +211,11 @@ struct LLMBackend {
 
     // MARK: -
 
+    /// Where a borrowed CLI lives. The looking is `Tooling`'s job — it knows
+    /// about the desktop apps that carry a binary inside them, and about the
+    /// version managers that keep one somewhere only the login shell can find.
     static func cliPath(_ name: String) -> String? {
-        let candidates = [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/\(name)").path,
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
-        ]
-        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        Tooling.path(for: name)
     }
 
     private static func text(_ data: Data) -> String {

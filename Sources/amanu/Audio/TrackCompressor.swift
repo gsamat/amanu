@@ -1,18 +1,74 @@
 import AVFoundation
 import Foundation
 
-/// Turns a finished session's PCM tracks into AAC and deletes the originals.
+/// Settles a finished session's audio once its transcript exists: either
+/// deletes it, or turns PCM tracks into AAC and deletes the originals.
 ///
 /// Recording writes uncompressed PCM because that is the only format that
 /// survives a hard kill (see AudioFormats), at about a gigabyte an hour across
 /// both tracks. That's a fine price for the duration of a meeting and a silly
 /// one for an archive, so once the transcript exists — the thing the audio was
-/// for — the tracks are compressed and the PCM goes.
+/// for — `keep_audio` decides whether it is archived or discarded.
 ///
-/// Order matters and is deliberate: transcript first, then compression. If
-/// anything here fails, the session still has its transcript and its original
-/// audio; the worst case is a folder that stayed large.
+/// Order matters and is deliberate: transcript first, then settling. A failed
+/// transcription never calls this, so the only copy of a meeting is kept.
 enum TrackCompressor {
+    /// What becomes of a session's audio once its transcript exists: kept and
+    /// compressed, or thrown away — `keep_audio` decides.
+    ///
+    /// The one caller that must not come through here is the failure path:
+    /// a session with no transcript keeps its audio unconditionally, because
+    /// that recording is the only copy of the meeting and a later attempt is
+    /// all it has.
+    static func settle(sessionDir dir: URL) {
+        if Config.keepAudio() {
+            compress(sessionDir: dir)
+        } else {
+            discard(sessionDir: dir)
+        }
+    }
+
+    /// Delete the audio, leaving the transcript, the summary and the record of
+    /// what was recorded. meta.json keeps its `files` — it is the session's
+    /// account of itself, and "there was a mic track called mic.caf" stays
+    /// true after the file goes — and gains `audio_discarded`, which is what
+    /// stops the recordings window offering to transcribe it again.
+    static func discard(sessionDir dir: URL) {
+        func log(_ message: String) { appendSessionLog(message, to: dir) }
+        let fm = FileManager.default
+
+        let named = (SessionState.read(dir)?["files"] as? [String: String]).map { Array($0.values) } ?? []
+        // Both extensions for every track: a session interrupted between
+        // compressing and rewriting meta.json has one of each on disk.
+        var candidates = Set<String>()
+        for name in named {
+            candidates.insert(name)
+            let stem = (name as NSString).deletingPathExtension
+            candidates.insert("\(stem).caf")
+            candidates.insert("\(stem).m4a")
+        }
+        candidates.insert("mixed.m4a")
+
+        var freed: Int64 = 0
+        var removed = 0
+        for name in candidates.sorted() {
+            let url = dir.appendingPathComponent(name)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            let bytes = size(of: url)
+            do {
+                try fm.removeItem(at: url)
+                freed += bytes
+                removed += 1
+            } catch {
+                log("couldn't delete \(name): \(error)")
+            }
+        }
+
+        guard removed > 0 else { return }
+        SessionState.update(dir, with: ["audio_discarded": true])
+        log("audio discarded — \(mb(freed)) freed (keep_audio is off)")
+    }
+
     /// Compress every PCM track named in meta.json, rewrite meta.json to point
     /// at the compressed files, and delete what's been replaced.
     static func compress(sessionDir dir: URL) {

@@ -127,6 +127,44 @@ struct TrackCompressorTests {
             "A failed encode must not leave a half-written file behind.")
     }
 
+    @Test("Discarding removes every form of the audio and says so in meta.json")
+    func discardRemovesAudio() throws {
+        let dir = try makeSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // A session caught between compressing and rewriting meta.json has
+        // both forms of the track on disk, and meta names only one of them.
+        try Data("compressed".utf8).write(to: dir.appendingPathComponent("mic.m4a"))
+        try Data("mixed".utf8).write(to: dir.appendingPathComponent("mixed.m4a"))
+
+        TrackCompressor.discard(sessionDir: dir)
+
+        for name in ["mic.caf", "mic.m4a", "mixed.m4a"] {
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: dir.appendingPathComponent(name).path) == false,
+                "\(name) survived a discard.")
+        }
+        let meta = try meta(in: dir)
+        #expect(meta["audio_discarded"] as? Bool == true)
+        #expect(
+            (meta["files"] as? [String: String])?["mic"] == "mic.caf",
+            "meta.json is the session's account of what was recorded; that stays true.")
+        #expect(
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent("meta.json").path),
+            "Discarding audio must not touch anything else in the folder.")
+    }
+
+    @Test("A discarded session is not offered for transcribing again")
+    func discardedSessionHasNoAudio() throws {
+        let dir = try makeSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        #expect(SessionInventory.item(for: dir)?.hasAudio == true)
+        TrackCompressor.discard(sessionDir: dir)
+        #expect(SessionInventory.item(for: dir)?.hasAudio == false)
+    }
+
     @Test("A session with no meta.json is left untouched")
     func missingMetaIsSafe() throws {
         let dir = try makeSession()

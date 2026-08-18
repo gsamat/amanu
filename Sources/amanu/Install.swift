@@ -28,7 +28,11 @@ struct Install: ParsableCommand {
         if uninstall {
             try removeAgent()
         } else {
-            try writeAgent()
+            let installed = try Self.installAgent()
+            print("✓ launch-at-login installed")
+            print("  plist:  \(Self.agentPlistURL.path)")
+            print("  binary: \(installed)")
+            print("  logs:   /tmp/amanu.out.log, /tmp/amanu.err.log")
         }
     }
 
@@ -47,7 +51,14 @@ struct Install: ParsableCommand {
 
     private var plistURL: URL { Self.agentPlistURL }
 
-    private func writeAgent() throws {
+    /// Write the agent and hand it to launchd, returning the binary it points
+    /// at. Static because the setup window installs it too — and it has to be
+    /// *this* process that does it, not a terminal: the whole reason the agent
+    /// matters is that macOS grants system-audio capture to the process that
+    /// asks, and under launchd amanu is finally its own responsible process
+    /// (see .issues/rca-002).
+    @discardableResult
+    static func installAgent() throws -> String {
         let binary = try resolveBinaryPath()
 
         let plist: [String: Any] = [
@@ -60,7 +71,7 @@ struct Install: ParsableCommand {
             "StandardErrorPath": "/tmp/amanu.err.log",
         ]
 
-        let url = plistURL
+        let url = agentPlistURL
         try FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -81,16 +92,13 @@ struct Install: ParsableCommand {
             ))
         }
 
-        print("✓ launch-at-login installed")
-        print("  plist:  \(url.path)")
-        print("  binary: \(binary)")
-        print("  logs:   /tmp/amanu.out.log, /tmp/amanu.err.log")
+        return binary
     }
 
     private func removeAgent() throws {
         let url = plistURL
         if FileManager.default.fileExists(atPath: url.path) {
-            _ = runLaunchctl(["bootout", "gui/\(uid())", url.path])
+            _ = Self.runLaunchctl(["bootout", "gui/\(Self.uid())", url.path])
             try FileManager.default.removeItem(at: url)
             print("✓ launch-at-login removed")
         } else {
@@ -107,7 +115,7 @@ struct Install: ParsableCommand {
     /// usually passes an absolute path, but nothing guarantees it, and the
     /// consequence of getting it wrong is an agent that silently never starts.
     /// Symlinks are resolved so TCC sees the same path the daemon runs from.
-    private func resolveBinaryPath() throws -> String {
+    private static func resolveBinaryPath() throws -> String {
         var size = UInt32(PATH_MAX)
         var buffer = [CChar](repeating: 0, count: Int(size))
         guard _NSGetExecutablePath(&buffer, &size) == 0 else {
@@ -130,9 +138,9 @@ struct Install: ParsableCommand {
         return path
     }
 
-    private func uid() -> uid_t { getuid() }
+    private static func uid() -> uid_t { getuid() }
 
-    private func runLaunchctl(_ args: [String]) -> (status: Int32, stderr: String) {
+    private static func runLaunchctl(_ args: [String]) -> (status: Int32, stderr: String) {
         let task = Process()
         task.launchPath = "/bin/launchctl"
         task.arguments = args

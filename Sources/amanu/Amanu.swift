@@ -7,7 +7,9 @@ struct Amanu: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "amanu",
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
-        subcommands: [Run.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self],
+        subcommands: [
+            Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self,
+        ],
         defaultSubcommand: Run.self
     )
 }
@@ -45,7 +47,12 @@ struct Run: ParsableCommand {
         if !DoctorReport.allOK(checks) {
             FileHandle.standardError.write(Data("startup checks failed:\n".utf8))
             DoctorReport.print(checks)
-            throw ExitCode(1)
+            // A failed permission is exactly what the first-run window exists
+            // to repair. `amanu setup` also resets this marker before launching,
+            // so a denied grant can never make the repair UI unreachable.
+            if !SetupState.isPending || !DoctorReport.canContinueIntoSetup(checks) {
+                throw ExitCode(1)
+            }
         }
 
         let app = NSApplication.shared
@@ -66,6 +73,7 @@ struct Run: ParsableCommand {
         }
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
         delegate.onShowSettings = { MainActor.assumeIsolated { controller.showSettings() } }
+        delegate.onShowSetup = { MainActor.assumeIsolated { controller.showSetup() } }
         app.delegate = delegate
         app.mainMenu = Self.mainMenu(settingsTarget: delegate)
 
@@ -128,6 +136,13 @@ struct Run: ParsableCommand {
         )
         settings.target = settingsTarget
         appMenu.addItem(settings)
+        let setup = NSMenuItem(
+            title: "Setup…",
+            action: #selector(AppDelegate.showSetupClicked(_:)),
+            keyEquivalent: ""
+        )
+        setup.target = settingsTarget
+        appMenu.addItem(setup)
         appMenu.addItem(.separator())
         // Quit routes through terminate so applicationWillTerminate runs and
         // a live recording is closed properly rather than truncated.
@@ -162,6 +177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// only NSObject in the picture — AppController is a plain class, and a
     /// menu item needs a target it can send a selector to.
     var onShowSettings: (() -> Void)?
+    var onShowSetup: (() -> Void)?
 
     private var becameActiveAt = Date.distantPast
 
@@ -189,6 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showSettingsClicked(_ sender: Any?) { onShowSettings?() }
+    @objc func showSetupClicked(_ sender: Any?) { onShowSetup?() }
 }
 
 struct Doctor: ParsableCommand {
@@ -215,6 +232,14 @@ final class AppController {
     /// Built on first use. It is thirty-odd controls, and amanu spends nearly
     /// all of its life recording rather than being configured.
     private lazy var settings = SettingsWindow()
+    private lazy var setupWindow: SetupWindow = {
+        let setup = SetupWindow()
+        setup.isRecording = { [weak self] in self?.session != nil }
+        setup.onFinished = { [weak self] in
+            self?.startAutomaticFeatures(requestCalendarAccess: false)
+        }
+        return setup
+    }()
     private let transcription = TranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
@@ -222,6 +247,8 @@ final class AppController {
     private var ticker: Timer?
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
+    private var setupRequestObserver: NSObjectProtocol?
+    private var automaticFeaturesStarted = false
 
     init(root: URL) {
         self.root = root
@@ -240,6 +267,7 @@ final class AppController {
         menuBar.onShowRecordings = { [weak self] in self?.showRecordings() }
         menuBar.onShowWindow = { [weak self] in self?.showWindow() }
         menuBar.onShowSettings = { [weak self] in self?.showSettings() }
+        menuBar.onShowSetup = { [weak self] in self?.showSetup() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
 
@@ -248,7 +276,7 @@ final class AppController {
         window.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         window.onOpenFolder = { [weak self] in self?.openFolder() }
         window.onShowRecordings = { [weak self] in self?.showRecordings() }
-        if Config.showWindowAtLaunch() { window.show() }
+        if Config.showWindowAtLaunch(), !SetupState.isPending { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
         autoRecord.startRecording = { [weak self] trigger, context in
@@ -261,6 +289,31 @@ final class AppController {
         // Adopt anything a crash left behind *before* the queue scans, so a
         // rescued session is transcribed in the same pass as the clean ones.
         RecordingSession.recoverInterrupted(root: root)
+
+        menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
+        window.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
+
+        // Runs for the life of the daemon, not just while recording: the menu
+        // also shows what the auto-record loop is thinking, and a status line
+        // that only updates during a recording is worse than none.
+        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+
+        setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
+        if SetupState.isPending {
+            showSetup()
+        } else {
+            startAutomaticFeatures(requestCalendarAccess: true)
+        }
+    }
+
+    /// Start the background behavior only after the first-run decision. The
+    /// setup window owns its prompts; starting the calendar watcher behind it
+    /// would make "Later" immediately raise the prompt it just postponed.
+    private func startAutomaticFeatures(requestCalendarAccess: Bool) {
+        guard !automaticFeaturesStarted else { return }
+        automaticFeaturesStarted = true
 
         Task { [transcription, root] in
             await transcription.setStatusHandler { status in
@@ -284,22 +337,14 @@ final class AppController {
         monitor.start()
         network = monitor
 
+        autoRecord.enabled = Config.autoRecord().enabled
+        let shouldStart = autoRecord.enabled
         Task { [weak self] in
-            // Ask once, before anything wants an answer: the auto-record loop
-            // queries the calendar on its first tick, and a session started in
-            // the meantime would otherwise be named without it.
-            await self?.calendar?.requestAccess()
-            if settings.enabled { self?.autoRecord.start() }
+            if requestCalendarAccess { await self?.calendar?.requestAccess() }
+            if shouldStart { self?.autoRecord.start() }
         }
         menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
         window.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
-
-        // Runs for the life of the daemon, not just while recording: the menu
-        // also shows what the auto-record loop is thinking, and a status line
-        // that only updates during a recording is worse than none.
-        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.tick() }
-        }
     }
 
     /// Start or stop by signal — `kill -USR1 $(pgrep -x amanu)` — so a hotkey
@@ -443,6 +488,12 @@ final class AppController {
     func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
         settings.show()
+    }
+
+    /// First-run setup, reopened from either menu or `amanu setup`.
+    func showSetup() {
+        NSApp.activate(ignoringOtherApps: true)
+        setupWindow.show()
     }
 
     /// The Dock icon: show the window, or put it away if amanu was already in

@@ -26,6 +26,16 @@ enum DoctorReport {
         ]
     }
 
+    /// A first-run window can repair a denied microphone grant. It cannot
+    /// repair an unwritable recordings root, so that failure must still stop
+    /// startup rather than presenting a setup flow that can never succeed.
+    static func canContinueIntoSetup(_ checks: [Check]) -> Bool {
+        !checks.contains { check in
+            if case .fail = check.status { return check.name != "microphone" }
+            return false
+        }
+    }
+
     /// Says out loud what amanu will do on its own, because the surprising
     /// failure mode of an automatic recorder is not that it fails — it's that
     /// it records something you didn't expect it to.
@@ -71,23 +81,28 @@ enum DoctorReport {
         guard settings.enabled, settings.backend != "none" else {
             return Check(name: "summary", status: .ok, remediation: nil)
         }
-        if Config.anthropicKey() != nil {
-            return Check(name: "summary", status: .ok, remediation: nil)
-        }
-        let claude = [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/claude").path,
-            "/opt/homebrew/bin/claude",
-            "/usr/local/bin/claude",
-        ].contains { FileManager.default.isExecutableFile(atPath: $0) }
-        if claude {
+        if hasSummaryBackend(
+            anthropicKey: Config.anthropicKey(),
+            openAIKey: Config.openAIKey(),
+            claudeRuns: Tooling.probe("claude")?.runs == true,
+            codexRuns: Tooling.probe("codex")?.runs == true
+        ) {
             return Check(name: "summary", status: .ok, remediation: nil)
         }
         return Check(
             name: "summary",
-            status: .warn("no Anthropic key and no claude CLI — will fall back to ollama"),
+            status: .warn("no key and no claude or codex CLI — will fall back to ollama"),
             remediation: "put a key in ~/.config/anthropic/token, or run ollama, or set summary.enabled=false"
         )
+    }
+
+    static func hasSummaryBackend(
+        anthropicKey: String?,
+        openAIKey: String?,
+        claudeRuns: Bool,
+        codexRuns: Bool
+    ) -> Bool {
+        anthropicKey != nil || openAIKey != nil || claudeRuns || codexRuns
     }
 
     static func checkMicrophone() -> Check {
@@ -98,8 +113,8 @@ enum DoctorReport {
         case .notDetermined:
             return Check(
                 name: "microphone",
-                status: .warn("not yet requested — will prompt on first recording"),
-                remediation: "start a recording once; macOS will prompt"
+                status: .warn("not yet requested"),
+                remediation: "open Setup before a meeting; recording can also raise the prompt"
             )
         case .denied, .restricted:
             return Check(
