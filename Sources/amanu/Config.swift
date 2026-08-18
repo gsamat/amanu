@@ -331,6 +331,68 @@ enum Config {
         return json
     }
 
+    // MARK: - writing
+
+    /// The config file as it is on disk, or an empty object when there isn't
+    /// one yet. The settings window reads this to show what has been set,
+    /// as distinct from what merely defaults.
+    static func raw() -> [String: Any] { load() ?? [:] }
+
+    /// Set (or, with a nil value, clear) one setting, addressed by its path
+    /// into the JSON — `["auto_record", "start_delay_seconds"]`.
+    ///
+    /// Clearing rather than writing the default is deliberate: a config that
+    /// only contains what you changed keeps reading as a list of your
+    /// decisions, and a default that improves later reaches you instead of
+    /// being frozen into your file the first time you opened a window.
+    @discardableResult
+    static func update(path: [String], value: Any?) -> Bool {
+        guard let first = path.first else { return false }
+        var json = raw()
+
+        if path.count == 1 {
+            if let value { json[first] = value } else { json.removeValue(forKey: first) }
+        } else {
+            var nested = json[first] as? [String: Any] ?? [:]
+            nested = updated(nested, path: Array(path.dropFirst()), value: value)
+            if nested.isEmpty { json.removeValue(forKey: first) } else { json[first] = nested }
+        }
+        return write(json)
+    }
+
+    private static func updated(
+        _ object: [String: Any], path: [String], value: Any?
+    ) -> [String: Any] {
+        var object = object
+        guard let first = path.first else { return object }
+        if path.count == 1 {
+            if let value { object[first] = value } else { object.removeValue(forKey: first) }
+            return object
+        }
+        var nested = object[first] as? [String: Any] ?? [:]
+        nested = updated(nested, path: Array(path.dropFirst()), value: value)
+        if nested.isEmpty { object.removeValue(forKey: first) } else { object[first] = nested }
+        return object
+    }
+
+    private static func write(_ json: [String: Any]) -> Bool {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
+        ) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: path.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: path, options: .atomic)
+            return true
+        } catch {
+            FileHandle.standardError.write(Data(
+                "couldn't write \(path.path): \(error)\n".utf8
+            ))
+            return false
+        }
+    }
+
     /// Resolve the recordings root from an optional CLI override.
     static func resolveRoot(cliOverride: String?) -> URL {
         if let cliOverride {
