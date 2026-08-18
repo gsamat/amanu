@@ -154,12 +154,13 @@ actor TranscriptionCoordinator {
 
     private func recordFailure(_ error: Error, for dir: URL) {
         let permanent = (error as? TranscriptionFailure)?.isPermanent ?? false
-        let attempts = (Self.metaValue(dir, "transcription_attempts") as? Int ?? 0) + 1
-        var fields: [String: Any] = ["transcription_attempts": attempts]
+        let attempts =
+            (SessionState.value(dir, SessionState.Key.transcriptionAttempts) as? Int ?? 0) + 1
+        var fields: [String: Any?] = [SessionState.Key.transcriptionAttempts: attempts]
 
         if permanent || attempts >= Self.maxAttempts {
-            fields["transcription_failed"] = "\(error)"
-            Self.updateMeta(dir, with: fields)
+            fields[SessionState.Key.transcriptionFailed] = "\(error)"
+            SessionState.update(dir, with: fields)
             log(dir, permanent
                 ? "giving up: \(error) — retrying cannot change this"
                 : "giving up after \(attempts) attempts")
@@ -169,7 +170,7 @@ actor TranscriptionCoordinator {
             )
             TrackCompressor.compress(sessionDir: dir)
         } else {
-            Self.updateMeta(dir, with: fields)
+            SessionState.update(dir, with: fields)
             notifyUser(
                 title: "amanu — transcription failed",
                 body: "\(dir.lastPathComponent) — see transcribe.log"
@@ -178,29 +179,7 @@ actor TranscriptionCoordinator {
     }
 
     private static func hasGivenUp(on dir: URL) -> Bool {
-        metaValue(dir, "transcription_failed") != nil
-    }
-
-    private static func metaValue(_ dir: URL, _ key: String) -> Any? {
-        guard
-            let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return json[key]
-    }
-
-    /// Merge fields into meta.json, leaving everything else alone.
-    private static func updateMeta(_ dir: URL, with fields: [String: Any]) {
-        let url = dir.appendingPathComponent("meta.json")
-        guard
-            let data = try? Data(contentsOf: url),
-            var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return }
-        json.merge(fields) { _, new in new }
-        guard let updated = try? JSONSerialization.data(
-            withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
-        ) else { return }
-        try? updated.write(to: url, options: .atomic)
+        SessionState.value(dir, SessionState.Key.transcriptionFailed) != nil
     }
 
     private func transcribe(_ dir: URL) async throws {

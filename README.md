@@ -226,8 +226,13 @@ title, participants, the app it ran in. The participant list earns its place:
 given names, the summary says "Anna will send the contract" instead of "them
 will send the contract".
 
-A failed summary is logged and dropped; it never costs the transcript. Long
-transcripts are summarized in parts and the parts summarized together.
+Long transcripts are summarized in parts and the parts summarized together. A
+failed summary never costs the transcript — but it is no longer simply dropped:
+when nothing could be reached at all (no network, every allowance spent), the
+session is marked `summary_status: deferred` in `meta.json` so a later run can
+finish the job. A meeting summarized on a plane still gets its summary that
+evening. A backend that answered badly is marked `failed` instead and not
+retried.
 
 ## Transcription
 

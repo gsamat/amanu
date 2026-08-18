@@ -38,6 +38,11 @@ enum Summarizer {
             log("summary skipped — no backend available")
             return nil
         }
+        // Whether every failure so far was of a kind that passes. If they all
+        // are, the session is left marked for a later run rather than written
+        // off: a meeting summarized on a plane should still get its summary
+        // that evening.
+        var allTransient = true
 
         // Whatever we know about the meeting, above the transcript. Names in
         // particular: given a participant list, the summarizer writes "Anna
@@ -55,17 +60,29 @@ enum Summarizer {
                     to: dir.appendingPathComponent("summary.md"), options: .atomic
                 )
                 log("summary written by \(backend.name)")
+                SessionState.update(dir, with: [SessionState.Key.summaryStatus: nil])
                 return backend.name
             } catch {
                 // Falling through is the expected path when a subscription is
                 // spent, so say which kind of failure this was — otherwise a
                 // healthy hand-off reads like something broke.
-                let spent = (error as? LLMError)?.isUsageLimit ?? false
-                log(spent
+                let transient = LLMError.isTransient(error)
+                allTransient = allTransient && transient
+                log(LLMError.isUsageLimit(error)
                     ? "\(backend.name) is out of allowance — trying the next backend"
                     : "summary via \(backend.name) failed: \(error)")
             }
         }
+
+        // Nothing answered. Record which kind of nothing, so a later pass can
+        // tell "come back to this" from "this will never work".
+        SessionState.update(dir, with: [
+            SessionState.Key.summaryStatus:
+                allTransient ? SessionState.deferred : "failed",
+        ])
+        log(allTransient
+            ? "no backend could be reached — summary deferred, will be retried later"
+            : "every backend failed for good — giving up on the summary")
         return nil
     }
 

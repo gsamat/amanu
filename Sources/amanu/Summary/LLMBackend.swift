@@ -281,7 +281,64 @@ enum LLMError: Error, CustomStringConvertible {
         default:
             return false
         }
-        return ["usage limit", "rate limit", "quota", "limit reached", "out of credit",
-                "insufficient_quota", "429"].contains { haystack.contains($0) }
+        return Self.usageLimitMarkers.contains { haystack.contains($0) }
+    }
+
+    /// Whether the same request would plausibly succeed later: no network, a
+    /// server that fell over, a local model that isn't running yet.
+    ///
+    /// This is the distinction between "try again this evening" and "this will
+    /// never work" — a summary skipped on a plane must not be written off, and
+    /// a malformed answer must not be retried for ever. A spent allowance
+    /// counts as transient: it comes back.
+    var isTransient: Bool {
+        switch self {
+        case .http(let code, _):
+            return code == 429 || code >= 500
+        case .exit(_, let output):
+            let haystack = output.lowercased()
+            return isUsageLimit || Self.transientMarkers.contains { haystack.contains($0) }
+        case .emptyResponse, .malformedResponse:
+            // The model answered; it just answered badly. Repeating the same
+            // request is unlikely to change that.
+            return false
+        }
+    }
+
+    private static let usageLimitMarkers = [
+        "usage limit", "rate limit", "quota", "limit reached", "out of credit",
+        "insufficient_quota", "429",
+    ]
+
+    private static let transientMarkers = [
+        "connection refused", "could not connect", "network is unreachable",
+        "no route to host", "temporary failure in name resolution", "dns",
+        "timed out", "timeout", "offline", "connection reset", "econnrefused",
+        "service unavailable", "overloaded",
+    ]
+
+    /// Classify any error, not just this type — the backends throw URLSession
+    /// errors too, and the caller shouldn't have to know which is which.
+    static func isTransient(_ error: Error) -> Bool {
+        if let llm = error as? LLMError { return llm.isTransient }
+        if let url = error as? URLError {
+            return [
+                URLError.notConnectedToInternet, .networkConnectionLost, .timedOut,
+                .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                .internationalRoamingOff, .dataNotAllowed, .resourceUnavailable,
+                .secureConnectionFailed,
+            ].contains(url.code)
+        }
+        let posix = (error as NSError)
+        if posix.domain == NSPOSIXErrorDomain {
+            // ECONNREFUSED (61) is ollama not running; EHOSTUNREACH (65),
+            // ENETDOWN (50), ETIMEDOUT (60) are the machine being off-network.
+            return [50, 60, 61, 65].contains(posix.code)
+        }
+        return false
+    }
+
+    static func isUsageLimit(_ error: Error) -> Bool {
+        (error as? LLMError)?.isUsageLimit ?? false
     }
 }
