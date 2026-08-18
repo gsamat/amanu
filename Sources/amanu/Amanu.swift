@@ -89,6 +89,7 @@ struct Run: ParsableCommand {
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
         delegate.onShowSettings = { MainActor.assumeIsolated { controller.showSettings() } }
         delegate.onShowSetup = { MainActor.assumeIsolated { controller.showSetup() } }
+        delegate.onCheckForUpdates = { MainActor.assumeIsolated { controller.checkForUpdates() } }
         app.delegate = delegate
         app.mainMenu = Self.mainMenu(settingsTarget: delegate)
 
@@ -158,6 +159,13 @@ struct Run: ParsableCommand {
         )
         setup.target = settingsTarget
         appMenu.addItem(setup)
+        let updates = NSMenuItem(
+            title: "Check for updates…",
+            action: #selector(AppDelegate.checkForUpdatesClicked(_:)),
+            keyEquivalent: ""
+        )
+        updates.target = settingsTarget
+        appMenu.addItem(updates)
         appMenu.addItem(.separator())
         // Quit routes through terminate so applicationWillTerminate runs and
         // a live recording is closed properly rather than truncated.
@@ -193,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// menu item needs a target it can send a selector to.
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
+    var onCheckForUpdates: (() -> Void)?
 
     private var becameActiveAt = Date.distantPast
 
@@ -221,6 +230,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showSettingsClicked(_ sender: Any?) { onShowSettings?() }
     @objc func showSetupClicked(_ sender: Any?) { onShowSetup?() }
+    @objc func checkForUpdatesClicked(_ sender: Any?) { onCheckForUpdates?() }
 }
 
 struct Doctor: ParsableCommand {
@@ -255,6 +265,12 @@ final class AppController {
         }
         return setup
     }()
+    /// Sparkle, and amanu's rule that a meeting outranks an update. Lazy for
+    /// the same reason the windows are: most of amanu's life is spent
+    /// recording, and the updater is only ever touched from a menu or a timer.
+    private lazy var updates = AppUpdates(
+        gate: UpdateGate(isRecording: { [weak self] in self?.session != nil })
+    )
     private let transcription = TranscriptionCoordinator()
     private let liveTranscription = LiveTranscriptionCoordinator()
     private let calendar: CalendarWatcher?
@@ -294,8 +310,10 @@ final class AppController {
         menuBar.onShowWindow = { [weak self] in self?.showWindow() }
         menuBar.onShowSettings = { [weak self] in self?.showSettings() }
         menuBar.onShowSetup = { [weak self] in self?.showSetup() }
+        menuBar.onCheckForUpdates = { [weak self] in self?.updates.checkForUpdates() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
+        menuBar.updatesAvailable(updates.isAvailable)
 
         window.onToggle = { [weak self] in self?.toggle() }
         window.onTogglePause = { [weak self] in self?.togglePause() }
@@ -394,6 +412,8 @@ final class AppController {
     /// Start or stop by signal — `kill -USR1 $(pgrep -x amanu)` — so a hotkey
     /// tool can drive recording without going through the menu.
     func toggleRecording() { toggle() }
+
+    func checkForUpdates() { updates.checkForUpdates() }
 
     /// Stop any live session cleanly (finalizing files) and exit.
     func shutdown() {
@@ -542,6 +562,8 @@ final class AppController {
         ))
         self.session = nil
         present(.idle, elapsed: nil)
+        // If Sparkle was told to wait for this recording, it has waited.
+        updates.recordingDidFinish()
 
         // A mic that opened for a few seconds was never a meeting. Throwing
         // these away is what keeps the recordings folder worth opening —

@@ -18,6 +18,7 @@ final class MenuBarController {
     private let pauseItem: NSMenuItem
     private let autoRecordItem: NSMenuItem
     private let autoRecordStatus: NSMenuItem
+    private let updatesItem: NSMenuItem
 
     var onToggle: (() -> Void)?
     var onTogglePause: (() -> Void)?
@@ -27,6 +28,7 @@ final class MenuBarController {
     var onShowWindow: (() -> Void)?
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
+    var onCheckForUpdates: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
@@ -119,6 +121,17 @@ final class MenuBarController {
         )
         menu.addItem(setup)
 
+        // Hidden until someone says there is an updater behind it. A bare
+        // build has nothing to update, and an item that can only report
+        // failure is worse than no item.
+        updatesItem = NSMenuItem(
+            title: "Check for updates…",
+            action: #selector(checkForUpdatesClicked),
+            keyEquivalent: ""
+        )
+        updatesItem.isHidden = true
+        menu.addItem(updatesItem)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -130,7 +143,7 @@ final class MenuBarController {
 
         for item in [
             toggleItem, pauseItem, autoRecordItem, showWindow, openFolder,
-            recordings, settings, setup, quit,
+            recordings, settings, setup, updatesItem, quit,
         ] {
             item.target = self
         }
@@ -138,6 +151,12 @@ final class MenuBarController {
         statusItem.menu = menu
         statusItem.button?.imagePosition = .imageLeft
         update(state: .idle, elapsed: nil)
+    }
+
+    /// Show or hide **Check for updates…**. Only a real application bundle
+    /// can be replaced by Sparkle, so only a real application bundle offers it.
+    func updatesAvailable(_ available: Bool) {
+        updatesItem.isHidden = !available
     }
 
     /// Reflect recording state in the icon and the menu. Called once a second
@@ -207,5 +226,6 @@ final class MenuBarController {
     @objc private func showSetupClicked() { onShowSetup?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
+    @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func quitClicked() { onQuit?() }
 }

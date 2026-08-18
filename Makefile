@@ -28,6 +28,15 @@ VERSION   ?= 0.2.0
 # A build number that only ever goes up, and says which commit it was.
 BUILD     ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 ICON       = Resources/Amanu.icns
+DIST       = dist
+DMG        = $(DIST)/amanu-v$(VERSION)-macos-arm64.dmg
+
+# Sparkle arrives as a binary framework in SwiftPM's artifact cache. There is
+# no Xcode "Embed Frameworks" phase here, so `make app` copies it in and signs
+# it by hand. Lazily expanded on purpose: the artifact only exists after
+# `swift build` has resolved it, which happens inside the recipe below.
+SPARKLE_FW = $(shell find .build/artifacts/sparkle -type d -name Sparkle.framework \
+	-path '*macos-arm64*' 2>/dev/null | head -1)
 
 # Prefer Developer ID (distributable, long-lived) over Apple Development
 # (fine for a machine-local tool). Falls back to ad-hoc so a clean checkout on
@@ -42,7 +51,7 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build app icon run-app identities verify clean
+.PHONY: all build app icon run-app identities verify clean dmg notarize appcast release
 
 all: app
 
@@ -65,9 +74,27 @@ app: build $(ICON)
 		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
 	@cp $(ICON) $(APP)/Contents/Resources/Amanu.icns
+	@test -n "$(SPARKLE_FW)" || (echo "Sparkle.framework not found — run swift build first"; exit 1)
+	@mkdir -p $(APP)/Contents/Frameworks
+	@cp -R "$(SPARKLE_FW)" $(APP)/Contents/Frameworks/
+	@# Sparkle's XPC services exist so a sandboxed app can still download and
+	@# install; amanu is not sandboxed, so they are two more binaries to sign,
+	@# notarize and ship for nothing.
+	@rm -rf $(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices
 	@[ -x $(HOME)/.local/bin/unlock-signing-keychain ] \
 		&& $(HOME)/.local/bin/unlock-signing-keychain >/dev/null 2>&1 || true
 	@echo "signing app as: $(SIGN_ID)"
+	@# Innermost first. codesign seals what it finds, so anything signed after
+	@# the app that contains it invalidates the app's own seal — and the failure
+	@# shows up as a Gatekeeper rejection on someone else's Mac, not here.
+	@for nested in \
+		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate \
+		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app \
+		$(APP)/Contents/Frameworks/Sparkle.framework ; do \
+		codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp "$$nested" \
+			2>/dev/null \
+		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
+	done
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
 		--options runtime \
