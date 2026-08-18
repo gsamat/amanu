@@ -6,7 +6,7 @@ import Foundation
 ///       "recordings_dir": "~/Recordings",
 ///       "transcription": {
 ///         "enabled": true,
-///         "engine": "parakeet",
+///         "engine": "auto",
 ///         "language": "ru",
 ///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
 ///       },
@@ -19,8 +19,9 @@ import Foundation
 ///
 /// Resolution order for the recordings root: --out flag > config file >
 /// ~/Recordings. `on_stop` is a shell command spawned with the session
-/// directory as its argument — after the transcript is written, or right
-/// after recording when transcription is disabled.
+/// directory as its argument — after the transcript, the names and the
+/// summary are written, or right after recording when transcription is
+/// disabled.
 enum Config {
     static let path = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/amanu/config.json")
@@ -34,8 +35,8 @@ enum Config {
         return URL(fileURLWithPath: (dir as NSString).expandingTildeInPath, isDirectory: true)
     }
 
-    /// Shell command to spawn after each session's transcript is written (or
-    /// after recording, if transcription is disabled), or nil.
+    /// Shell command to spawn once a session is finished — transcript, names
+    /// and summary — or right after recording, if transcription is disabled.
     static func onStop() -> String? {
         guard let cmd = load()?["on_stop"] as? String, !cmd.isEmpty else { return nil }
         return cmd
