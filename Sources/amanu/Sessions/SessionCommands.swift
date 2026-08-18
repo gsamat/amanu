@@ -37,9 +37,10 @@ struct Sessions: ParsableCommand {
 ///
 /// Takes an arbitrary path rather than a session name on purpose. The folder
 /// in question may have been moved out of the recordings root entirely, and it
-/// is still a complete session: everything needed to name its speakers and
-/// summarize it is inside it. This is also what the folder's own
-/// `Finish processing.command` calls, handing over its own location.
+/// is still a complete session: the audio to transcribe, and everything needed
+/// to name its speakers and summarize it, is inside it. Sessions recorded
+/// before 2026.08.18 still carry a `Finish processing.command` that calls this
+/// with their own location, which is another reason it takes a path.
 ///
 /// Named `ProcessSession` rather than `Process` because the latter is
 /// `Foundation.Process`: a command type shadowing it breaks every subprocess
@@ -52,6 +53,12 @@ struct ProcessSession: ParsableCommand {
 
     @Argument(help: "The session folder. Defaults to the current directory.")
     var folder: String?
+
+    @Flag(
+        name: .long,
+        help: "Transcribe again from the audio, discarding the transcript, names and summary."
+    )
+    var again = false
 
     func run() throws {
         let dir = URL(
@@ -73,44 +80,67 @@ struct ProcessSession: ParsableCommand {
         }
         print(item.summaryLine)
 
-        // A retired session has no transcript to work from, and re-running
-        // transcription needs the daemon's queue and its engine. Say so rather
-        // than silently doing the two cheap steps and calling it finished.
-        if case .failed(let why) = item.transcript {
+        switch PostProcessor.plan(for: item, again: again) {
+        case .refuse(let why):
             print("")
-            print("This session was retired without a transcript: \(why)")
-            print("Re-transcribing happens in the app — open the recordings list,")
-            print("or delete transcription_failed from its meta.json and restart amanu.")
+            print(why)
             throw ExitCode(1)
-        }
 
-        let work = runBlocking { await PostProcessor.finish(dir) }
-        if work.isEmpty {
-            print("\nNothing to do — everything that can be done is done.")
-            return
+        case .transcribe(let clearingFirst):
+            if clearingFirst { PostProcessor.markForRetranscription(dir) }
+            print("")
+            print("Transcribing from the audio — this takes a while, and prints nothing "
+                + "until it's done.")
+            do {
+                // The same coordinator the app runs, with a queue of one. On a
+                // settled session it pulls the microphone and the far end back
+                // out of audio.m4a a channel at a time; on one that never got
+                // that far it reads the tracks as they were recorded.
+                try runBlocking { try await TranscriptionCoordinator().transcribeNow(dir) }
+            } catch {
+                print("")
+                print("Transcription failed: \(error)")
+                print(Self.logHint(dir))
+                throw ExitCode(1)
+            }
+
+        case .finish:
+            let work = try runBlocking { await PostProcessor.finish(dir) }
+            if work.isEmpty {
+                print("\nNothing to do — everything that can be done is done.")
+                return
+            }
         }
 
         print("")
         if let refreshed = SessionInventory.item(for: dir) {
             print(refreshed.summaryLine)
         }
-        print("\nSee \(dir.appendingPathComponent("transcribe.log").lastPathComponent) for detail.")
+        print("\n" + Self.logHint(dir))
+    }
+
+    private static func logHint(_ dir: URL) -> String {
+        "See \(dir.appendingPathComponent("transcribe.log").lastPathComponent) for detail."
     }
 
     /// ArgumentParser's `run()` is synchronous, and this command is a one-shot
     /// process whose whole purpose is the async work — so waiting for it is
     /// the entire job rather than a blocked main thread.
     private func runBlocking<T: Sendable>(
-        _ work: @escaping @Sendable () async -> T
-    ) -> T {
+        _ work: @escaping @Sendable () async throws -> T
+    ) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: T?
+        nonisolated(unsafe) var result: Result<T, Error>?
         Task {
-            result = await work()
+            do {
+                result = .success(try await work())
+            } catch {
+                result = .failure(error)
+            }
             semaphore.signal()
         }
         semaphore.wait()
-        return result!
+        return try result!.get()
     }
 }
 

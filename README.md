@@ -200,7 +200,8 @@ Four buttons, on the selected session:
   has been moved to.
 - **Re-transcribe** — throw the transcript, its names and the summary away and
   make them again from the audio, which is kept either way. It asks first, and
-  says that.
+  says that. `amanu process --again <folder>` is the same thing from a
+  terminal, and waits for the transcript instead of handing it to a queue.
 - **Open folder** — in the Finder; double-clicking a row does the same.
 - **Delete** — to the Trash, never `rm`. These are meetings: a mistaken delete
   costs somebody's only record of a conversation, and the Trash is what makes
@@ -566,7 +567,8 @@ amanu record start|stop|toggle  # record on purpose, in the running daemon
 amanu doctor                 # check permissions, recordings folder, models/keys
 amanu sessions               # what's recorded and what's still owed on it
 amanu sessions --pending     # only the sessions with work outstanding
-amanu process <folder>       # finish one session: names, summary, or both
+amanu process <folder>       # finish one session: a missing transcript, names, summary
+amanu process --again <dir>  # transcribe it again, from the archived audio
 amanu install --launch-at-login
 amanu install --uninstall
 ```

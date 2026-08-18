@@ -36,6 +36,15 @@ actor TranscriptionCoordinator {
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
 
+    /// An engine settled on in advance rather than chosen for the machine at
+    /// the moment there is work. Only tests pass one: everything real wants
+    /// the configured answer, and wants it decided late.
+    private let fixedEngine: TranscriptionEngine?
+
+    init(engine: TranscriptionEngine? = nil) {
+        fixedEngine = engine
+    }
+
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
         statusHandler = handler
     }
@@ -93,40 +102,69 @@ actor TranscriptionCoordinator {
             let dir = queue.removeFirst()
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
-                do {
-                    try await transcribe(dir)
-                } catch {
-                    // The network can go away between the reachability probe
-                    // and the upload. One retry on the local engine, so a
-                    // dropped connection costs minutes rather than the
-                    // transcript.
-                    guard Config.transcriptionEngine() == "auto",
-                          engineIsCloud(), Self.looksLikeNetworkTrouble(error)
-                    else { throw error }
-                    log(dir, "cloud transcription failed (\(error)) — retrying locally")
-                    await engine?.release()
-                    engine = ParakeetEngine()
-                    try await engine?.prepare()
-                    try await transcribe(dir)
-                }
-                notifyUser(
-                    title: "amanu — transcript ready",
-                    body: dir.lastPathComponent,
-                    opening: dir)
-                runHook(for: dir)
+                try await transcribeAndAnnounce(dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
                 recordFailure(error, for: dir)
             }
         }
-        await engine?.release()
-        engine = nil
+        await releaseEngine()
         publish(lastFailure.map { .failed(session: $0) } ?? .idle)
         draining = false
         // An enqueue that landed between the loop exiting and the release
         // finishing would otherwise sit until the next enqueue.
         drainIfIdle()
+    }
+
+    /// Transcribe one session now, and wait for it.
+    ///
+    /// `enqueue` belongs to the running app: it hands work to a queue, reports
+    /// through the menu bar, and leaves a failure in transcribe.log for
+    /// whoever looks. `amanu process` has a person and a terminal instead, so
+    /// it wants the failure back to print and to exit on. The work is the same
+    /// either way, down to pulling one channel out of `audio.m4a` — a settled
+    /// session has nothing else left to transcribe from.
+    func transcribeNow(_ dir: URL) async throws {
+        do {
+            try await transcribeAndAnnounce(dir)
+        } catch {
+            log(dir, "transcription failed: \(error)")
+            recordFailure(error, for: dir)
+            await releaseEngine()
+            throw error
+        }
+        await releaseEngine()
+    }
+
+    /// One session from end to end: the transcript, then the banner and the
+    /// hook that say it happened.
+    private func transcribeAndAnnounce(_ dir: URL) async throws {
+        do {
+            try await transcribe(dir)
+        } catch {
+            // The network can go away between the reachability probe and the
+            // upload. One retry on the local engine, so a dropped connection
+            // costs minutes rather than the transcript.
+            guard Config.transcriptionEngine() == "auto",
+                  engineIsCloud(), Self.looksLikeNetworkTrouble(error)
+            else { throw error }
+            log(dir, "cloud transcription failed (\(error)) — retrying locally")
+            await engine?.release()
+            engine = ParakeetEngine()
+            try await engine?.prepare()
+            try await transcribe(dir)
+        }
+        notifyUser(
+            title: "amanu — transcript ready",
+            body: dir.lastPathComponent,
+            opening: dir)
+        runHook(for: dir)
+    }
+
+    private func releaseEngine() async {
+        await engine?.release()
+        engine = nil
     }
 
     /// Count a failure against the session, and retire it once retrying has
@@ -362,6 +400,11 @@ actor TranscriptionCoordinator {
 
     private func preparedEngine() async throws -> TranscriptionEngine {
         if let engine { return engine }
+        if let fixedEngine {
+            try await fixedEngine.prepare()
+            engine = fixedEngine
+            return fixedEngine
+        }
         let configured = Config.transcriptionEngine()
         let engine: TranscriptionEngine
         switch configured {
