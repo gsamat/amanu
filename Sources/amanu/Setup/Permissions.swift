@@ -110,6 +110,26 @@ enum SetupPermissions {
         result != .heard
     }
 
+    /// How long a heard tone is taken at its word before the window asks for
+    /// another one. Long enough that a working Mac is never nagged, short
+    /// enough that a grant revoked months ago doesn't go on being believed.
+    static let systemAudioMemory: TimeInterval = 30 * 24 * 60 * 60
+
+    /// What a remembered test is still worth. A grant that was verified this
+    /// month is reported as granted; anything older is treated as unknown and
+    /// tested again, because the only evidence this permission ever gives is
+    /// a tone that made it back.
+    static func rememberedSystemAudio(
+        heardAt: Date?,
+        now: Date = Date(),
+        memory: TimeInterval = systemAudioMemory
+    ) -> SystemAudioResult? {
+        guard let heardAt, now.timeIntervalSince(heardAt) <= memory, heardAt <= now else {
+            return nil
+        }
+        return .heard
+    }
+
     /// Create a process tap, play a short tone through the default output, and
     /// report whether the tap heard it.
     ///

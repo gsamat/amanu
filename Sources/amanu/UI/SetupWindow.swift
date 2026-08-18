@@ -392,6 +392,14 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
     }
 
+    /// "18 Aug" — enough to tell this week from last spring, and short enough
+    /// to sit beside a row title.
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("d MMM")
+        return formatter
+    }()
+
     private static var systemLanguage: String? {
         Locale.current.language.languageCode?.identifier
     }
@@ -531,6 +539,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         audioRow.working("playing a tone…")
         let result = await SetupPermissions.testSystemAudio()
         systemAudio = result
+        if result == .heard { SetupState.rememberSystemAudioHeard() }
         switch result {
         case .heard:
             break
@@ -540,7 +549,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         refresh()
     }
 
-    private var systemAudio: SetupPermissions.SystemAudioResult?
+    /// Seeded from the last tone that was heard, because macOS will not tell
+    /// us and a working Mac should not be asked to prove itself every time.
+    private lazy var systemAudio: SetupPermissions.SystemAudioResult? =
+        SetupPermissions.rememberedSystemAudio(heardAt: SetupState.systemAudioHeardAt())
 
     @objc private func downloadParakeetClicked() {
         parakeetDownload.isEnabled = false
@@ -736,7 +748,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         calendarRow.update(SetupPermissions.calendar())
 
         switch systemAudio {
-        case .heard: audioRow.update(.granted, detail: "Played a tone and heard it back.")
+        case .heard:
+            audioRow.update(
+                .granted,
+                note: SetupState.systemAudioHeardAt().map {
+                    "heard the tone · \(Self.day.string(from: $0))"
+                } ?? "heard the tone",
+                action: "Test again")
         case .silent: audioRow.update(.denied, detail: "Recorded silence. Check the grant, or turn the volume up, and test again.")
         case .refused(let why): audioRow.update(.denied, detail: why)
         case nil: audioRow.update(.notAsked)
@@ -883,6 +901,7 @@ private final class AccessRow: NSView {
     private let detail: NSTextField
     private let button: NSButton
     private let defaultDetail: String
+    private let defaultAction: String
     private let grantedNote: String
     private let isOptional: Bool
 
@@ -891,6 +910,7 @@ private final class AccessRow: NSView {
         self.title = NSTextField(labelWithString: title)
         self.detail = NSTextField(labelWithString: detail)
         self.defaultDetail = detail
+        self.defaultAction = action
         self.grantedNote = grantedNote
         self.isOptional = optional
         button = NSButton(title: action, target: nil, action: nil)
@@ -967,8 +987,17 @@ private final class AccessRow: NSView {
         }
     }
 
-    func update(_ state: SetupPermissions.State, detail override: String? = nil) {
+    /// `action` keeps a button on a granted row — for the one permission
+    /// macOS will not report, where "granted" is a measurement someone may
+    /// reasonably want to take again.
+    func update(
+        _ state: SetupPermissions.State,
+        detail override: String? = nil,
+        note noteOverride: String? = nil,
+        action actionTitle: String? = nil
+    ) {
         button.isEnabled = true
+        button.title = actionTitle ?? defaultAction
         detail.stringValue = override ?? defaultDetail
 
         // A granted permission is one line: the title and how it stands. The
@@ -976,7 +1005,7 @@ private final class AccessRow: NSView {
         // it has nothing left to say once they have.
         let settled = state == .granted && override == nil
         detail.isHidden = settled
-        note.stringValue = {
+        note.stringValue = noteOverride ?? {
             switch state {
             case .granted: return grantedNote
             case .notAsked, .unknown: return isOptional ? "optional" : ""
@@ -990,7 +1019,7 @@ private final class AccessRow: NSView {
             mark.image = NSImage(
                 systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "granted")
             mark.contentTintColor = .systemGreen
-            button.isHidden = true
+            button.isHidden = actionTitle == nil
         case .denied:
             mark.image = NSImage(
                 systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "denied")

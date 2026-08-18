@@ -38,6 +38,37 @@ struct SetupTests {
         #expect(!SetupPermissions.needsSystemAudioTest(.heard))
     }
 
+    @Test("A heard tone is believed for a month, and then measured again")
+    @MainActor
+    func systemAudioMemory() {
+        let heard = Date(timeIntervalSince1970: 1_000_000)
+        let week = heard.addingTimeInterval(7 * 24 * 60 * 60)
+        let quarter = heard.addingTimeInterval(90 * 24 * 60 * 60)
+
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: heard, now: week) == .heard)
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: heard, now: quarter) == nil)
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: nil, now: week) == nil)
+        // A clock that went backwards is not evidence of anything.
+        #expect(SetupPermissions.rememberedSystemAudio(
+            heardAt: quarter, now: heard) == nil)
+    }
+
+    @Test("The remembered tone survives marking setup complete, and vice versa")
+    func systemAudioMemoryRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let state = dir.appendingPathComponent("setup.json")
+
+        let heard = Date(timeIntervalSince1970: 1_700_000_000)
+        SetupState.rememberSystemAudioHeard(now: heard, at: state)
+        SetupState.markCompleted(at: state)
+
+        #expect(SetupState.systemAudioHeardAt(at: state) == heard)
+        #expect(SetupState.isPending(at: state) == false)
+    }
+
     @Test("First-run setup bypasses a denied microphone, not a broken recordings folder")
     func doctorRepairBoundary() {
         let microphone = Check(name: "microphone", status: .fail("denied"), remediation: nil)
