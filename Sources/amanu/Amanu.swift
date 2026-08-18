@@ -9,6 +9,7 @@ struct Amanu: ParsableCommand {
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
         subcommands: [
             Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self,
+            Record.self,
         ],
         defaultSubcommand: Run.self
     )
@@ -249,6 +250,7 @@ final class AppController {
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
+    private var recordRequestObserver: NSObjectProtocol?
     private var automaticFeaturesStarted = false
 
     init(root: URL) {
@@ -304,6 +306,9 @@ final class AppController {
         }
 
         setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
+        recordRequestObserver = RecordRequest.observe { [weak self] action in
+            self?.perform(action)
+        }
         if SetupState.isPending {
             showSetup()
         } else {
@@ -365,6 +370,18 @@ final class AppController {
     /// Idempotent: stopSession does nothing without a session.
     func finishForTermination() {
         stopSession(reason: "app-quit")
+    }
+
+    /// What `amanu record` asks for. Asking to start what is already running,
+    /// or to stop what isn't, is not an error — it is the state the caller
+    /// wanted, and scripts should be able to say it twice.
+    private func perform(_ action: RecordRequest.Action) {
+        switch action {
+        case .start where session == nil: toggle()
+        case .stop where session != nil: toggle()
+        case .toggle: toggle()
+        case .start, .stop: break
+        }
     }
 
     private func toggle() {
