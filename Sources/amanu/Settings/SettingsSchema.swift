@@ -100,13 +100,7 @@ enum SettingsSchema {
                   "For meetings played through speakers, so the far end isn't recorded onto your track as well. Ducks other playback while active; pointless on headphones.",
                   .toggle, default: true),
             Entry(["keep_audio"], "Keep the audio after transcribing",
-                  "Off, a session keeps its transcript and its summary — about a gigabyte an hour lighter, and nothing left to transcribe again if the result is wrong. A recording that never got a transcript is kept either way.",
-                  .toggle, default: false),
-            Entry(["compress_tracks"], "Compress tracks after transcribing",
-                  "Recording is uncompressed so it survives a crash. Only applies when the audio is kept.",
-                  .toggle, default: true),
-            Entry(["keep_uncompressed"], "Keep the uncompressed audio",
-                  "Keeps the original PCM alongside the compressed tracks. Only applies when the audio is kept.",
+                  "Saves one stereo M4A: your mic on the left, the other side on the right. A recording that never got a transcript is kept either way.",
                   .toggle, default: false),
             Entry(["recordings_dir"], "Recordings folder",
                   "Where sessions land.",
@@ -270,11 +264,18 @@ enum SettingsSchema {
     /// reported as one it ignores.
     static let unrenderedKeys = ["transcription.assemblyai.api_key"]
 
+    /// Older releases exposed these choices. Retained audio now always becomes
+    /// one compact stereo M4A, but accepting the keys keeps an old config from
+    /// being reported as misspelled until its owner next edits the file.
+    static let deprecatedKeys = ["compress_tracks", "keep_uncompressed"]
+
     /// Every key the program understands, as `a.b` strings — used to spot
     /// settings in a config file that nothing reads (a typo, or a key from an
     /// older version).
     static var knownKeys: [String] {
-        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") } + unrenderedKeys
+        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") }
+            + unrenderedKeys
+            + deprecatedKeys
     }
 
     /// Keys present in a config file that nothing reads.

@@ -98,8 +98,7 @@ Inside:
 
 | File | Contents |
 |---|---|
-| `mic.m4a` | your side (when **Keep audio** is on) |
-| `system.m4a` | the other side of the call (when **Keep audio** is on) |
+| `audio.m4a` | compact stereo archive when **Keep audio** is on: your mic left, the other side right |
 | `meta.json` | timestamps, duration, per-track offsets, trigger, stop reason, the app, and the calendar event's title, attendees and link |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading, with names where they're known |
@@ -110,17 +109,18 @@ Inside:
 | `mixed.m4a` | temporary mix for a diarizing engine; removed after transcription |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
 
-Two tracks on purpose: speech models do better on clean single-source audio,
-and mic-vs-system is free two-party diarization — `me` vs `them` with no
-speaker-identification model.
+Two tracks while recording on purpose: speech models do better on clean
+single-source audio, and mic-vs-system is free two-party diarization — `me` vs
+`them` with no speaker-identification model. A retained `audio.m4a` preserves
+that separation in its left and right channels.
 
 While the meeting runs, those two tracks are **uncompressed PCM** in `.caf`,
 about a gigabyte an hour between them. Once `transcript.json` has been written,
 the audio is deleted by default; naming and summaries read the transcript and
 do not need it. A failed transcription always keeps the recording so it can be
-tried again. Turn on `keep_audio` to retain successful recordings; then they
-are re-encoded to `.m4a` (about 12× smaller) by default. `compress_tracks:
-false` keeps PCM, and `keep_uncompressed: true` keeps PCM beside the AAC copy.
+tried again. Turn on `keep_audio` to retain successful recordings; the two PCM
+tracks are then aligned and encoded as one stereo AAC `audio.m4a`, with the
+microphone on the left and system audio on the right.
 
 The format is not an aesthetic choice — see [If amanu dies
 mid-meeting](#if-amanu-dies-mid-meeting).
@@ -519,12 +519,9 @@ Optional, at `~/.config/amanu/config.json`:
 - `window` — open the status window at launch (default on).
 - `keep_audio` — keep audio after a successful transcript (default off). Audio
   is always kept when transcription fails. Turning this on is what makes
-  **Re-transcribe** available for completed sessions.
-- `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
-  exists (default on). Only applies when `keep_audio` is on; `false` leaves
-  every retained session as PCM, about a gigabyte an hour.
-- `keep_uncompressed` — keep the PCM alongside the compressed tracks rather
-  than deleting it (default off; only applies when `keep_audio` is on).
+  **Re-transcribe** available for completed sessions. Retained audio is one
+  compact stereo `audio.m4a`: microphone on the left, system audio on the
+  right.
 - `summary.*` — `enabled`, `backend` (`auto`, `claude-cli`, `anthropic-api`,
   `codex-cli`, `openai-api`, `ollama`, or `none` to skip summarizing without
   turning off the rest), `language` (unset means the language of the meeting),

@@ -268,19 +268,6 @@ enum Config {
         load()?["window"] as? Bool ?? true
     }
 
-    /// Whether finished sessions have their PCM tracks re-encoded as AAC once
-    /// the transcript exists. Recording uncompressed is what makes a session
-    /// survive a crash; keeping it uncompressed afterwards just fills the disk.
-    static func compressTracks() -> Bool {
-        load()?["compress_tracks"] as? Bool ?? true
-    }
-
-    /// Keep the PCM next to the compressed tracks instead of deleting it. For
-    /// anyone who wants the original audio — it costs about a gigabyte an hour.
-    static func keepUncompressed() -> Bool {
-        load()?["keep_uncompressed"] as? Bool ?? false
-    }
-
     /// Whether the audio outlives the transcript it was recorded for.
     ///
     /// Off by default, and that is a real trade rather than a tidy-up: a
@@ -288,8 +275,8 @@ enum Config {
     /// almost nobody plays it back. What it costs is the only cure for a bad
     /// transcript — a wrong language, a worse engine, a name the model got
     /// backwards — because re-transcribing needs the audio and nothing else
-    /// can reconstruct it. Turn it on and `compress_tracks` decides the format
-    /// the archive is kept in; off, that setting has nothing left to act on.
+    /// can reconstruct it. Turn it on and the two temporary PCM tracks become
+    /// one compact stereo M4A: mic on the left, system audio on the right.
     ///
     /// Only ever applies to a session that got its transcript. A session that
     /// failed keeps its audio whatever this says — that recording is the only

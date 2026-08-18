@@ -2,7 +2,8 @@ import AVFoundation
 import Foundation
 
 /// Settles a finished session's audio once its transcript exists: either
-/// deletes it, or turns PCM tracks into AAC and deletes the originals.
+/// deletes it, or turns the two PCM tracks into one stereo AAC archive and
+/// deletes the originals.
 ///
 /// Recording writes uncompressed PCM because that is the only format that
 /// survives a hard kill (see AudioFormats), at about a gigabyte an hour across
@@ -48,6 +49,8 @@ enum TrackCompressor {
             candidates.insert("\(stem).m4a")
         }
         candidates.insert("mixed.m4a")
+        candidates.insert("audio.m4a")
+        candidates.insert("audio.tmp.m4a")
 
         var freed: Int64 = 0
         var removed = 0
@@ -69,48 +72,69 @@ enum TrackCompressor {
         log("audio discarded — \(mb(freed)) freed (keep_audio is off)")
     }
 
-    /// Compress every PCM track named in meta.json, rewrite meta.json to point
-    /// at the compressed files, and delete what's been replaced.
+    /// Align the mic and system tracks on their shared clock, archive them as
+    /// the left and right channels of one M4A, then delete what's been
+    /// replaced. A missing track becomes a silent channel; an existing track
+    /// that cannot be read aborts the operation and remains untouched.
     static func compress(sessionDir dir: URL) {
         func log(_ message: String) { appendSessionLog(message, to: dir) }
-        guard Config.compressTracks() else { return }
 
         let metaURL = dir.appendingPathComponent("meta.json")
         guard
             let data = try? Data(contentsOf: metaURL),
             var meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            var files = meta["files"] as? [String: String]
+            let files = meta["files"] as? [String: String]
         else {
             log("compression skipped — can't read meta.json")
             return
         }
 
-        var replaced = false
-        for (track, name) in files where name.hasSuffix(".caf") {
-            let source = dir.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: source.path) else { continue }
-            let destination = source.deletingPathExtension().appendingPathExtension("m4a")
-
-            do {
-                let saved = try encode(source, to: destination)
-                files[track] = destination.lastPathComponent
-                replaced = true
-                log("compressed \(name) → \(destination.lastPathComponent) (\(saved))")
-            } catch {
-                // Leave this track as PCM and keep the others' results: a
-                // failed encode must never cost the audio it was compressing.
-                try? FileManager.default.removeItem(at: destination)
-                log("compression of \(name) failed, keeping the original: \(error)")
-            }
+        if files["mic"] == "audio.m4a",
+           files["system"] == "audio.m4a",
+           FileManager.default.fileExists(atPath: dir.appendingPathComponent("audio.m4a").path) {
+            return
         }
-        guard replaced else { return }
 
-        meta["files"] = files
+        let offsets = meta["start_offset_ms"] as? [String: Int] ?? [:]
+        let archive = dir.appendingPathComponent("audio.m4a")
+        let temporary = dir.appendingPathComponent("audio.tmp.m4a")
+        let mic = files["mic"].map {
+            StereoTrack(url: dir.appendingPathComponent($0), offsetMs: offsets["mic"] ?? 0)
+        }
+        let system = files["system"].map {
+            StereoTrack(url: dir.appendingPathComponent($0), offsetMs: offsets["system"] ?? 0)
+        }
+
+        let saved: String
+        do {
+            saved = try encodeStereo(mic: mic, system: system, to: temporary)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            log("compression failed, keeping the originals: \(error)")
+            return
+        }
+
+        do {
+            try? FileManager.default.removeItem(at: archive)
+            try FileManager.default.moveItem(at: temporary, to: archive)
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            log("couldn't put audio.m4a in place, keeping the originals: \(error)")
+            return
+        }
+
+        meta["files"] = ["mic": "audio.m4a", "system": "audio.m4a"]
+        meta["audio_channels"] = ["mic": 0, "system": 1]
+        if let original = meta["start_offset_ms"] {
+            meta["recorded_start_offset_ms"] = original
+        }
+        meta["start_offset_ms"] = ["mic": 0, "system": 0]
         meta["compressed"] = true
         guard let updated = try? JSONSerialization.data(
             withJSONObject: meta, options: [.prettyPrinted, .sortedKeys]
         ) else {
-            log("compression done but meta.json could not be rewritten — keeping the PCM")
+            try? FileManager.default.removeItem(at: archive)
+            log("compression done but meta.json could not be rewritten — keeping the originals")
             return
         }
         // The PCM is deleted only after meta.json points somewhere else, so an
@@ -119,19 +143,18 @@ enum TrackCompressor {
         do {
             try updated.write(to: metaURL, options: .atomic)
         } catch {
-            log("couldn't rewrite meta.json (\(error)) — keeping the PCM")
+            try? FileManager.default.removeItem(at: archive)
+            log("couldn't rewrite meta.json (\(error)) — keeping the originals")
             return
         }
 
-        guard !Config.keepUncompressed() else { return }
-        for name in files.values {
-            let pcm = dir.appendingPathComponent(name)
-                .deletingPathExtension().appendingPathExtension("caf")
-            try? FileManager.default.removeItem(at: pcm)
+        for name in Set(files.values) where name != archive.lastPathComponent {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
         }
         // Derived from the tracks and regenerated on demand; keeping it costs
         // more than the tracks themselves.
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("mixed.m4a"))
+        log("archived mic left + system right → audio.m4a (\(saved))")
     }
 
     // MARK: -
@@ -139,73 +162,170 @@ enum TrackCompressor {
     enum CompressionError: Error, CustomStringConvertible {
         case unreadable(URL)
         case tooShort(source: Int64, encoded: Int64)
+        case noUsableTracks
 
         var description: String {
             switch self {
             case .unreadable(let url): return "can't read \(url.lastPathComponent)"
             case .tooShort(let source, let encoded):
                 return "encoded \(encoded) of \(source) frames"
+            case .noUsableTracks: return "no readable audio tracks"
             }
         }
     }
 
-    /// Encode one file to AAC, streaming, and verify the result covers the
-    /// source before the caller is allowed to delete anything. Returns a short
-    /// human-readable size comparison. Internal rather than private so the
-    /// verification step can be tested on its own.
-    static func encode(_ source: URL, to destination: URL) throws -> String {
-        guard let input = try? AVAudioFile(forReading: source), input.length > 0 else {
-            throw CompressionError.unreadable(source)
-        }
-        let format = input.processingFormat
-        try? FileManager.default.removeItem(at: destination)
+    private struct StereoTrack {
+        let url: URL
+        let offsetMs: Int
+    }
 
-        // Scoped so the writer is released — and the file therefore closed and
-        // its container finalized — before anything tries to read it back. An
-        // m4a whose writer is still alive has no index yet and opens as an
-        // invalid file.
-        func writeEncoded() throws {
+    /// Stream two independently recorded tracks into a stereo AAC file. This
+    /// never holds more than a few seconds in memory, even for a long meeting.
+    private static func encodeStereo(
+        mic: StereoTrack?,
+        system: StereoTrack?,
+        to destination: URL
+    ) throws -> String {
+        let fm = FileManager.default
+
+        func source(_ track: StereoTrack?) throws -> StereoSource? {
+            guard let track else { return nil }
+            guard fm.fileExists(atPath: track.url.path) else { return nil }
+            guard let file = try? AVAudioFile(forReading: track.url), file.length > 0 else {
+                throw CompressionError.unreadable(track.url)
+            }
+            return StereoSource(file: file, offsetMs: track.offsetMs)
+        }
+
+        let micSource = try source(mic)
+        let systemSource = try source(system)
+        let sources = [micSource, systemSource].compactMap { $0 }
+        guard !sources.isEmpty else { throw CompressionError.noUsableTracks }
+
+        let rate = sources.map(\.rate).max()!
+        guard let mono = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: rate,
+            channels: 1,
+            interleaved: false
+        ), let stereo = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: rate,
+            channels: 2,
+            interleaved: false
+        ) else { throw CompressionError.noUsableTracks }
+
+        let micReader = micSource.flatMap { StereoReader($0, to: mono) }
+        let systemReader = systemSource.flatMap { StereoReader($0, to: mono) }
+        let totalFrames = sources.map { source in
+            AVAudioFramePosition((Double(source.file.length) * rate / source.rate).rounded(.up))
+                + AVAudioFramePosition(Double(source.offsetMs) * rate / 1000)
+        }.max()!
+        let blockFrames = AVAudioFrameCount(rate)
+        try? fm.removeItem(at: destination)
+
+        func writeArchive() throws {
             let output = try AVAudioFile(
                 forWriting: destination,
                 settings: [
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: format.sampleRate,
-                    AVNumberOfChannelsKey: format.channelCount,
-                    // Speech, not music: 64k mono and 96k stereo are
-                    // transparent enough that no transcriber can tell, at about
-                    // a twentieth of the size.
-                    AVEncoderBitRateKey: format.channelCount > 1 ? 96_000 : 64_000,
+                    AVSampleRateKey: rate,
+                    AVNumberOfChannelsKey: 2,
+                    AVEncoderBitRateKey: 128_000,
                 ],
-                commonFormat: format.commonFormat,
-                interleaved: format.isInterleaved
+                commonFormat: .pcmFormatFloat32,
+                interleaved: false
             )
-            guard let buffer = AVAudioPCMBuffer(
-                pcmFormat: format, frameCapacity: AVAudioFrameCount(format.sampleRate)
-            ) else { throw CompressionError.unreadable(source) }
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: stereo, frameCapacity: blockFrames)
+            else { throw CompressionError.noUsableTracks }
 
-            // Bounded by framePosition rather than by a zero-length read:
-            // reading past the end of an AVAudioFile throws rather than
-            // returning nothing, so "read until it comes back empty" ends every
-            // encode in a spurious failure.
-            while input.framePosition < input.length {
-                buffer.frameLength = 0
-                try input.read(into: buffer)
-                guard buffer.frameLength > 0 else { break }
+            var position: AVAudioFramePosition = 0
+            while position < totalFrames {
+                let count = AVAudioFrameCount(min(
+                    AVAudioFramePosition(blockFrames), totalFrames - position))
+                buffer.frameLength = count
+                buffer.floatChannelData![0].update(repeating: 0, count: Int(count))
+                buffer.floatChannelData![1].update(repeating: 0, count: Int(count))
+                micReader?.fill(buffer.floatChannelData![0], frames: count, at: position)
+                systemReader?.fill(buffer.floatChannelData![1], frames: count, at: position)
                 try output.write(from: buffer)
+                position += AVAudioFramePosition(count)
             }
         }
-        try writeEncoded()
+        try writeArchive()
 
-        // Verify before anything is deleted. AAC pads with priming frames, so
-        // the encoded file is a little longer than the source, never shorter;
-        // a truncated encode is the failure that would cost the meeting.
-        let encoded = try AVAudioFile(forReading: destination).length
-        guard Double(encoded) >= Double(input.length) * 0.99 else {
-            throw CompressionError.tooShort(source: input.length, encoded: encoded)
+        let encoded = try AVAudioFile(forReading: destination)
+        guard encoded.processingFormat.channelCount == 2,
+              Double(encoded.length) >= Double(totalFrames) * 0.99
+        else {
+            throw CompressionError.tooShort(source: totalFrames, encoded: encoded.length)
         }
 
-        let before = size(of: source), after = size(of: destination)
-        return "\(mb(before)) → \(mb(after))"
+        let before = sources.reduce(Int64(0)) { $0 + size(of: $1.file.url) }
+        return "\(mb(before)) → \(mb(size(of: destination)))"
+    }
+
+    private struct StereoSource {
+        let file: AVAudioFile
+        let offsetMs: Int
+        var rate: Double { file.processingFormat.sampleRate }
+    }
+
+    /// AVAudioConverter invokes its input block synchronously; each reader is
+    /// confined to the one compression call despite the block's Sendable type.
+    private final class StereoReader: @unchecked Sendable {
+        private let file: AVAudioFile
+        private let converter: AVAudioConverter
+        private let staging: AVAudioPCMBuffer
+        private let format: AVAudioFormat
+        private let start: AVAudioFramePosition
+        private var spent = false
+
+        init?(_ source: StereoSource, to format: AVAudioFormat) {
+            let input = source.file.processingFormat
+            guard let converter = AVAudioConverter(from: input, to: format),
+                  let staging = AVAudioPCMBuffer(
+                    pcmFormat: input,
+                    frameCapacity: AVAudioFrameCount(input.sampleRate))
+            else { return nil }
+            file = source.file
+            self.converter = converter
+            self.staging = staging
+            self.format = format
+            start = AVAudioFramePosition(Double(source.offsetMs) * format.sampleRate / 1000)
+        }
+
+        func fill(
+            _ destination: UnsafeMutablePointer<Float>,
+            frames: AVAudioFrameCount,
+            at position: AVAudioFramePosition
+        ) {
+            guard !spent else { return }
+            let lead = max(0, start - position)
+            guard lead < AVAudioFramePosition(frames) else { return }
+            let wanted = frames - AVAudioFrameCount(lead)
+            guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: wanted)
+            else { return }
+
+            var error: NSError?
+            let status = converter.convert(to: output, error: &error) { [self] _, status in
+                staging.frameLength = 0
+                guard file.framePosition < file.length,
+                      (try? file.read(into: staging)) != nil,
+                      staging.frameLength > 0
+                else {
+                    status.pointee = .endOfStream
+                    return nil
+                }
+                status.pointee = .haveData
+                return staging
+            }
+            if status == .endOfStream || status == .error { spent = true }
+            guard output.frameLength > 0, let samples = output.floatChannelData?[0] else { return }
+            destination.advanced(by: Int(lead)).update(
+                from: samples,
+                count: Int(output.frameLength))
+        }
     }
 
     private static func size(of url: URL) -> Int64 {

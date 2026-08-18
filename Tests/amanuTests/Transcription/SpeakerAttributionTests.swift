@@ -123,6 +123,28 @@ struct SpeakerAttributionTests {
         #expect(f.resolve([Self.seg(0.1, 1.9, "A"), Self.seg(6.1, 7.9, "A")]) == ["me", "me"])
     }
 
+    /// Catches treating a stereo archive as two identical downmixed files,
+    /// which credits every utterance to the same side after PCM is removed.
+    @Test("Speaker attribution reads archive channels independently")
+    func archivedChannelsStayIndependent() throws {
+        let f = try Fixture()
+        try JSONSerialization.data(withJSONObject: [
+            "files": ["mic": "mic.caf", "system": "system.caf"],
+            "start_offset_ms": ["mic": 0, "system": 500],
+        ]).write(to: f.dir.appendingPathComponent("meta.json"), options: .atomic)
+        TrackCompressor.compress(sessionDir: f.dir)
+
+        let archive = f.dir.appendingPathComponent("audio.m4a")
+        let segments = [Self.seg(0.1, 1.9, "A"), Self.seg(3.1, 4.9, "B")]
+        #expect(SpeakerAttribution.resolve(
+            segments: segments,
+            mic: archive,
+            micOffset: 0,
+            system: archive,
+            systemOffset: 0
+        ) == ["me", "them"])
+    }
+
     @Test("A stretch silent on both tracks inherits its label's usual side")
     func silentStretchInheritsSide() throws {
         let f = try Fixture()

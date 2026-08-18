@@ -94,7 +94,14 @@ belongs in the middle of a recording.
    - `meta.json` contains `"audio_discarded": true`;
    - **Re-transcribe** is disabled for that session.
 3. Turn **Keep audio** on and make another short recording. After transcription,
-   confirm mic/system `.m4a` files remain and **Re-transcribe** is enabled.
+   confirm:
+   - one `audio.m4a` remains and the source `.caf` files are gone;
+   - the M4A is materially smaller than the source PCM size reported in
+     `transcribe.log`;
+   - your microphone is audible only in the left channel and Mac playback only
+     in the right channel;
+   - **Re-transcribe** is enabled and successfully produces a new transcript
+     from the archived channels.
 4. Optional failure-path check: temporarily select AssemblyAI without a usable
    key, record a few seconds, and confirm a failed transcript keeps the source
    audio. Restore the engine to **Whichever works** immediately afterwards.

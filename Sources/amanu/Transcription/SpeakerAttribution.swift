@@ -56,9 +56,10 @@ enum SpeakerAttribution {
         system: URL,
         systemOffset: TimeInterval
     ) -> [String]? {
+        let sharedArchive = mic.standardizedFileURL == system.standardizedFileURL
         guard !segments.isEmpty,
-              let micEnvelope = Envelope(url: mic),
-              let systemEnvelope = Envelope(url: system)
+              let micEnvelope = Envelope(url: mic, channel: sharedArchive ? 0 : nil),
+              let systemEnvelope = Envelope(url: system, channel: sharedArchive ? 1 : nil)
         else { return nil }
 
         // First pass: whichever track is louder over the utterance spoke it.
@@ -136,7 +137,7 @@ enum SpeakerAttribution {
 
         /// Read the file once, streaming, and reduce it to per-bucket RMS.
         /// nil if the file is missing, empty, or entirely silent.
-        init?(url: URL) {
+        init?(url: URL, channel selectedChannel: Int? = nil) {
             guard
                 FileManager.default.fileExists(atPath: url.path),
                 let file = try? AVAudioFile(forReading: url),
@@ -144,6 +145,7 @@ enum SpeakerAttribution {
             else { return nil }
 
             let format = file.processingFormat
+            if let selectedChannel, selectedChannel >= Int(format.channelCount) { return nil }
             let framesPerBucket = max(1, Int(format.sampleRate * SpeakerAttribution.bucket))
             guard let buffer = AVAudioPCMBuffer(
                 pcmFormat: format,
@@ -162,11 +164,16 @@ enum SpeakerAttribution {
                 let frames = Int(buffer.frameLength)
 
                 for frame in 0..<frames {
-                    var sample: Float = 0
-                    for channel in 0..<channelCount {
-                        sample += channels[channel][frame]
+                    let sample: Float
+                    if let selectedChannel {
+                        sample = channels[selectedChannel][frame]
+                    } else {
+                        var mixed: Float = 0
+                        for channel in 0..<channelCount {
+                            mixed += channels[channel][frame]
+                        }
+                        sample = mixed / Float(channelCount)
                     }
-                    sample /= Float(channelCount)
                     carrySquares += sample * sample
                     carryFrames += 1
                     if carryFrames == framesPerBucket {

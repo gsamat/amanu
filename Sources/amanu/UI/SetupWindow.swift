@@ -267,9 +267,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         keepAudio.action = #selector(keepAudioChanged)
         return settingRow(
             control: keepAudio,
-            title: "Keep the audio after transcribing",
-            detail: "Off, a session keeps its transcript and its summary — about a gigabyte "
-                + "an hour lighter, and nothing left to transcribe again if the result is wrong.")
+            title: "Keep the audio after transcribing")
     }
 
     private func summariesHeader() -> NSView {
@@ -345,16 +343,20 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     /// A switch on the left, a title and a line of explanation beside it.
-    private func settingRow(control: NSView, title: String, detail: String) -> NSView {
+    private func settingRow(control: NSView, title: String, detail: String? = nil) -> NSView {
         let titleLabel = NSTextField(labelWithString: title)
-        let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = .systemFont(ofSize: 11)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.maximumNumberOfLines = 3
-        detailLabel.preferredMaxLayoutWidth = 520
+        var labels: [NSView] = [titleLabel]
+        if let detail {
+            let detailLabel = NSTextField(labelWithString: detail)
+            detailLabel.font = .systemFont(ofSize: 11)
+            detailLabel.textColor = .secondaryLabelColor
+            detailLabel.lineBreakMode = .byWordWrapping
+            detailLabel.maximumNumberOfLines = 3
+            detailLabel.preferredMaxLayoutWidth = 520
+            labels.append(detailLabel)
+        }
 
-        let text = NSStackView(views: [titleLabel, detailLabel])
+        let text = NSStackView(views: labels)
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
