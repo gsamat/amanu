@@ -45,26 +45,45 @@ enum LegacyMigration {
         }
 
         // The CLI keeps working, because agents and scripts call it: it becomes
-        // a symlink into the bundle, so an updated app updates it too. An
-        // existing binary is moved aside rather than overwritten — it may be a
-        // copy someone still wants.
-        if let link = try? fm.destinationOfSymbolicLink(atPath: cli.path),
-           link == bundleExecutable.path {
-            return result
-        }
-        do {
-            if fm.fileExists(atPath: cli.path) {
-                let stamp = legacyStamp(now)
-                try fm.moveItem(at: cli, to: cli.appendingPathExtension("legacy-\(stamp)"))
-            }
-            try fm.createDirectory(
-                at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.createSymbolicLink(at: cli, withDestinationURL: bundleExecutable)
-            result.linkedCLI = true
-        } catch {
+        // a symlink into the bundle, so an updated app updates it too.
+        switch pointCLI(at: cli, to: bundleExecutable, now: now) {
+        case .success(let changed): result.linkedCLI = changed
+        case .failure(let error):
             result.notes.append("couldn't point \(cli.path) at the app: \(error)")
         }
         return result
+    }
+
+    /// Point `~/.local/bin/amanu` at the executable inside the bundle.
+    ///
+    /// An old symlink is simply replaced — it is a pointer, not anybody's
+    /// file. A real binary is moved aside with the date rather than
+    /// overwritten, and if that name is taken (a second migration on the same
+    /// day, which is exactly what happens while this is being built) the
+    /// backup is numbered instead of failing.
+    static func pointCLI(at cli: URL, to executable: URL, now: Date) -> Swift.Result<Bool, Error> {
+        let fm = FileManager.default
+        if let existing = try? fm.destinationOfSymbolicLink(atPath: cli.path) {
+            guard existing != executable.path else { return .success(false) }
+            do { try fm.removeItem(at: cli) } catch { return .failure(error) }
+        } else if fm.fileExists(atPath: cli.path) {
+            let stamp = legacyStamp(now)
+            var backup = cli.appendingPathExtension("legacy-\(stamp)")
+            var attempt = 2
+            while fm.fileExists(atPath: backup.path) {
+                backup = cli.appendingPathExtension("legacy-\(stamp)-\(attempt)")
+                attempt += 1
+            }
+            do { try fm.moveItem(at: cli, to: backup) } catch { return .failure(error) }
+        }
+        do {
+            try fm.createDirectory(
+                at: cli.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.createSymbolicLink(at: cli, withDestinationURL: executable)
+            return .success(true)
+        } catch {
+            return .failure(error)
+        }
     }
 
     /// A job we wrote points at an executable called amanu. Anything else with

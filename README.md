@@ -28,13 +28,25 @@ past the point of a patch — [what changed and why](FORK.md).
 
 ```sh
 cd amanu
-make install                      # build, sign, → ~/.local/bin/amanu
-amanu                              # first run opens Setup
+make app                          # build, sign → .build/Amanu.app
+cp -R .build/Amanu.app /Applications/
+open /Applications/Amanu.app      # first run opens Setup
 ```
 
-No sudo: `~/.local/bin` is yours, and `/usr/local/bin` doesn't exist on a
-stock Mac anyway. `make install PREFIX=/usr/local` if you'd rather (that one
-does need write access).
+amanu is an ordinary macOS application: a Dock icon, a menu bar item, and a
+small status window. Closing the window doesn't stop it — that's the point of
+a recorder — and **Start at login** in Setup registers it the way every other
+app does, through Login Items in System Settings.
+
+The first launch also retires the old installation, if there is one: it stops
+and removes the LaunchAgent this program used to write, and points
+`~/.local/bin/amanu` at the executable inside the bundle so scripts and agents
+keep working. The binary it replaces is moved aside with the date, never
+deleted.
+
+`make install` still exists and still builds the bare binary into
+`~/.local/bin` — useful for a machine that would rather run it as a daemon,
+and the path the LaunchAgent takes.
 
 **Signing isn't cosmetic here.** macOS attributes the microphone and Screen &
 System Audio Recording grants to the binary's code signature, and SwiftPM only
@@ -55,6 +67,15 @@ machine it falls back to ad-hoc and still works — you just get the re-prompts.
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
 virtual device, no kernel extension). Apple Silicon recommended for
 transcription speed.
+
+**Why an application and not a daemon.** System audio is captured by whichever
+process macOS holds *responsible* for the request. A binary started from a
+terminal is attributed to the terminal, gets no prompt, and records a
+full-length silent file — the failure documented in
+`.issues/rca-002-system-tap-silent-outside-launchagent.md`, which is why amanu
+shipped with a LaunchAgent for a year. A signed application bundle is its own
+responsible process, which `spike/tcc-bundle` measures directly by playing a
+tone into its own tap and counting the samples that come back.
 
 ## How to use
 
