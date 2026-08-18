@@ -3,12 +3,25 @@ import CoreAudio
 import Foundation
 import os.lock
 
-/// Records all system audio output to a file via a Core Audio process tap
-/// (macOS 14.2+). No virtual device, no kernel extension — the tap mixes every
-/// process's output to stereo and hands us buffers through a private aggregate
-/// device. First use triggers the one-time "System Audio Recording" TCC prompt
-/// and lights the purple recording indicator while active.
+/// Records system audio output to a file via a Core Audio process tap
+/// (macOS 14.2+). No virtual device, no kernel extension — the tap mixes the
+/// chosen processes' output to stereo and hands us buffers through a private
+/// aggregate device. First use triggers the one-time "System Audio Recording"
+/// TCC prompt and lights the purple recording indicator while active.
 final class SystemAudioRecorder {
+    /// Whose output lands on the far-end track.
+    enum Scope: Equatable {
+        /// Everything the Mac plays. Safe and indiscriminate: notification
+        /// dings, music and the video you opened afterwards all count as "the
+        /// meeting", both in the transcript and in the auto-record loop's
+        /// judgement of whether anyone is still talking.
+        case everything
+        /// Only processes belonging to these bundle-id families — the call
+        /// app. Cleaner recordings, and a far-end silence signal that means
+        /// what it says.
+        case apps([String])
+    }
+
     enum RecorderError: Error, CustomStringConvertible {
         case tapCreationFailed(OSStatus)
         case tapFormatUnreadable(OSStatus)
@@ -29,6 +42,12 @@ final class SystemAudioRecorder {
             }
         }
     }
+
+    private(set) var scope: Scope = .everything
+    /// The audio objects currently in the tap. Compared on refresh so a tap is
+    /// only rewritten when the app's set of processes has actually changed.
+    private var tappedObjects: [AudioObjectID] = []
+    private var refreshFailed = false
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
@@ -76,13 +95,12 @@ final class SystemAudioRecorder {
     /// Start capturing system audio, encoding AAC into `url` (use a .caf
     /// extension — CAF needs no finalization pass, so a crash mid-meeting
     /// loses nothing already written).
-    func start(writingTo url: URL) throws {
+    func start(writingTo url: URL, scope: Scope = .everything) throws {
         guard !isRecording else { return }
 
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        description.name = "quill system tap"
-        description.isPrivate = true
-        description.muteBehavior = .unmuted
+        let (description, objects) = Self.describe(scope)
+        self.scope = objects.isEmpty ? .everything : scope
+        tappedObjects = objects
 
         var newTapID = AudioObjectID(kAudioObjectUnknown)
         let status = AudioHardwareCreateProcessTap(description, &newTapID)
@@ -112,7 +130,88 @@ final class SystemAudioRecorder {
         cleanup()
     }
 
+    /// Re-point the tap at the app's processes as they come and go — a
+    /// browser renderer restarted by a reloaded tab, a helper the call app
+    /// spawns when someone shares their screen, or a second call app joining
+    /// the session. Cheap enough for the 15-second liveness tick.
+    ///
+    /// The tap's description is settable, so this never touches the aggregate
+    /// device or the file — nothing about the recording is interrupted. If the
+    /// system refuses, the existing tap keeps running and we say so once
+    /// rather than every fifteen seconds for an hour.
+    func refresh(scope newScope: Scope) {
+        guard isRecording, tapID != kAudioObjectUnknown else { return }
+        guard case .apps = newScope else { return }
+
+        let (description, objects) = Self.describe(newScope)
+        guard !objects.isEmpty, objects != tappedObjects else { return }
+
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioTapPropertyDescription,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value = description
+        let status = withUnsafeMutablePointer(to: &value) { pointer in
+            AudioObjectSetPropertyData(
+                tapID, &address, 0, nil, UInt32(MemoryLayout<CATapDescription>.size), pointer
+            )
+        }
+        guard status == noErr else {
+            if !refreshFailed {
+                refreshFailed = true
+                FileHandle.standardError.write(Data(
+                    ("system tap: can't update the tapped processes (OSStatus \(status)) — "
+                        + "keeping the ones it started with\n").utf8
+                ))
+            }
+            return
+        }
+        tappedObjects = objects
+        scope = newScope
+        FileHandle.standardError.write(Data(
+            "system tap: now following \(objects.count) process(es)\n".utf8
+        ))
+    }
+
     // MARK: -
+
+    /// Build a tap description for a scope, plus the audio objects it covers.
+    /// An app scope that matches no running process comes back as a global tap
+    /// — recording everything is wrong in a small way, recording nothing is
+    /// wrong in the way that loses the meeting.
+    private static func describe(_ scope: Scope) -> (CATapDescription, [AudioObjectID]) {
+        var objects: [AudioObjectID] = []
+        var bundleIDs: [String] = []
+        if case .apps(let families) = scope {
+            let processes = AudioProcesses.matching(families: families)
+            objects = processes.map(\.object)
+            bundleIDs = Array(Set(processes.map(\.bundleID))).sorted()
+            if objects.isEmpty {
+                FileHandle.standardError.write(Data(
+                    ("system tap: nothing running for \(families.joined(separator: ", ")) — "
+                        + "recording all system audio instead\n").utf8
+                ))
+            }
+        }
+
+        let description = objects.isEmpty
+            ? CATapDescription(stereoGlobalTapButExcludeProcesses: [])
+            : CATapDescription(stereoMixdownOfProcesses: objects)
+        description.name = "quill system tap"
+        description.isPrivate = true
+        description.muteBehavior = .unmuted
+
+        if !objects.isEmpty, #available(macOS 26.0, *) {
+            // Ask the system to keep following these apps across restarts: a
+            // call app that relaunches mid-meeting otherwise drops out of the
+            // tap silently, and a silent far-end track is the failure this
+            // program exists to avoid.
+            description.bundleIDs = bundleIDs
+            description.isProcessRestoreEnabled = true
+        }
+        return (description, objects)
+    }
 
     private func tapStreamFormat() throws -> AVAudioFormat {
         var address = AudioObjectPropertyAddress(

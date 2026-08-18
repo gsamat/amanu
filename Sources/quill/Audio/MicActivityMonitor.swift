@@ -1,17 +1,15 @@
-import AppKit
-import CoreAudio
 import Foundation
 
 /// Answers "is a call app holding the microphone right now?" — the signal that
 /// starts and ends an automatic recording.
 ///
-/// macOS 14.4 added per-process audio objects, so this asks Core Audio which
-/// *processes* are running input rather than whether the device is busy. That
-/// distinction is the whole design: our own capture holds the input device too,
-/// and a monitor that couldn't tell the difference would see its own recording
-/// as evidence of an ongoing meeting and never stop (mygranola did exactly
-/// that before the per-process check — three back-to-back recordings, ~15 hours
-/// overnight, until the hard duration cap ended them).
+/// It asks Core Audio which *processes* are running input rather than whether
+/// the device is busy. That distinction is the whole design: our own capture
+/// holds the input device too, and a monitor that couldn't tell the difference
+/// would see its own recording as evidence of an ongoing meeting and never
+/// stop (mygranola did exactly that before the per-process check — three
+/// back-to-back recordings, about fifteen hours overnight, until the hard
+/// duration cap ended them).
 ///
 /// Attribution is deliberately by whitelist, not blacklist. "Some app opened
 /// the mic" fires for dictation, Voice Memos, a browser tab checking levels —
@@ -64,6 +62,10 @@ enum MicActivityMonitor {
         var active: Bool
         /// Human-readable names of those processes, for the menu and the log.
         var names: [String]
+        /// Bundle-id families of those processes — what the system-audio tap
+        /// is pointed at, so the far-end track carries the call and not the
+        /// music playing next to it.
+        var families: [String]
         /// Everything holding the mic, including what we filtered out. Useful
         /// when explaining "why isn't it recording" without a debugger.
         var allHolders: [String]
@@ -76,140 +78,41 @@ enum MicActivityMonitor {
     ///     app isn't in any list.
     ///   - ignoring: extra bundle ids or process names to never count.
     static func check(callApps: [String], ignoring: [String] = []) -> Result {
-        guard #available(macOS 14.4, *), let holders = micHolders() else {
+        guard let processes = AudioProcesses.all() else {
             // No per-process view: we cannot separate our own capture from
             // anyone else's, and a monitor that mistakes itself for a meeting
             // is worse than no monitor. Auto-record simply stays off.
-            return Result(active: false, names: [], allHolders: [])
+            return Result(active: false, names: [], families: [], allHolders: [])
         }
 
+        return evaluate(processes: processes, callApps: callApps, ignoring: ignoring)
+    }
+
+    /// The judgement itself, over a given list of processes — the same rule,
+    /// without asking the system, so it can be tested.
+    static func evaluate(
+        processes: [AudioProcesses.Process],
+        callApps: [String],
+        ignoring: [String] = []
+    ) -> Result {
+        let holders = processes.filter(\.runningInput)
         var names: [String] = []
+        var families: [String] = []
         for holder in holders {
-            if alwaysIgnored.contains(holder.bundleId) { continue }
-            if ignoring.contains(holder.bundleId) || ignoring.contains(holder.name) { continue }
-            if !callApps.isEmpty && !callApps.contains(where: { holder.bundleId.hasPrefix($0) }) {
-                continue
-            }
+            if alwaysIgnored.contains(holder.bundleID) { continue }
+            if ignoring.contains(holder.bundleID) || ignoring.contains(holder.name) { continue }
+            if !callApps.isEmpty && !AudioProcesses.belongs(holder, to: callApps) { continue }
             names.append(holder.name)
+            if let family = AudioProcesses.family(of: holder, knownApps: callApps),
+               !families.contains(family) {
+                families.append(family)
+            }
         }
         return Result(
             active: !names.isEmpty,
             names: names,
-            allHolders: holders.map { $0.name }
+            families: families,
+            allHolders: holders.map(\.name)
         )
-    }
-
-    // MARK: -
-
-    private struct Holder {
-        let bundleId: String
-        let name: String
-    }
-
-    @available(macOS 14.4, *)
-    private static func micHolders() -> [Holder]? {
-        guard let processes = audioProcessObjects() else { return nil }
-        let ownPID = ProcessInfo.processInfo.processIdentifier
-
-        var holders: [Holder] = []
-        for object in processes {
-            guard let raw = uint32Property(object, kAudioProcessPropertyPID) else { continue }
-            let pid = pid_t(bitPattern: raw)
-            // Our own mic track is not evidence of anything.
-            if pid == ownPID { continue }
-            guard let running = uint32Property(object, kAudioProcessPropertyIsRunningInput),
-                  running != 0 else { continue }
-
-            let app = NSRunningApplication(processIdentifier: pid)
-            let bundleId = stringProperty(object, kAudioProcessPropertyBundleID)
-                ?? app?.bundleIdentifier
-                ?? ""
-            // localizedName covers every GUI app; a command-line process that
-            // opens the mic has neither that nor a bundle id, so fall back to
-            // the executable name. Never "pid 39277" — these names end up in
-            // folder names, where a number tells you nothing three weeks later.
-            let name = app?.localizedName
-                ?? executableName(pid: pid)
-                ?? bundleId.split(separator: ".").last.map(String.init)
-                ?? ""
-            holders.append(Holder(bundleId: bundleId, name: name))
-        }
-        return holders
-    }
-
-    /// The system's list of per-process audio objects. Selectors come from the
-    /// SDK rather than four-char literals on purpose: a wrong one fails as
-    /// "nobody is using the mic", which disables auto-record silently.
-    @available(macOS 14.4, *)
-    private static func audioProcessObjects() -> [AudioObjectID]? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyProcessObjectList,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size
-        ) == noErr, size > 0 else { return nil }
-
-        let count = Int(size) / MemoryLayout<AudioObjectID>.size
-        var ids = [AudioObjectID](repeating: 0, count: count)
-        let status = ids.withUnsafeMutableBytes { raw -> OSStatus in
-            AudioObjectGetPropertyData(
-                AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, raw.baseAddress!
-            )
-        }
-        guard status == noErr else { return nil }
-        return ids
-    }
-
-    /// The executable's own name, for processes AppKit knows nothing about.
-    private static func executableName(pid: pid_t) -> String? {
-        var buffer = [CChar](repeating: 0, count: 256)
-        guard proc_name(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let name = String(cString: buffer)
-        return name.isEmpty ? nil : name
-    }
-
-    private static func uint32Property(
-        _ object: AudioObjectID,
-        _ selector: AudioObjectPropertySelector
-    ) -> UInt32? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: selector,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var value: UInt32 = 0
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr else {
-            return nil
-        }
-        return value
-    }
-
-    private static func stringProperty(
-        _ object: AudioObjectID,
-        _ selector: AudioObjectPropertySelector
-    ) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: selector,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        // These properties follow Core Foundation's create rule — the string
-        // comes back retained and is ours to release, which is what
-        // takeRetainedValue does. Reading straight into a `var value: CFString`
-        // both leaks it and hands Core Audio a pointer to a managed reference.
-        var value: Unmanaged<CFString>?
-        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        guard AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value) == noErr,
-              let value
-        else { return nil }
-        let string = value.takeRetainedValue() as String
-        return string.isEmpty ? nil : string
     }
 }
-
-@_silgen_name("proc_name")
-private func proc_name(_ pid: Int32, _ buffer: UnsafeMutablePointer<CChar>, _ size: UInt32) -> Int32

@@ -21,6 +21,9 @@ struct MeetingContext {
     /// "Telegram". The one piece of context that's available even when the
     /// calendar is empty or switched off.
     var app: String?
+    /// Bundle-id families of the call app, for pointing the system-audio tap
+    /// at the call rather than at everything the Mac plays.
+    var appFamilies: [String] = []
     var attendees: [String] = []
     /// Conference link or location from the calendar event.
     var link: String?
@@ -32,6 +35,7 @@ struct MeetingContext {
     init(
         title: String? = nil,
         app: String? = nil,
+        appFamilies: [String] = [],
         attendees: [String] = [],
         link: String? = nil,
         scheduledStart: Date? = nil,
@@ -39,18 +43,20 @@ struct MeetingContext {
     ) {
         self.title = title
         self.app = app
+        self.appFamilies = appFamilies
         self.attendees = attendees
         self.link = link
         self.scheduledStart = scheduledStart
         self.scheduledEnd = scheduledEnd
     }
 
-    init(meeting: CalendarWatcher.Meeting?, app: String?) {
+    init(meeting: CalendarWatcher.Meeting?, app: String?, appFamilies: [String] = []) {
         self.init(
             title: meeting?.title,
             // An unnameable process is better left out than turned into
             // something meaningless in a folder name.
             app: (app?.isEmpty ?? true) ? nil : app,
+            appFamilies: appFamilies,
             attendees: meeting?.attendees ?? [],
             link: meeting?.link,
             scheduledStart: meeting?.start,

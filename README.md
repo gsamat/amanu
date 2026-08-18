@@ -114,7 +114,8 @@ alone:
   and a button to the recordings folder. Closing it hides it; the Dock icon or
   the menu's **Show quill window** brings it back.
 - **A Dock icon**, which turns red while recording and orange while paused,
-  with the elapsed time as its badge. Clicking it reopens the window.
+  with the elapsed time as its badge. Clicking it opens the window, and
+  clicking it again — with quill already in front — puts it away.
 - **The menu bar item**, as before.
 
 The window and the Dock icon exist because a status item is not a dependable
@@ -126,6 +127,31 @@ answering "am I recording?" is the worst way it can fail.
 
 `dock_icon: false` returns quill to a menu-bar-only accessory; `window: false`
 stops the window opening at launch.
+
+## Whose audio is on the far-end track
+
+By default quill taps **only the call app's output**, not everything the Mac
+plays. The app is whichever call app holds the microphone when recording
+starts, and the tap follows its whole bundle-id family — Chrome renders call
+audio in a helper process, Zoom and Teams each ship several — plus any other
+call app that joins later, because clicking a Zoom link during a browser call
+is an ordinary thing to do. On macOS 26 the tap also survives those processes
+restarting.
+
+This matters twice over. The transcript stops collecting music, notification
+dings and whatever video you opened afterwards. And "the far end has gone
+quiet" starts meaning *the call ended* rather than *nothing at all is playing
+on this machine* — with a global tap, a video opened after a meeting kept a
+recording alive for ten extra minutes (2026.08.18).
+
+When the call app can't be identified — a manual recording with nothing on the
+mic — the tap falls back to everything. Recording too much is a small wrong;
+recording nothing is the wrong that loses the meeting. For the same reason a
+scoped tap that has been silent for five minutes while you were talking says so
+in a notification: a tap pointed at the wrong process delivers silence with no
+error at all.
+
+`system_audio: "all"` restores the old global behaviour.
 
 ## Recording by itself
 
@@ -331,6 +357,8 @@ Optional, at `~/.config/quill/config.json`:
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
   apps and browsers; `[]` means any app), `ignore_apps` never counts.
+- `system_audio` — `app` (default) taps only the call app's output, `all`
+  taps everything the Mac plays.
 - `calendar` — read the calendar to name sessions after the meeting (default
   on; costs a one-time permission prompt). Independent of
   `auto_record.calendar`, which is about *starting* a recording from an event.
@@ -439,9 +467,9 @@ afterwards, not a mystery.
 
 ## Gotchas
 
-- A global tap records *everything* the Mac plays — notification dings,
-  music, all of it. Don't play Spotify during meetings (or ask for a
-  per-process picker if it bothers you).
+- With `system_audio: "all"` the tap records *everything* the Mac plays —
+  notification dings, music, all of it. The default (`app`) records only the
+  call app.
 - **`system.caf` is silent unless quill runs as a LaunchAgent.** Launched from
   a terminal, quill's TCC request is attributed to the terminal rather than to
   quill, so the process tap is created successfully and then delivers nothing

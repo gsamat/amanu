@@ -179,6 +179,21 @@ enum Config {
         return settings
     }
 
+    /// Whose audio lands on the far-end track: `app` (default) records only
+    /// the call app's output, `all` records everything the Mac plays.
+    ///
+    /// `app` is better on both counts that matter. The transcript stops
+    /// collecting music and notification dings, and — the reason this exists —
+    /// "the far end has gone quiet" starts meaning the call ended rather than
+    /// "nothing at all is playing on this machine". With `all`, a video opened
+    /// after a meeting kept a recording alive for ten extra minutes
+    /// (2026.08.18). Falls back to everything when the call app can't be
+    /// identified: recording too much is a small wrong, recording nothing is
+    /// the wrong that loses the meeting.
+    static func systemAudioScope() -> String {
+        load()?["system_audio"] as? String ?? "app"
+    }
+
     /// Read the calendar to name sessions after the meeting they belong to.
     ///
     /// Separate from `auto_record.calendar`, which is about *starting* a

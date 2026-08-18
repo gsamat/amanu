@@ -50,6 +50,12 @@ final class RecordingSession {
     private static let watchdogInterval: TimeInterval = 15
     private static let stallThreshold: TimeInterval = 45
 
+    /// Bundle-id families the system tap is following. Starts as whatever
+    /// held the mic when recording began and grows if another call app joins
+    /// mid-session — clicking a Zoom link from a browser call, say.
+    private var tapFamilies: [String]
+    private var farEndWarningShown = false
+
     /// Total time spent paused, so meta.json can say how much of the session
     /// is deliberate silence.
     private var pausedFor: TimeInterval = 0
@@ -73,6 +79,7 @@ final class RecordingSession {
     ) throws {
         self.context = context
         self.trigger = trigger
+        self.tapFamilies = context.appFamilies
 
         var base = Self.folderFormat.string(from: startedAt)
         if let suffix = context.folderSuffix {
@@ -91,7 +98,15 @@ final class RecordingSession {
     /// Start both tracks. If the mic fails after the system tap started, the
     /// tap is torn down so we never run half a session silently.
     func start() throws {
-        try system.start(writingTo: dir.appendingPathComponent("system.caf"))
+        // Point the tap at the call app when we know it. Everything else the
+        // Mac plays — music, notifications, the video you open afterwards —
+        // then stays out of both the transcript and the auto-record loop's
+        // idea of whether the far end is still talking.
+        let scope: SystemAudioRecorder.Scope =
+            (Config.systemAudioScope() == "app" && !tapFamilies.isEmpty)
+                ? .apps(tapFamilies)
+                : .everything
+        try system.start(writingTo: dir.appendingPathComponent("system.caf"), scope: scope)
         do {
             try mic.start(writingTo: dir.appendingPathComponent("mic.caf"))
         } catch {
@@ -137,6 +152,12 @@ final class RecordingSession {
             ],
             "trigger": trigger.rawValue,
             "stop_reason": reason,
+            "system_audio": {
+                if case .apps(let families) = system.scope {
+                    return "app: " + families.sorted().joined(separator: ", ")
+                }
+                return "all"
+            }(),
         ]
         if let title { meta["title"] = title }
         meta.merge(context.metaFields) { current, _ in current }
@@ -367,6 +388,8 @@ final class RecordingSession {
             }
         }
 
+        followCallApp(now: now)
+
         // Refresh the manifest once both first buffers have landed, so a crash
         // recovers with the same clock alignment a clean stop would have had.
         if !manifestOffsetsWritten, mic.firstBufferAt != nil, system.firstBufferAt != nil {
@@ -377,4 +400,36 @@ final class RecordingSession {
     }
 
     private var manifestOffsetsWritten = false
+
+    /// Keep the tap pointed at the call as its processes come and go, and
+    /// notice if that leaves us recording silence.
+    private func followCallApp(now: Date) {
+        guard case .apps = system.scope else { return }
+
+        let settings = Config.autoRecord()
+        let mic = MicActivityMonitor.check(
+            callApps: settings.callApps, ignoring: settings.ignoreApps
+        )
+        // A second call app joining the session counts too: clicking a Zoom
+        // link during a browser call is an ordinary thing to do, and the
+        // far-end track shouldn't go quiet because of it.
+        let families = Array(Set(tapFamilies).union(mic.families)).sorted()
+        if families != tapFamilies { tapFamilies = families }
+        system.refresh(scope: .apps(tapFamilies))
+
+        // The failure mode of a scoped tap is silence with no error: a tap on
+        // the wrong process delivers zeroed buffers for as long as you like.
+        // If you have been talking and nothing has come back for five minutes,
+        // say so — once — rather than letting an hour go by.
+        guard !farEndWarningShown else { return }
+        let youSpokeRecently = self.mic.lastSoundAt.map { now.timeIntervalSince($0) < 120 } ?? false
+        let farEndSilentFor = now.timeIntervalSince(system.lastSoundAt ?? startedAt)
+        guard youSpokeRecently, farEndSilentFor > 300 else { return }
+        farEndWarningShown = true
+        notifyUser(
+            title: "quill: nothing from the far end",
+            body: "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent"
+                + " for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong."
+        )
+    }
 }

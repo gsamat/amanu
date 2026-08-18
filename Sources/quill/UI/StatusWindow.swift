@@ -118,12 +118,10 @@ final class StatusWindow {
         panel.orderFront(nil)
     }
 
-    func toggleVisibility() {
-        if panel.isVisible {
-            panel.orderOut(nil)
-        } else {
-            show()
-        }
+    var isVisible: Bool { panel.isVisible }
+
+    func hide() {
+        panel.orderOut(nil)
     }
 
     func update(state: MenuBarController.State, elapsed: String?) {

@@ -53,7 +53,9 @@ struct Run: ParsableCommand {
         // NSApp holds its delegate weakly, and a Dock icon is useless if
         // clicking it does nothing.
         let delegate = AppDelegate()
-        delegate.onReopen = { MainActor.assumeIsolated { controller.showWindow() } }
+        delegate.onReopen = { alreadyActive in
+            MainActor.assumeIsolated { controller.toggleWindow(alreadyActive: alreadyActive) }
+        }
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
         app.delegate = delegate
         app.mainMenu = Self.mainMenu()
@@ -132,11 +134,25 @@ struct Run: ParsableCommand {
 /// because its only window was closed — it's a recorder, the window is a view
 /// onto it.
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var onReopen: (() -> Void)?
+    /// Called on a Dock click, with `alreadyActive` false when that click was
+    /// the one that brought quill forward.
+    var onReopen: ((_ alreadyActive: Bool) -> Void)?
     var onTerminate: (() -> Void)?
 
+    private var becameActiveAt = Date.distantPast
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        becameActiveAt = Date()
+    }
+
+    /// Clicking the Dock icon of an app that's already in front should put the
+    /// window away again — show, hide, show. The catch is that AppKit
+    /// activates the app *before* asking us, so `NSApp.isActive` is true
+    /// either way; the only thing that separates "already working in quill"
+    /// from "just switched to it" is how long ago activation happened.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        onReopen?()
+        let justActivated = Date().timeIntervalSince(becameActiveAt) < 0.3
+        onReopen?(!justActivated)
         return true
     }
 
@@ -291,7 +307,11 @@ final class AppController {
         let mic = MicActivityMonitor.check(
             callApps: settings.callApps, ignoring: settings.ignoreApps
         )
-        return MeetingContext(meeting: calendar?.bestMatch(for: Date()), app: mic.names.first)
+        return MeetingContext(
+            meeting: calendar?.bestMatch(for: Date()),
+            app: mic.names.first,
+            appFamilies: mic.families
+        )
     }
 
     private func startSession(trigger: RecordingSession.Trigger, context: MeetingContext) {
@@ -359,9 +379,19 @@ final class AppController {
         window.updateTranscription(text)
     }
 
-    /// Bring the status window up — from the Dock icon, the menu, or a second
-    /// launch of an already-running quill.
+    /// Bring the status window up — from the menu, or a second launch of an
+    /// already-running quill.
     func showWindow() { window.show() }
+
+    /// The Dock icon: show the window, or put it away if quill was already in
+    /// front and it's sitting there.
+    func toggleWindow(alreadyActive: Bool) {
+        if alreadyActive, window.isVisible {
+            window.hide()
+        } else {
+            window.show()
+        }
+    }
 
     /// Reflect state everywhere it's shown at once, so the three surfaces can
     /// never disagree about whether something is being recorded.

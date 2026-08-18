@@ -146,7 +146,8 @@ final class AutoRecordController {
                 lastDecision = "started from calendar: \(event.title)"
                 // The call app usually grabs the mic a moment after the event
                 // starts, so it may be nil here — the calendar carries the name.
-                startRecording?(.calendar, MeetingContext(meeting: event, app: mic.names.first))
+                startRecording?(.calendar, MeetingContext(
+                    meeting: event, app: mic.names.first, appFamilies: mic.families))
                 return
             }
         }
@@ -170,7 +171,8 @@ final class AutoRecordController {
         let event = calendar?.bestMatch(for: now)
         currentEventEnd = event?.end
         lastDecision = "started from mic activity (\(mic.names.first ?? "call app"))"
-        startRecording?(.micActivity, MeetingContext(meeting: event, app: mic.names.first))
+        startRecording?(.micActivity, MeetingContext(
+            meeting: event, app: mic.names.first, appFamilies: mic.families))
     }
 
     // MARK: - stop
