@@ -4,10 +4,11 @@ import Foundation
 /// what it does, what it defaults to, and whether changing it takes effect now
 /// or at the next launch.
 ///
-/// One list, two readers — the settings window renders it, and the config file
-/// documentation is generated from it. The point is that nothing is secret: a
-/// setting that exists but appears in no window and no README is a setting
-/// nobody will ever find.
+/// One list, two readers — the settings window renders it, and the README's
+/// config reference is written against it. The point is that nothing is
+/// secret: a setting that exists but appears in no window and no README is a
+/// setting nobody will ever find. The window follows automatically; the README
+/// is prose, so `SettingsDocumentationTests` is what keeps it honest.
 enum SettingsSchema {
     enum Kind {
         case toggle
