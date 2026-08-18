@@ -17,6 +17,7 @@ final class StatusWindow {
     var onTogglePause: (() -> Void)?
     var onToggleAutoRecord: (() -> Void)?
     var onOpenFolder: (() -> Void)?
+    var onShowRecordings: (() -> Void)?
 
     private let panel: NSWindow
     private let icon = NSImageView()
@@ -76,6 +77,10 @@ final class StatusWindow {
                                   action: #selector(openFolderClicked))
         openFolder.bezelStyle = .rounded
 
+        let manage = NSButton(title: "Manage recordings…", target: self,
+                              action: #selector(showRecordingsClicked))
+        manage.bezelStyle = .rounded
+
         let header = NSStackView(views: [icon, stateLabel])
         header.orientation = .horizontal
         header.spacing = 6
@@ -86,7 +91,8 @@ final class StatusWindow {
         buttons.spacing = 8
 
         let content = NSStackView(views: [
-            header, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel, openFolder,
+            header, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel,
+            openFolder, manage,
         ])
         content.orientation = .vertical
         content.alignment = .leading
@@ -103,6 +109,7 @@ final class StatusWindow {
             transcriptionLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
             decisionLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
             openFolder.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
+            manage.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
         ])
 
         panel.setFrameAutosaveName("amanu.status")
@@ -167,4 +174,5 @@ final class StatusWindow {
     @objc private func pauseClicked() { onTogglePause?() }
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
+    @objc private func showRecordingsClicked() { onShowRecordings?() }
 }

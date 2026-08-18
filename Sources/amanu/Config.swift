@@ -117,11 +117,20 @@ enum Config {
 
     /// Apple voice processing (acoustic echo cancellation) on the mic, so
     /// speaker playback doesn't bleed into the mic track and get transcribed
-    /// as "me". Default off — the live voice unit ducks all other playback,
-    /// and on headphones there's no echo to cancel anyway. Set true when
-    /// recording meetings through the speakers.
+    /// as "me".
+    ///
+    /// Default on. A meeting held through the speakers puts the far end on the
+    /// mic track too, and every consumer of that track then has to work around
+    /// it — the per-track engine transcribes them twice and needs `EchoFilter`
+    /// to undo it, and speaker attribution has to tell a loud echo from the
+    /// person actually in the room. Cancelling at capture is the only place
+    /// that fixes it for all of them at once.
+    ///
+    /// The costs are real but small: the live voice unit ducks other playback,
+    /// so music during a recording gets quieter, and on headphones it works
+    /// for nothing because there is no echo to cancel. Set false to record raw.
     static func micVoiceProcessing() -> Bool {
-        load()?["mic_voice_processing"] as? Bool ?? false
+        load()?["mic_voice_processing"] as? Bool ?? true
     }
 
     /// Whether the transcript merge drops mic segments that duplicate
@@ -131,6 +140,39 @@ enum Config {
     /// diarizing engine transcribes one mixed file and can't duplicate.
     static func transcriptEchoFilter() -> Bool {
         load()?["transcript_echo_filter"] as? Bool ?? true
+    }
+
+    // MARK: - speaker names
+
+    /// What to call the person doing the recording, instead of "me".
+    ///
+    /// Unset falls back to the machine's account name, but only when that
+    /// reads as a person's name — see `SpeakerNamer.personName`.
+    static func userName() -> String? {
+        guard let name = load()?["user_name"] as? String, !name.trimmed.isEmpty else {
+            return nil
+        }
+        return name.trimmed
+    }
+
+    /// Putting real names to the transcript's mechanical speaker labels.
+    struct SpeakerNamesSettings {
+        var enabled = true
+        /// Which model to ask, in `LLMBackend`'s vocabulary.
+        var backend = "auto"
+        /// Anthropic model for this pass specifically. nil uses the summary's,
+        /// which is the strong one — fine, but naming is an easier job than
+        /// summarizing and doesn't need to cost the same.
+        var model: String?
+    }
+
+    static func speakerNames() -> SpeakerNamesSettings {
+        var settings = SpeakerNamesSettings()
+        guard let json = load()?["speaker_names"] as? [String: Any] else { return settings }
+        if let v = json["enabled"] as? Bool { settings.enabled = v }
+        if let v = json["backend"] as? String, !v.isEmpty { settings.backend = v }
+        if let v = json["model"] as? String, !v.isEmpty { settings.model = v }
+        return settings
     }
 
     // MARK: - auto-record

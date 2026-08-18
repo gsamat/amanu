@@ -219,13 +219,10 @@ actor TranscriptionCoordinator {
 
         // After the transcript, never instead of it: transcript.json is the
         // completion marker, so anything that runs before it risks retiring a
-        // session that has no transcript. A failed summary just logs.
-        var context = ["Meeting: \(meta.title ?? dir.lastPathComponent)"]
-        if !meta.attendees.isEmpty {
-            context.append("Participants: " + meta.attendees.joined(separator: ", "))
-        }
-        if let app = meta.app { context.append("Recorded from: \(app)") }
-        await Summarizer.summarize(transcript: transcript, context: context, into: dir)
+        // session that has no transcript. Naming and summarizing both just log
+        // when they can't run, and are picked up again by a later sweep.
+        SessionScript.install(in: dir)
+        await PostProcessor.finish(dir)
 
         // Last of all: the audio was recorded uncompressed so it would survive
         // a crash, and that only needs to hold until the transcript exists.
@@ -483,18 +480,56 @@ struct Transcript: Codable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let json = try encoder.encode(self)
-        let markdown = Data(rendered(title: dir.lastPathComponent).utf8)
 
-        try markdown
-            .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
+        try writeMarkdown(to: dir, names: SpeakerNames.read(from: dir))
         try json
             .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
     }
 
-    private func rendered(title: String) -> String {
-        var lines = ["# \(title)", "", "engine: \(engine) (\(model))", ""]
+    /// Render transcript.md against whatever names are known, which is what
+    /// makes naming re-runnable: the JSON keeps the recognizer's own labels
+    /// for ever, and the readable file is regenerated from it whenever a name
+    /// is learned or corrected.
+    func writeMarkdown(to dir: URL, names: SpeakerNames?) throws {
+        try Data(rendered(title: dir.lastPathComponent, names: names).utf8)
+            .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
+    }
+
+    /// A copy with each label replaced by its known name, for readers that
+    /// take the speaker straight off the segment — the summarizer, mainly,
+    /// which writes "Фёдор will send the contract" only if that is what it was
+    /// given to read.
+    func named(with names: SpeakerNames?) -> Transcript {
+        guard let names else { return self }
+        return Transcript(
+            engine: engine,
+            model: model,
+            created_at: created_at,
+            segments: segments.map {
+                Segment(
+                    speaker: names.name(for: $0.speaker),
+                    start_ms: $0.start_ms,
+                    end_ms: $0.end_ms,
+                    text: $0.text
+                )
+            }
+        )
+    }
+
+    func rendered(title: String, names: SpeakerNames?) -> String {
+        var lines = ["# \(title)", "", "engine: \(engine) (\(model))"]
+        // A roster only earns its place when it says something the body
+        // doesn't: which label a name stands for.
+        let named = (names?.speakers ?? [:]).compactMap { label, entry in
+            entry.name.map { "\(label) → \($0)" }
+        }.sorted()
+        if !named.isEmpty {
+            lines.append("speakers: " + named.joined(separator: ", "))
+        }
+        lines.append("")
         for seg in segments {
-            lines.append("**[\(Self.clock(seg.start_ms))] \(seg.speaker):** \(seg.text)")
+            let who = names?.name(for: seg.speaker) ?? seg.speaker
+            lines.append("**[\(Self.clock(seg.start_ms))] \(who):** \(seg.text)")
             lines.append("")
         }
         return lines.joined(separator: "\n")

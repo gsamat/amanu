@@ -23,6 +23,7 @@ final class MenuBarController {
     var onTogglePause: (() -> Void)?
     var onToggleAutoRecord: (() -> Void)?
     var onOpenFolder: (() -> Void)?
+    var onShowRecordings: (() -> Void)?
     var onShowWindow: (() -> Void)?
     var onShowSettings: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -93,6 +94,16 @@ final class MenuBarController {
         )
         menu.addItem(openFolder)
 
+        // Not "r" — that starts a recording, and a shortcut that either starts
+        // recording or opens a list depending on which item claimed it first
+        // is worse than no shortcut.
+        let recordings = NSMenuItem(
+            title: "Manage recordings…",
+            action: #selector(showRecordingsClicked),
+            keyEquivalent: "l"
+        )
+        menu.addItem(recordings)
+
         let settings = NSMenuItem(
             title: "Settings…",
             action: #selector(showSettingsClicked),
@@ -109,7 +120,7 @@ final class MenuBarController {
         )
         menu.addItem(quit)
 
-        for item in [toggleItem, pauseItem, autoRecordItem, showWindow, openFolder, settings, quit] {
+        for item in [toggleItem, pauseItem, autoRecordItem, showWindow, openFolder, recordings, settings, quit] {
             item.target = self
         }
 
@@ -183,5 +194,6 @@ final class MenuBarController {
     @objc private func showWindowClicked() { onShowWindow?() }
     @objc private func showSettingsClicked() { onShowSettings?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
+    @objc private func showRecordingsClicked() { onShowRecordings?() }
     @objc private func quitClicked() { onQuit?() }
 }
