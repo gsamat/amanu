@@ -12,6 +12,9 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
   parts that are not.
 - `docs/specs/2026-08-18-native-macos-app-design.md` — the design,
   including the places the code deliberately went its own way.
+- `docs/old-macs.md` — what runs on Intel and on older macOS, what sets each
+  limit, and which of it has actually been measured. Read it before answering
+  any question that starts "does amanu work on…".
 
 ## Working on it
 
