@@ -58,6 +58,19 @@ ASC_KEY="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
 # the build number it stamps into the bundle is a lie about which commit it is.
 [ -z "$(git status --porcelain)" ] || die "working tree is dirty"
 
+# The site repository is pushed to at the last stage. Checking it now means a
+# release fails before the notary rather than after the GitHub release is
+# already public — and a `git push` there must not carry somebody else's
+# unfinished commits out with the appcast.
+if [ "$DRY_RUN" = 0 ]; then
+    [ -d "$SITE/.git" ] || die "no site checkout at $SITE"
+    git -C "$SITE" fetch -q origin 2>/dev/null || true
+    [ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = "main" ] \
+        || die "the site checkout is not on main"
+    [ -z "$(git -C "$SITE" log --oneline @{u}.. 2>/dev/null)" ] \
+        || die "the site checkout has commits that are not pushed; sort them out first"
+fi
+
 step "1/8  tests"
 AMANU_NO_NOTIFY=1 swift test 2>&1 | tail -3
 
@@ -126,10 +139,18 @@ fi
 
 step "7/8  signing the appcast"
 SIGNATURE=$("$SPARKLE_BIN/sign_update" -p --ed-key-file "$SPARKLE_KEY" "$DMG")
-mkdir -p "$SITE/amanu"
+# A dry run must not leave a signed feed in the site's working copy: it would
+# point at a release asset that does not exist, and the next person to deploy
+# the site by hand would publish it without knowing.
+if [ "$DRY_RUN" = 1 ]; then
+    APPCAST="dist/appcast.xml"
+else
+    APPCAST="$SITE/amanu/appcast.xml"
+    mkdir -p "$SITE/amanu"
+fi
 PUBDATE=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')
 NOTES_HTML=$(python3 scripts/notes-to-html.py "$NOTES")
-cat > "$SITE/amanu/appcast.xml" <<XML
+cat > "$APPCAST" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
@@ -153,8 +174,8 @@ cat > "$SITE/amanu/appcast.xml" <<XML
     </channel>
 </rss>
 XML
-xmllint --noout "$SITE/amanu/appcast.xml" || die "the appcast is not well-formed"
-echo "  signed $VERSION (build $BUILD) → $SITE/amanu/appcast.xml"
+xmllint --noout "$APPCAST" || die "the appcast is not well-formed"
+echo "  signed $VERSION (build $BUILD) → $APPCAST"
 
 if [ "$DRY_RUN" = 1 ]; then
     step "dry run: stopping before anything becomes public"
@@ -171,7 +192,7 @@ rsync -az "$SITE/amanu/" reina:/var/www/samat/amanu/
 
 step "verifying what the world now sees"
 curl -fsS https://samat.me/amanu/appcast.xml > dist/published-appcast.xml
-diff -q "$SITE/amanu/appcast.xml" dist/published-appcast.xml \
+diff -q "$APPCAST" dist/published-appcast.xml \
     || die "the published feed is not the file we signed"
 ASSET_HEAD=$(curl -fsSIL "$ASSET_URL")
 grep -qE '^HTTP/[0-9.]+ 200' <<<"$ASSET_HEAD" \
