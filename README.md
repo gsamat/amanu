@@ -26,6 +26,14 @@ past the point of a patch — [what changed and why](FORK.md).
 
 ## Install
 
+Download the disk image from
+[the latest release](https://github.com/gsamat/amanu/releases/latest), drag
+`Amanu.app` to Applications, and open it. Apple Silicon, macOS 15 or later; the
+image is signed with a Developer ID certificate and carries a stapled
+notarization ticket, so Gatekeeper opens it without argument.
+
+From a checkout instead:
+
 ```sh
 cd amanu
 make app                          # build, sign → .build/Amanu.app
@@ -44,7 +52,14 @@ the app runs. A binary already sitting there is moved aside with the date,
 never deleted.
 
 `make` on its own builds and signs the app; `make run-app` launches it the way
-Finder would. There is no other way to install amanu, and no daemon.
+Finder would. There is no daemon.
+
+It updates itself. Sparkle checks
+[the feed](https://samat.me/amanu/appcast.xml) once a day, verifies Apple's
+signature and an EdDSA signature of its own before installing anything, and
+**Check for updates…** in either menu asks on demand. A check that lands during
+a recording is skipped, and an update that arrives anyway waits for the
+recording to end rather than quitting in the middle of a meeting.
 
 **Signing isn't cosmetic here.** macOS attributes the microphone and Screen &
 System Audio Recording grants to the binary's code signature, and SwiftPM only
