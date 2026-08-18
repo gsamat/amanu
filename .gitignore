@@ -3,3 +3,4 @@
 .claude/
 .superpowers/
 dist/
+.env.asc

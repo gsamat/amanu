@@ -12,6 +12,8 @@
 #   make icon       redraw Resources/Amanu.icns from the feather
 #   make identities list available signing identities
 #   make verify     show the built app's signature
+#   make release    build, notarize and publish a release
+#   make release-dry  everything except publishing
 #
 # Override the signing identity if you need to:
 #   make SIGN_ID="Developer ID Application: ..."
@@ -51,7 +53,7 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build app icon run-app identities verify clean dmg notarize appcast release
+.PHONY: all build app icon run-app identities verify clean release release-dry
 
 all: app
 
@@ -119,6 +121,15 @@ identities:
 
 verify:
 	@codesign -dvvv $(APP) 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier|Signature|flags'
+
+# The whole release, fail-closed: tests, bundle, signature, disk image,
+# notarization, a draft GitHub release, the signed appcast, and only then
+# anything public. scripts/release.sh says what it needs.
+release:
+	@scripts/release.sh
+
+release-dry:
+	@scripts/release.sh --dry-run
 
 clean:
 	swift package clean
