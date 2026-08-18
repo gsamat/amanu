@@ -169,6 +169,67 @@ enum SettingsSchema {
         ]),
     ] }
 
+    // MARK: - what a control's contents mean
+
+    /// What the user just did to a control, in terms the schema understands.
+    /// Deliberately not AppKit types: the rule below is the fiddly part of the
+    /// settings window and it should be testable without a window.
+    enum Input {
+        case flag(Bool)
+        case choice(String)
+        /// Whatever is in a text field, untrimmed.
+        case text(String)
+    }
+
+    enum Resolution {
+        case set(Any)
+        /// Remove the key: the value is the default, or was emptied.
+        case clear
+        /// Unusable — letters in a number field. Change nothing and put the
+        /// stored value back on screen.
+        case invalid
+    }
+
+    /// Turn a control's contents into what should be in the config file.
+    ///
+    /// The one rule worth stating: a value equal to the default is *cleared*,
+    /// not written. A config that only holds what you changed keeps reading as
+    /// a list of your decisions, and a default that improves in a later
+    /// version reaches you instead of being frozen into your file the first
+    /// time you opened this window. An emptied field means "unset" for the
+    /// same reason — the alternative is storing an empty string that no
+    /// caller expects.
+    static func resolve(_ input: Input, for entry: Entry) -> Resolution {
+        switch (input, entry.kind) {
+        case (.flag(let on), .toggle):
+            return entry.defaultValue as? Bool == on ? .clear : .set(on)
+
+        case (.choice(let title), .choice(let options)):
+            guard options.contains(title) else { return .invalid }
+            return entry.defaultValue as? String == title ? .clear : .set(title)
+
+        case (.text(let raw), .number):
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty { return .clear }
+            guard let number = Int(text) else { return .invalid }
+            return entry.defaultValue as? Int == number ? .clear : .set(number)
+
+        case (.text(let raw), .text):
+            let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty || entry.defaultValue as? String == text { return .clear }
+            return .set(text)
+
+        case (.text(let raw), .list):
+            let items = raw.split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            return items.isEmpty ? .clear : .set(items)
+
+        default:
+            return .invalid
+        }
+    }
+
     /// Every key the program understands, as `a.b` strings — used to spot
     /// settings in a config file that nothing reads (a typo, or a key from an
     /// older version).

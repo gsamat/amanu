@@ -57,8 +57,9 @@ struct Run: ParsableCommand {
             MainActor.assumeIsolated { controller.toggleWindow(alreadyActive: alreadyActive) }
         }
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
+        delegate.onShowSettings = { MainActor.assumeIsolated { controller.showSettings() } }
         app.delegate = delegate
-        app.mainMenu = Self.mainMenu()
+        app.mainMenu = Self.mainMenu(settingsTarget: delegate)
 
         let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         sigint.setEventHandler {
@@ -104,11 +105,22 @@ struct Run: ParsableCommand {
     /// menu that bar is empty — no ⌘Q, no window menu. This is the minimum
     /// that makes the app behave like an app.
     @MainActor
-    private static func mainMenu() -> NSMenu {
+    private static func mainMenu(settingsTarget: AppDelegate) -> NSMenu {
         let main = NSMenu()
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        // ⌘, is where every Mac user looks for settings, and it only works
+        // from the main menu — the status item's copy of it is live just
+        // while that menu is open.
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(AppDelegate.showSettingsClicked(_:)),
+            keyEquivalent: ","
+        )
+        settings.target = settingsTarget
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
         // Quit routes through terminate so applicationWillTerminate runs and
         // a live recording is closed properly rather than truncated.
         appMenu.addItem(withTitle: "Quit Amanu", action: #selector(NSApplication.terminate(_:)),
@@ -138,6 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the one that brought amanu forward.
     var onReopen: ((_ alreadyActive: Bool) -> Void)?
     var onTerminate: (() -> Void)?
+    /// The app menu's Settings item hangs off the delegate because it is the
+    /// only NSObject in the picture — AppController is a plain class, and a
+    /// menu item needs a target it can send a selector to.
+    var onShowSettings: (() -> Void)?
 
     private var becameActiveAt = Date.distantPast
 
@@ -163,6 +179,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
     }
+
+    @objc func showSettingsClicked(_ sender: Any?) { onShowSettings?() }
 }
 
 struct Doctor: ParsableCommand {
@@ -186,6 +204,9 @@ final class AppController {
     private let root: URL
     private let menuBar = MenuBarController()
     private let window = StatusWindow()
+    /// Built on first use. It is thirty-odd controls, and amanu spends nearly
+    /// all of its life recording rather than being configured.
+    private lazy var settings = SettingsWindow()
     private let transcription = TranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
@@ -207,6 +228,7 @@ final class AppController {
         menuBar.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onShowWindow = { [weak self] in self?.showWindow() }
+        menuBar.onShowSettings = { [weak self] in self?.showSettings() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
 
@@ -389,6 +411,14 @@ final class AppController {
     /// Bring the status window up — from the menu, or a second launch of an
     /// already-running amanu.
     func showWindow() { window.show() }
+
+    /// Settings, from either menu. Activating first because a click on the
+    /// status item doesn't bring the app forward, and a settings window you
+    /// have to click again before you can type in it is a small insult.
+    func showSettings() {
+        NSApp.activate(ignoringOtherApps: true)
+        settings.show()
+    }
 
     /// The Dock icon: show the window, or put it away if amanu was already in
     /// front and it's sitting there.

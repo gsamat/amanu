@@ -137,7 +137,8 @@ alone:
 - **A Dock icon**, which turns red while recording and orange while paused,
   with the elapsed time as its badge. Clicking it opens the window, and
   clicking it again — with amanu already in front — puts it away.
-- **The menu bar item**, as before.
+- **The menu bar item**, as before — and where **Settings…** lives, alongside
+  ⌘, from the app menu.
 
 The window and the Dock icon exist because a status item is not a dependable
 place for the only control of a recorder. When the menu bar runs out of room
@@ -330,6 +331,26 @@ chmod 600 ~/.config/assemblyai/token
 
 To re-transcribe a session with the other engine, delete its
 `transcript.json` and restart amanu — it'll come back through the queue.
+
+## Settings
+
+**⌘,** — from the menu bar item or the app menu. Every setting amanu has, with
+a line saying what it does and its default showing as the placeholder, so you
+can see what a value would be without setting it. Settings that are only read
+at startup say so under the control instead of pretending to take effect.
+
+The window writes `~/.config/amanu/config.json` and writes as little as it can:
+a control put back to its default **clears** the key rather than storing
+today's default. That keeps the file readable as a list of what you changed,
+and it means a default that improves in a later version still reaches you
+instead of being frozen the first time you opened the window. An emptied field
+means "unset", not "empty".
+
+Keys the running version doesn't read — a typo, or a setting from an older
+build — are listed at the bottom of the window rather than silently ignored.
+That failure otherwise looks exactly like a setting being disobeyed.
+
+Everything below is the same thing in a text editor; nothing needs the window.
 
 ## Config
 
