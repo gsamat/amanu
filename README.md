@@ -77,9 +77,26 @@ No hash in there, so grants survive rebuilds. With no certificate on the
 machine it falls back to ad-hoc and still works — you just get the re-prompts.
 `make SIGN_ID="Developer ID Application: ..."` to pick one explicitly.
 
-**Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension). Apple Silicon recommended for
-transcription speed.
+**Requires:** Apple Silicon and macOS 15 or later. The disk image is arm64
+only and there is no Intel build. The macOS floor is Core Audio process taps,
+which is how system audio is captured with no virtual device and no kernel
+extension.
+
+Any Apple Silicon Mac records — two file writers cost nothing. Local
+transcription runs on the Neural Engine *after* the meeting, so a slower
+machine only means a file nobody is waiting for arrives later: roughly 20
+seconds per hour of audio on an M5, a minute or two on an M1. The models want
+about 1.1 GB on disk (461 MB for parakeet, 633 MB for one language of the live
+model), plus the recordings themselves.
+
+The live transcript is the only part with a real-time deadline, and the only
+part that asks for more than a base machine: it holds around 1.5 GB resident
+and runs two streams at once, microphone and system audio. On 8 GB, with a
+call and a browser also running, expect it to give up and say `cannot keep up`
+— which costs the preview and nothing else, because the recording and the
+final transcript are on a separate path. It is off until you turn it on. All
+of this was measured on an M5 and reasoned about for everything smaller;
+nobody has run amanu on an M1.
 
 **Why an application and not a daemon.** System audio is captured by whichever
 process macOS holds *responsible* for the request. A binary started from a
