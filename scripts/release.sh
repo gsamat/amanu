@@ -62,13 +62,17 @@ make app
 
 step "3/8  verifying the signature"
 codesign --verify --deep --strict --verbose=2 .build/Amanu.app
-codesign -dvvv .build/Amanu.app 2>&1 | grep -E 'Identifier|Authority=Developer ID|TeamIdentifier'
-codesign -d -r- .build/Amanu.app 2>&1 | grep -q 'me.samat.amanu' \
+# Captured rather than piped: `grep -q` closes the pipe on its first match,
+# codesign takes a SIGPIPE for it, and under `set -o pipefail` a successful
+# check then reads as a failed one.
+DETAILS=$(codesign -dvvv .build/Amanu.app 2>&1)
+REQUIREMENT=$(codesign -d -r- .build/Amanu.app 2>&1)
+grep -E 'Identifier|Authority=Developer ID|TeamIdentifier' <<<"$DETAILS"
+grep -q 'me.samat.amanu' <<<"$REQUIREMENT" \
     || die "designated requirement does not name me.samat.amanu"
 # The hardened runtime is not optional: without it the notary service rejects
 # the submission, and it does so after the upload rather than before it.
-codesign -dvvv .build/Amanu.app 2>&1 | grep -q 'flags=.*runtime' \
-    || die "hardened runtime missing"
+grep -q 'flags=.*runtime' <<<"$DETAILS" || die "hardened runtime missing"
 
 step "4/8  building the disk image"
 rm -rf dist/stage "$DMG"
@@ -90,8 +94,8 @@ grep -q 'status: Accepted' dist/notary.log || die "notarization was not accepted
 xcrun stapler staple "$DMG"
 xcrun stapler validate "$DMG"
 # Gatekeeper's own opinion, which is the one a stranger's Mac will ask for.
-spctl --assess --type open --context context:primary-signature -v "$DMG" 2>&1 \
-    | grep -q 'accepted' || die "Gatekeeper rejected the disk image"
+GATEKEEPER=$(spctl --assess --type open --context context:primary-signature -v "$DMG" 2>&1)
+grep -q 'accepted' <<<"$GATEKEEPER" || die "Gatekeeper rejected the disk image: $GATEKEEPER"
 
 shasum -a 256 "$DMG" | sed "s|dist/||" > "$DMG.sha256"
 SIZE=$(stat -f%z "$DMG")
@@ -165,7 +169,8 @@ step "verifying what the world now sees"
 curl -fsS https://samat.me/amanu/appcast.xml > dist/published-appcast.xml
 diff -q "$SITE/amanu/appcast.xml" dist/published-appcast.xml \
     || die "the published feed is not the file we signed"
-curl -fsSIL "$ASSET_URL" | grep -qE '^HTTP/[0-9.]+ 200' \
+ASSET_HEAD=$(curl -fsSIL "$ASSET_URL")
+grep -qE '^HTTP/[0-9.]+ 200' <<<"$ASSET_HEAD" \
     || die "the release asset the feed points at is not downloadable"
 echo
 echo "amanu $TAG is out."
