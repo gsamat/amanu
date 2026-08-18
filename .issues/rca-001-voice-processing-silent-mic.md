@@ -103,18 +103,18 @@ Direct `kAudioUnitSubType_VoiceProcessingIO` is unnecessary unless AVAudioEngine
 
 **Fix targets:**
 
-- `Sources/quill/Audio/MicRecorder.swift` — enables duplex voice processing, reads the 9-channel format, converts it to mono, and writes the mic track.
-- `Sources/quill/Config.swift` — currently makes voice processing default-on.
+- `Sources/amanu/Audio/MicRecorder.swift` — enables duplex voice processing, reads the 9-channel format, converts it to mono, and writes the mic track.
+- `Sources/amanu/Config.swift` — currently makes voice processing default-on.
 - `README.md` — currently promises echo cancellation as the default behavior.
-- `Sources/quill/Transcription/TranscriptionCoordinator.swift` — appropriate location for cross-track transcript echo suppression.
+- `Sources/amanu/Transcription/TranscriptionCoordinator.swift` — appropriate location for cross-track transcript echo suppression.
 
 **Flow:**
 
-- `Sources/quill/RecordingSession.swift` — starts the system recorder before the mic recorder and records per-track timing offsets.
-- `Sources/quill/Audio/SystemAudioRecorder.swift` — captures the clean far-end reference through an independent Core Audio process tap.
-- `Sources/quill/Transcription/ParakeetEngine.swift` — transcribes each readable audio file.
-- `Sources/quill/Transcription/TranscriptionCoordinator.swift` — shifts and merges mic and system segments.
+- `Sources/amanu/RecordingSession.swift` — starts the system recorder before the mic recorder and records per-track timing offsets.
+- `Sources/amanu/Audio/SystemAudioRecorder.swift` — captures the clean far-end reference through an independent Core Audio process tap.
+- `Sources/amanu/Transcription/ParakeetEngine.swift` — transcribes each readable audio file.
+- `Sources/amanu/Transcription/TranscriptionCoordinator.swift` — shifts and merges mic and system segments.
 
 **Downstream:**
 
-- `Sources/quill/Transcription/TranscriptionEngine.swift` — defines timed transcript segments and speaker attribution.
+- `Sources/amanu/Transcription/TranscriptionEngine.swift` — defines timed transcript segments and speaker attribution.

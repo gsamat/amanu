@@ -42,14 +42,6 @@ enum Runtime {
             .resolvingSymlinksInPath()
     }
 
-    /// Where a released copy is expected to live. An app run from the Downloads
-    /// folder or from a mounted disk image works, but updating and login items
-    /// only make sense once it has been moved.
-    static var isInApplications: Bool {
-        guard let bundleURL else { return false }
-        return bundleURL.deletingLastPathComponent().path.hasSuffix("/Applications")
-    }
-
     /// LaunchServices hands an app arguments of its own on some launches, and
     /// ArgumentParser rightly refuses to understand them. They are noise from
     /// the window server, never a command someone typed.

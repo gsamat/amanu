@@ -7,7 +7,8 @@ import AppKit
 /// settings that lose the race become invisible — present in the program,
 /// absent from the window, mentioned nowhere. Here the schema is the single
 /// list: add an entry there and it appears, described, with its default
-/// showing, in this window and in the generated config documentation.
+/// showing, in this window. The README is written by hand against the same
+/// list, and `SettingsDocumentationTests` fails when the two drift.
 ///
 /// Two rules make the config file stay readable as a record of decisions.
 /// Nothing is written until it differs from the default — setting a control

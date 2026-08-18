@@ -392,6 +392,30 @@ result was poor — use **Re-transcribe** in the recordings list, or delete its
 `transcript.json` by hand and restart amanu; either way it comes back through
 the queue.
 
+### live — while the meeting is still going
+
+Off by default, and separate from everything above: `live_transcription.enabled`
+turns on a running transcript in the status window while a meeting is being
+recorded. It is a **preview, not a transcript**. The text is held in memory,
+never written into the session folder, and never used as a fallback — the
+canonical `transcript.json` is still produced by the pass after the recording
+stops, by whichever engine `transcription.engine` chose.
+
+It needs a second local model: NVIDIA's streaming multilingual ASR, another
+~600 MB, again via FluidAudio's Core ML port. Nothing leaves the Mac. The
+download is explicit — Setup or Settings asks for it, and a recording never
+starts one on its own, because a 600 MB download beginning as a meeting begins
+is the wrong thing to do to a person's laptop and their bandwidth.
+
+Mic and system audio stream through the model as two independent decoders
+sharing one loaded bundle, so the live text is labelled `You` and `Them`
+without any diarization. The checkbox works mid-recording: turning it on
+starts from that instant rather than catching up from the audio already on
+disk, turning it off freezes what is on screen, and turning it on again draws
+a *live transcript resumed* line. If the machine cannot keep up the live
+transcript stops and says so — the recording and the final transcript are
+unaffected, which is the point of keeping the preview disposable.
+
 ## Speaker names
 
 A transcript comes out of the recognizer saying `me` and `them A`. Before the
@@ -542,6 +566,10 @@ Optional, at `~/.config/amanu/config.json`:
   the key itself. `ASSEMBLYAI_API_KEY` wins over both.
 - `transcription.assemblyai.speech_model` — override AssemblyAI's default
   model. Unset sends nothing and lets the API pick.
+- `live_transcription.enabled` — the running preview in the status window
+  while a meeting records (default off). Needs a second local model, which
+  Setup downloads on request and a recording never fetches on its own. The
+  live text is never saved and never becomes the transcript.
 - `transcript_echo_filter` — drop mic segments that duplicate overlapping
   system speech at merge time (default on). The text-level guard for sessions
   recorded raw through speakers, where the far end lands on both tracks and
