@@ -35,6 +35,7 @@ final class MicRecorder: @unchecked Sendable {
     }
 
     private var engine = AVAudioEngine()
+    private let liveAudio = LiveAudioBufferRelay()
     private var url: URL?
     private(set) var isRecording = false
 
@@ -130,6 +131,15 @@ final class MicRecorder: @unchecked Sendable {
         engine.inputNode.removeTap(onBus: 0)
         file = nil
         lastBufferAt = nil
+        liveAudio.install(nil)
+    }
+
+    func installLiveAudioSink(_ sink: LiveAudioBufferRelay.Sink?) {
+        liveAudio.install(sink)
+    }
+
+    func setLiveAudioPaused(_ paused: Bool) {
+        liveAudio.isPaused = paused
     }
 
     // MARK: -
@@ -284,6 +294,7 @@ final class MicRecorder: @unchecked Sendable {
         }
         do {
             try file.write(from: outgoing)
+            liveAudio.forward(outgoing)
         } catch {
             FileHandle.standardError.write(Data("mic track write failed: \(error)\n".utf8))
         }

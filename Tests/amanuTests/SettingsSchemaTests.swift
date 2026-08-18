@@ -134,6 +134,7 @@ struct SettingsSchemaTests {
                     "speech_model": "best",
                 ],
             ],
+            "live_transcription": ["enabled": true],
             "auto_record": [
                 "enabled": true,
                 "mic_activity": true,

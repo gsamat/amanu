@@ -241,6 +241,7 @@ final class AppController {
         return setup
     }()
     private let transcription = TranscriptionCoordinator()
+    private let liveTranscription = LiveTranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
     private var session: RecordingSession?
@@ -274,8 +275,10 @@ final class AppController {
         window.onToggle = { [weak self] in self?.toggle() }
         window.onTogglePause = { [weak self] in self?.togglePause() }
         window.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
+        window.onToggleLive = { [weak self] enabled in self?.toggleLive(enabled) }
         window.onOpenFolder = { [weak self] in self?.openFolder() }
         window.onShowRecordings = { [weak self] in self?.showRecordings() }
+        window.updateLivePreference(enabled: Config.liveTranscriptionEnabled())
         if Config.showWindowAtLaunch(), !SetupState.isPending { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
@@ -392,6 +395,23 @@ final class AppController {
         window.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
     }
 
+    private func toggleLive(_ enabled: Bool) {
+        Config.update(
+            path: ["live_transcription", "enabled"], value: enabled ? true : nil)
+        guard let session else { return }
+
+        // Close the old epoch synchronously. Any partial result already in
+        // flight is rejected by the coordinator's epoch check.
+        session.installLiveAudioSinks(mic: nil, system: nil)
+        let language = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        Task { [weak self, weak session] in
+            guard let self, let session else { return }
+            let sinks = await liveTranscription.setEnabled(enabled, language: language)
+            guard self.session === session else { return }
+            session.installLiveAudioSinks(mic: sinks?.mic, system: sinks?.system)
+        }
+    }
+
     /// What we can tell about a meeting being started by hand: whichever call
     /// app is already holding the microphone, plus the calendar's view of now.
     private func currentContext() -> MeetingContext {
@@ -427,11 +447,27 @@ final class AppController {
             return
         }
 
+        guard let newSession = session else { return }
+        let liveEnabled = Config.liveTranscriptionEnabled()
+        let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        Task { [weak self, weak newSession] in
+            guard let self, let newSession else { return }
+            let sinks = await liveTranscription.beginRecording(
+                enabled: liveEnabled,
+                language: liveLanguage
+            ) { [weak self] snapshot in
+                Task { @MainActor in self?.showLive(snapshot) }
+            }
+            guard self.session === newSession else { return }
+            newSession.installLiveAudioSinks(mic: sinks?.mic, system: sinks?.system)
+        }
+
         present(.recording, elapsed: "0:00")
     }
 
     private func stopSession(reason: String = "manual") {
         guard let session else { return }
+        session.installLiveAudioSinks(mic: nil, system: nil)
         session.stop(reason: reason)
         let duration = Date().timeIntervalSince(session.startedAt)
         FileHandle.standardError.write(Data(
@@ -457,11 +493,18 @@ final class AppController {
                     + "is under the \(Int(minimum))s minimum for an automatic recording\n").utf8
             ))
             session.discard()
+            Task { [liveTranscription] in await liveTranscription.finishRecording() }
             return
         }
 
         let dir = session.dir
-        Task { [transcription] in await transcription.enqueue(dir) }
+        Task { [liveTranscription, transcription] in
+            // Drop the large streaming model before Parakeet begins its final,
+            // canonical pass so the two heavyweight ASR pipelines don't
+            // compete for memory or the Neural Engine.
+            await liveTranscription.finishRecording()
+            await transcription.enqueue(dir)
+        }
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {
@@ -476,6 +519,18 @@ final class AppController {
         }
         menuBar.updateTranscription(text)
         window.updateTranscription(text)
+    }
+
+    private func showLive(_ snapshot: LiveTranscriptionCoordinator.Snapshot) {
+        window.updateLive(snapshot)
+        switch snapshot.status {
+        case .overloaded, .error:
+            // The coordinator has closed its queues; detach here as well so
+            // the real-time recorders stop making now-unused buffer copies.
+            session?.installLiveAudioSinks(mic: nil, system: nil)
+        case .idle, .paused, .loading, .live, .modelMissing:
+            break
+        }
     }
 
     /// Bring the status window up — from the menu, or a second launch of an
