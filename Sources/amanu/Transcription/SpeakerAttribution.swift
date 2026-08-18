@@ -6,9 +6,21 @@ import Foundation
 /// The engine only ever sees the mix, so all it can say is "A" and "B". But we
 /// still have the two source tracks, and they answer the question directly:
 /// whoever was loud on mic.caf while an utterance was spoken *is* the person
-/// who spoke it. So the side is decided per utterance, not per label — a model
-/// that merges two similar voices into one label still comes out correctly
-/// split, because the tracks disagree even when the diarizer doesn't.
+/// who spoke it.
+///
+/// The comparison is made per utterance and then settled per voice, and that
+/// second half is the part worth explaining. A diarization label is a voice,
+/// and a voice is a person; the track it arrives on is not. The far end comes
+/// out of the speakers and back into the room mic, so some minority of one
+/// person's utterances always reads as louder on the mic — across every real
+/// session recorded on 18 August, every single voice appeared on both tracks,
+/// the minority side running from 3% to 38% of that voice's utterances.
+/// Deciding the side utterance by utterance therefore turned every person into
+/// two speakers, and `2026.08.18-1024` shows the bill: the naming pass looked
+/// at "me A" and at "them", identified each of them as Миша, at high
+/// confidence, with a different quote apiece — and was right both times,
+/// because they were both Миша. So the side is a majority verdict over the
+/// whole meeting, and a voice keeps one name from beginning to end.
 ///
 /// The labels still earn their keep on the far side: three people sharing one
 /// room mic are all "them", and only diarization can tell them apart. So the
@@ -75,10 +87,10 @@ enum SpeakerAttribution {
         }
         guard sides.contains(where: { $0 != nil }) else { return nil }
 
-        // Second pass: fill the undecided ones from the side their diarization
-        // label usually lands on, falling back to whoever spoke last. Both
-        // tracks reading silent under speech means a dropout, not a new
-        // speaker.
+        // Second pass: count where each voice landed, and put the whole voice
+        // on the side that won. Nobody changes tracks halfway through a
+        // meeting; the minority readings are the room mic hearing the far end
+        // through the speakers.
         var majority: [String: (me: Int, them: Int)] = [:]
         for (segment, side) in zip(segments, sides) {
             guard let side, let label = segment.speaker else { continue }
@@ -86,14 +98,22 @@ enum SpeakerAttribution {
             if side == .me { tally.me += 1 } else { tally.them += 1 }
             majority[label] = tally
         }
+        let settled = majority.mapValues { $0.me > $0.them ? Side.me : Side.them }
+
+        // Utterances the engine gave no label to have no voice to be settled
+        // with, so they keep their own reading — or, where both tracks were
+        // silent under speech, the side that spoke last. That is a dropout,
+        // not a new speaker.
         var previous: Side = .them
         for i in sides.indices {
-            if let side = sides[i] {
+            if let label = segments[i].speaker, let side = settled[label] {
+                sides[i] = side
                 previous = side
-                continue
+            } else if let side = sides[i] {
+                previous = side
+            } else {
+                sides[i] = previous
             }
-            let tally = segments[i].speaker.flatMap { majority[$0] }
-            sides[i] = tally.map { $0.me > $0.them ? .me : .them } ?? previous
         }
 
         // Name each side. The label only survives where a side actually holds
