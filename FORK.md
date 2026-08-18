@@ -1,7 +1,7 @@
 # What this fork changed, and why
 
 amanu began as [digimata/quill](https://github.com/digimata/quill) and is now
-about 7,800 lines away from it across 54 files. This is the honest account of
+about 19,000 lines away from it across 112 files. This is the honest account of
 what moved and what the reasons were, because a fork that doesn't say what it
 did is just a copy with a new name.
 
@@ -88,6 +88,14 @@ transcript doesn't arrive.
   guessed.
 - **An echo filter**, for meetings played through speakers, where the far end
   lands on both tracks and every sentence would otherwise appear twice.
+- **Real names on the speakers.** `me` and `them A` are correct and useless a
+  week later. A pass after the transcript works out who was who from the
+  invitees and from people addressing each other by name, and applies it only
+  where the transcript proves it — names live in `speakers.json`, never
+  written back over `transcript.json`, so a wrong guess is reversible.
+- **An optional live transcript** while the meeting is still running, from a
+  second local streaming model. Explicitly a disposable preview: held in
+  memory, never saved, never a fallback for the real transcript.
 
 ## Summaries
 
@@ -145,7 +153,10 @@ otherwise.
 - **The recording icon is redrawn in colour rather than tinted.**
   `contentTintColor` doesn't override template rendering, so the red icon
   vanished on dark wallpaper.
-- **A test suite**, which upstream has none of. 53 tests, most of them
+- **It updates itself**, through Sparkle and a signed appcast, and it will not
+  interrupt a meeting to do it: a check that comes due while recording is
+  skipped, and an install offered anyway is held until the recording stops.
+- **A test suite**, which upstream has none of. 138 tests, most of them
   regression tests for the failures listed above — the absolute level floor in
   speaker attribution, the compressed-track verification, the recovery of an
   interrupted session, the mix keeping its timing across a sample-rate
@@ -153,6 +164,8 @@ otherwise.
 
 ## What did not change
 
-The shape. It is still a single Swift binary with no app bundle, still a Core
-Audio process tap for system audio with no virtual device and no kernel
-extension, still local unless you hand it a cloud token. MIT, as upstream.
+Still one Swift binary — now inside an application bundle, for the reasons
+above, but a bundle is a directory with a plist in it and there is no second
+build system. Still a Core Audio process tap for system audio, with no virtual
+device and no kernel extension. Still local unless you hand it a cloud token.
+MIT, as upstream.
