@@ -14,9 +14,9 @@ struct SpeakerAttributionTests {
         to url: URL,
         seconds: Double,
         bursts: [(Double, Double)],
-        gain: Float
+        gain: Float,
+        rate: Double = 48000.0
     ) throws {
-        let rate = 48000.0
         let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false)!
         let file = try AVAudioFile(
@@ -212,5 +212,70 @@ struct SpeakerAttributionTests {
         try await AudioMixer.mix([AudioMixer.Track(url: f.mic, offset: 0)], to: mixed)
         try await AudioMixer.mix([AudioMixer.Track(url: f.system, offset: 0)], to: mixed)
         #expect(FileManager.default.fileExists(atPath: mixed.path))
+    }
+
+    /// Duration alone would pass on a mix that quietly dropped one track, which
+    /// is the failure that costs a meeting half its transcript. So look at the
+    /// samples: each speaker's window has to be loud and the pauses quiet.
+    @Test("Both tracks are audible in the mix, each in its own window")
+    func mixCarriesBothTracks() async throws {
+        let f = try Fixture()
+        let mixed = f.dir.appendingPathComponent("mixed.m4a")
+        try await AudioMixer.mix(
+            [
+                AudioMixer.Track(url: f.mic, offset: 0),
+                AudioMixer.Track(url: f.system, offset: 0.5),
+            ],
+            to: mixed)
+
+        // mic speaks 0–2s, system 3.0–5.0s on the shared clock, both silent
+        // in between; gains stay ~9x apart, so the check is against each
+        // track's own level rather than a shared one.
+        #expect(try Self.peak(of: mixed, from: 0.5, to: 1.5) > 0.04, "mic track missing")
+        #expect(try Self.peak(of: mixed, from: 3.5, to: 4.5) > 0.3, "system track missing")
+        #expect(try Self.peak(of: mixed, from: 2.0, to: 2.8) < 0.01, "silence between is not silent")
+    }
+
+    /// Two devices rarely agree on a sample rate — a 44.1k interface against a
+    /// 48k tap is the ordinary case, and the old composition-based mix hid the
+    /// resampling. Doing it by hand means a wrong ratio would stretch one
+    /// track's timeline and put every far-side word in the wrong place.
+    @Test("Tracks at different sample rates keep their timing")
+    func mixResamplesWithoutDrift() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-rates-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let fast = dir.appendingPathComponent("mic.caf")
+        let slow = dir.appendingPathComponent("system.caf")
+        try Self.writeTrack(to: fast, seconds: 10, bursts: [(0, 2)], gain: 0.5)
+        try Self.writeTrack(to: slow, seconds: 10, bursts: [(7, 9)], gain: 0.5, rate: 44100)
+
+        let mixed = dir.appendingPathComponent("mixed.m4a")
+        try await AudioMixer.mix(
+            [AudioMixer.Track(url: fast, offset: 0), AudioMixer.Track(url: slow, offset: 0)],
+            to: mixed)
+
+        // A 44.1/48 ratio applied the wrong way round would drag the 7–9s
+        // burst to 6.4–8.3 or push it to 7.6–9.8; a whole second of margin
+        // either side of the check catches both.
+        #expect(try Self.peak(of: mixed, from: 0.5, to: 1.5) > 0.2, "48k track missing")
+        #expect(try Self.peak(of: mixed, from: 7.5, to: 8.5) > 0.2, "44.1k track missing or drifted")
+        #expect(try Self.peak(of: mixed, from: 4.0, to: 6.0) < 0.01, "silence between is not silent")
+    }
+
+    /// Loudest sample between two times, read straight off the file.
+    private static func peak(of url: URL, from start: Double, to end: Double) throws -> Float {
+        let file = try AVAudioFile(forReading: url)
+        let format = file.processingFormat
+        let first = AVAudioFramePosition(start * format.sampleRate)
+        let frames = AVAudioFrameCount((end - start) * format.sampleRate)
+        guard first < file.length, let buffer = AVAudioPCMBuffer(
+            pcmFormat: format, frameCapacity: frames)
+        else { return 0 }
+        file.framePosition = first
+        try file.read(into: buffer, frameCount: frames)
+        return AudioLevel.peak(of: buffer) ?? 0
     }
 }
