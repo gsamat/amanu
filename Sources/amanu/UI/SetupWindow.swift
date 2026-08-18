@@ -30,19 +30,24 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let launchRow = AccessRow(
         title: "Start at login",
         detail: "System audio is only ever granted to the copy launchd starts.",
-        action: "Install")
+        action: "Install",
+        grantedNote: "installed")
     private let micRow = AccessRow(
         title: "Microphone",
         detail: "Your side of the call.",
-        action: "Allow")
+        action: "Allow",
+        grantedNote: "allowed")
     private let audioRow = AccessRow(
         title: "System audio",
         detail: "Everyone else's side. Without it they are recorded as silence.",
-        action: "Allow and test")
+        action: "Allow and test",
+        grantedNote: "heard the tone")
     private let calendarRow = AccessRow(
         title: "Calendar",
-        detail: "Optional. Names the folder and the speakers from the invitees.",
-        action: "Allow")
+        detail: "Names the folder and the speakers from the invitees.",
+        action: "Allow",
+        grantedNote: "allowed",
+        optional: true)
 
     private let engineCards = ChoiceGroup()
     private let language = NSTextField()
@@ -57,6 +62,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let assemblyStatus = NSTextField(labelWithString: "")
     private let parakeetStatus = NSTextField(labelWithString: "")
     private let parakeetDownload = NSButton(title: "Download", target: nil, action: nil)
+    private let parakeetBar = NSProgressIndicator()
     private var parakeetProgress: Timer?
 
     private let summariesOn = NSSwitch()
@@ -68,6 +74,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private lazy var summaryKeyLink = link(
         "Get a key", "https://console.anthropic.com/settings/keys")
 
+    private let recordingsPath = NSTextField(labelWithString: "")
     private let autoRecord = NSSwitch()
 
     private let footerNote = NSTextField(labelWithString: "")
@@ -75,7 +82,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     override init() {
         panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -85,32 +92,44 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.title = "amanu setup"
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.minSize = NSSize(width: 600, height: 420)
+        panel.minSize = NSSize(width: 640, height: 460)
 
         let form = NSStackView()
         form.orientation = .vertical
         form.alignment = .leading
-        form.spacing = 10
-        form.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
+        form.spacing = SetupLayout.sectionGap
+        form.edgeInsets = NSEdgeInsets(
+            top: 22, left: SetupLayout.gutter, bottom: 22, right: SetupLayout.gutter)
 
-        form.addArrangedSubview(header("Access"))
-        form.addArrangedSubview(box([launchRow, micRow, audioRow, calendarRow]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Access",
+            content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(header("Transcription"))
-        form.addArrangedSubview(transcriptionCards())
-        form.addArrangedSubview(languageRow())
-        form.addArrangedSubview(box([keepAudioRow(), liveTranscriptionRow()]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Transcription",
+            content: SetupLayout.group([
+                transcriptionCards(),
+                languageRow(),
+                SetupLayout.box([liveTranscriptionRow()]),
+            ])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(summariesHeader())
-        form.addArrangedSubview(summaryChoices())
+        form.addArrangedSubview(SetupLayout.section(
+            "Files",
+            content: SetupLayout.box([folderRow(), keepAudioRow()])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(box([autoRecordRow()]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Summaries",
+            leading: summariesOn,
+            content: summaryChoices()))
+
+        // No heading of its own: one switch is not a section, and it belongs
+        // at the end because it is the thing that makes all of the above run
+        // without anyone opening this window again.
+        form.addArrangedSubview(SetupLayout.box([autoRecordRow()]))
 
         for view in form.arrangedSubviews {
-            view.widthAnchor.constraint(equalTo: form.widthAnchor, constant: -40).isActive = true
+            view.widthAnchor.constraint(
+                equalTo: form.widthAnchor, constant: -2 * SetupLayout.gutter).isActive = true
         }
 
         let scroll = NSScrollView()
@@ -126,7 +145,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             form.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
         ])
 
-        footerNote.font = .systemFont(ofSize: 11)
+        footerNote.font = .systemFont(ofSize: 12)
         footerNote.textColor = .secondaryLabelColor
         footerNote.lineBreakMode = .byTruncatingTail
 
@@ -139,7 +158,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         let footer = NSStackView(views: [footerNote, later, primary])
         footer.orientation = .horizontal
-        footer.spacing = 10
+        footer.spacing = 12
         footer.translatesAutoresizingMaskIntoConstraints = false
         footerNote.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -150,10 +169,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             scroll.topAnchor.constraint(equalTo: content.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            footer.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 12),
-            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
+            footer.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 16),
+            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -18),
         ])
         panel.contentView = content
         panel.center()
@@ -180,47 +199,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     // MARK: - building
 
-    private func header(_ title: String) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13, weight: .semibold)
-        return label
-    }
-
-    /// Rows in a bordered container, hairlines between them — the shape macOS
-    /// uses everywhere for a list of settings.
-    private func box(_ rows: [NSView]) -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 0
-        stack.wantsLayer = true
-        stack.layer?.borderWidth = 1
-        stack.layer?.borderColor = NSColor.separatorColor.cgColor
-        stack.layer?.cornerRadius = 6
-
-        for (index, row) in rows.enumerated() {
-            if index > 0 { stack.addArrangedSubview(hairline()) }
-            stack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-        return stack
-    }
-
-    private func hairline() -> NSView {
-        let line = NSView()
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        return line
-    }
-
     private func transcriptionCards() -> NSView {
         let auto = ChoiceCard(
             id: "auto",
             title: "Whichever works",
             detail: "AssemblyAI when there's a key and a network, parakeet otherwise.")
 
-        parakeetStatus.font = .systemFont(ofSize: 11)
+        parakeetStatus.font = SetupLayout.statusFont
         parakeetStatus.textColor = .secondaryLabelColor
         parakeetStatus.lineBreakMode = .byWordWrapping
         parakeetStatus.maximumNumberOfLines = 2
@@ -228,16 +213,25 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         parakeetDownload.controlSize = .small
         parakeetDownload.target = self
         parakeetDownload.action = #selector(downloadParakeetClicked)
+        // FluidAudio reports no progress, so the bar is the cache directory
+        // growing towards the model's known size. Approximate, and better
+        // than a spinner that could mean anything.
+        parakeetBar.style = .bar
+        parakeetBar.isIndeterminate = false
+        parakeetBar.controlSize = .small
+        parakeetBar.minValue = 0
+        parakeetBar.maxValue = 600
+        parakeetBar.isHidden = true
         let local = ChoiceCard(
             id: "parakeet",
             title: "On this Mac",
             detail: "parakeet. Nothing leaves the machine.",
-            accessories: [parakeetStatus, parakeetDownload])
+            accessories: [parakeetBar, parakeetStatus, parakeetDownload])
 
         assemblyKey.placeholderString = "paste key"
-        assemblyKey.font = .systemFont(ofSize: 11)
+        assemblyKey.font = SetupLayout.detailFont
         assemblyKey.delegate = self
-        assemblyStatus.font = .systemFont(ofSize: 11)
+        assemblyStatus.font = SetupLayout.statusFont
         assemblyStatus.textColor = .secondaryLabelColor
         assemblyStatus.lineBreakMode = .byWordWrapping
         assemblyStatus.maximumNumberOfLines = 2
@@ -245,75 +239,92 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             id: "assemblyai",
             title: "AssemblyAI",
             detail: "Tells apart people sharing one channel. Audio leaves the Mac.",
-            accessories: [assemblyKey, assemblyStatus, link("Get a key", "https://www.assemblyai.com/dashboard/signup")])
+            accessories: [
+                assemblyKey, assemblyStatus,
+                link("Get a key", "https://www.assemblyai.com/dashboard/signup"),
+            ])
 
         engineCards.adopt([auto, local, cloud])
         engineCards.onChange = { [weak self] id in
             Config.update(path: ["transcription", "engine"], value: id == "auto" ? nil : id)
             self?.refresh()
         }
-        return row(engineCards.cards)
+        return SetupLayout.cards(engineCards.cards)
     }
 
     private func languageRow() -> NSView {
         let label = NSTextField(labelWithString: "Meetings are mostly in")
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .secondaryLabelColor
         language.placeholderString = Self.systemLanguage ?? "ru"
         language.delegate = self
         language.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [label, language])
-        stack.orientation = .horizontal
-        stack.spacing = 10
-        return stack
-    }
-
-    private func keepAudioRow() -> NSView {
-        keepAudio.target = self
-        keepAudio.action = #selector(keepAudioChanged)
-        let stack = NSStackView(views: [keepAudio, NSView()])
+        let stack = NSStackView(views: [label, language, NSView()])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        stack.spacing = 10
         return stack
     }
 
     private func liveTranscriptionRow() -> NSView {
         liveTranscription.target = self
         liveTranscription.action = #selector(liveTranscriptionToggled)
-        liveStatus.font = .systemFont(ofSize: 11)
+        liveStatus.font = SetupLayout.statusFont
         liveStatus.textColor = .secondaryLabelColor
+        liveStatus.lineBreakMode = .byTruncatingTail
 
-        let title = NSTextField(labelWithString: "I want a live transcript during meetings")
-        let detail = NSTextField(labelWithString:
-            "Downloads a roughly 600 MB Core ML package of NVIDIA Nemotron from "
-                + "FluidInference on Hugging Face. Audio never leaves this Mac; the final "
-                + "transcript still uses Parakeet.")
-        detail.font = .systemFont(ofSize: 11)
-        detail.textColor = .secondaryLabelColor
-        detail.lineBreakMode = .byWordWrapping
-        detail.maximumNumberOfLines = 3
-        detail.preferredMaxLayoutWidth = 500
-
-        let text = NSStackView(views: [title, detail, liveStatus])
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 2
-        let stack = NSStackView(views: [liveTranscription, text])
-        stack.orientation = .horizontal
-        stack.alignment = .top
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        return stack
+        return SetupLayout.row(
+            leading: liveTranscription,
+            title: SetupLayout.title("I want a live transcript during meetings"),
+            detail: SetupLayout.detail(
+                "A 600 MB NVIDIA model downloads once. Nothing leaves this Mac, "
+                    + "and the final transcript is still parakeet's.",
+                lines: 2, width: 520),
+            trailing: [liveStatus])
     }
 
-    private func summariesHeader() -> NSView {
-        summariesOn.target = self
-        summariesOn.action = #selector(summariesToggled)
-        let stack = NSStackView(views: [summariesOn, header("Summaries"), NSView()])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 10
-        return stack
+    /// Where the recordings live, and the one thing worth saying about the
+    /// default: it is outside Documents, Desktop and Downloads, so macOS never
+    /// has to ask a background recorder for permission to write there.
+    private func folderRow() -> NSView {
+        recordingsPath.font = SetupLayout.monoFont
+        recordingsPath.lineBreakMode = .byTruncatingMiddle
+
+        return SetupLayout.row(
+            symbol: "folder",
+            title: recordingsPath,
+            detail: SetupLayout.detail(
+                "Outside Documents and Desktop, so macOS never has to ask.", lines: 1),
+            trailing: [SetupLayout.actionButton(
+                "Choose…", target: self, action: #selector(chooseFolder))])
+    }
+
+    @objc private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = Config.resolveRoot(cliOverride: nil)
+        panel.prompt = "Use folder"
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+
+        // Store it the way a person would write it: a path under the home
+        // directory stays readable, and stays right if the account is renamed.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = chosen.path.hasPrefix(home)
+            ? "~" + chosen.path.dropFirst(home.count)
+            : chosen.path
+        Config.update(path: ["recordings_dir"], value: String(path))
+        refresh()
+    }
+
+    private func keepAudioRow() -> NSView {
+        keepAudio.target = self
+        keepAudio.action = #selector(keepAudioChanged)
+        keepAudio.font = SetupLayout.titleFont
+        return SetupLayout.row(title: keepAudio)
     }
 
     private func summaryChoices() -> NSView {
@@ -332,9 +343,9 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         keyProvider.target = self
         keyProvider.action = #selector(keyProviderChanged)
         summaryKey.placeholderString = "sk-ant-…"
-        summaryKey.font = .systemFont(ofSize: 11)
+        summaryKey.font = SetupLayout.detailFont
         summaryKey.delegate = self
-        summaryKeyStatus.font = .systemFont(ofSize: 11)
+        summaryKeyStatus.font = SetupLayout.statusFont
         summaryKeyStatus.textColor = .secondaryLabelColor
         summaryKeyStatus.lineBreakMode = .byWordWrapping
         summaryKeyStatus.maximumNumberOfLines = 2
@@ -343,11 +354,16 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             title: "My own key",
             detail: "Billed per meeting, needs no CLI.",
             accessories: [keyProvider, summaryKey, summaryKeyStatus, summaryKeyLink])
+
+        // Ollama is a fallback, not a fourth peer: a whole card beside the
+        // three real choices reads as a recommendation, and its summaries are
+        // the weakest of the four. One slim row keeps it choosable and says so.
         let ollama = ChoiceCard(
             id: "ollama",
             title: "Ollama",
             detail: "No account, no network. Weaker summaries.",
-            accessories: [link("Install Ollama", "https://ollama.com/download/mac")])
+            accessories: [link("Install Ollama", "https://ollama.com/download/mac")],
+            compact: true)
 
         summaryCards.adopt([claude, codex, key, ollama])
         summaryCards.onChange = { [weak self] id in
@@ -356,65 +372,24 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 choice: id, keyBackend: self.selectedKeyBackend))
             self.refresh()
         }
-        let stack = NSStackView(views: [row([claude, codex, key]), ollama])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 10
-        ollama.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        return stack
+        return SetupLayout.group(
+            [SetupLayout.cards([claude, codex, key]), ollama],
+            spacing: SetupLayout.cardGap)
     }
 
     private func autoRecordRow() -> NSView {
         autoRecord.target = self
         autoRecord.action = #selector(autoRecordToggled)
-        return settingRow(
-            control: autoRecord,
-            title: "Start recording by itself when a call app takes the mic",
-            detail: "And stop when it lets go. Recordings shorter than a minute are thrown away.")
-    }
-
-    /// A switch on the left, a title and a line of explanation beside it.
-    private func settingRow(control: NSView, title: String, detail: String? = nil) -> NSView {
-        let titleLabel = NSTextField(labelWithString: title)
-        var labels: [NSView] = [titleLabel]
-        if let detail {
-            let detailLabel = NSTextField(labelWithString: detail)
-            detailLabel.font = .systemFont(ofSize: 11)
-            detailLabel.textColor = .secondaryLabelColor
-            detailLabel.lineBreakMode = .byWordWrapping
-            detailLabel.maximumNumberOfLines = 3
-            detailLabel.preferredMaxLayoutWidth = 520
-            labels.append(detailLabel)
-        }
-
-        let text = NSStackView(views: labels)
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 2
-
-        let stack = NSStackView(views: [control, text])
-        stack.orientation = .horizontal
-        stack.alignment = .top
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        return stack
-    }
-
-    private func row(_ views: [NSView]) -> NSView {
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.distribution = .fillEqually
-        stack.alignment = .top
-        stack.spacing = 10
-        return stack
+        return SetupLayout.row(
+            leading: autoRecord,
+            title: SetupLayout.title("Start recording by itself when a call app takes the mic"),
+            detail: SetupLayout.detail(
+                "And stop when it lets go. Recordings shorter than a minute are thrown away.",
+                lines: 2, width: 520))
     }
 
     private func link(_ title: String, _ url: String) -> NSButton {
-        let button = NSButton(title: title, target: self, action: #selector(linkClicked(_:)))
-        button.bezelStyle = .inline
-        button.controlSize = .small
-        button.identifier = NSUserInterfaceItemIdentifier(url)
-        return button
+        SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
     }
 
     private static var systemLanguage: String? {
@@ -579,6 +554,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             }
             parakeetProgress?.invalidate()
             parakeetProgress = nil
+            parakeetBar.isHidden = true
             parakeetDownload.isEnabled = true
             refresh()
         }
@@ -590,23 +566,26 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func watchParakeetSize() {
         parakeetProgress?.invalidate()
         let cache = AsrModels.defaultCacheDirectory(for: ParakeetEngine.configuredVersion())
+        parakeetBar.isHidden = false
+        parakeetBar.doubleValue = 0
         parakeetProgress = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 let mb = Self.megabytes(of: cache)
-                self?.parakeetStatus.stringValue = "downloading — \(mb) of about 600 MB"
+                self?.parakeetBar.doubleValue = Double(mb)
+                self?.parakeetStatus.stringValue = "\(mb) of about 600 MB"
             }
         }
     }
 
-    private static func megabytes(of dir: URL) -> String {
+    private static func megabytes(of dir: URL) -> Int {
         guard let walker = FileManager.default.enumerator(
             at: dir, includingPropertiesForKeys: [.fileSizeKey]
-        ) else { return "0 MB" }
+        ) else { return 0 }
         var total = 0
         for case let url as URL in walker {
             total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         }
-        return "\(total / 1_048_576) MB"
+        return total / 1_048_576
     }
 
     @objc private func laterClicked() {
@@ -780,12 +759,22 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             liveStatus.stringValue = "optional"
         }
 
+        let root = Config.resolveRoot(cliOverride: nil).path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        recordingsPath.stringValue = root.hasPrefix(home)
+            ? "~" + root.dropFirst(home.count)
+            : root
+
         let version = ParakeetEngine.configuredVersion()
         let downloaded = AsrModels.modelsExist(
             at: AsrModels.defaultCacheDirectory(for: version), version: version)
         parakeetDownload.isHidden = downloaded
-        if downloaded { parakeetStatus.stringValue = "downloaded" }
-        else if parakeetProgress == nil { parakeetStatus.stringValue = "about 600 MB" }
+        if downloaded {
+            parakeetStatus.stringValue = "downloaded"
+            parakeetBar.isHidden = true
+        } else if parakeetProgress == nil {
+            parakeetStatus.stringValue = "about 600 MB"
+        }
 
         if Config.assemblyAIKey() != nil, assemblyStatus.stringValue.isEmpty {
             assemblyStatus.stringValue = "key found"
@@ -802,7 +791,26 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
         autoRecord.state = autoRecordOn ? .on : .off
 
+        highlightNextGrant()
         updateFooter()
+    }
+
+    /// Tint the row the primary button is about to act on — and only that
+    /// one. The order below is the same one `nextAction` walks, because the
+    /// highlight is meant to point at the button, not compete with it.
+    private func highlightNextGrant() {
+        let rows = [launchRow, micRow, audioRow, calendarRow]
+        let pending: AccessRow?
+        if SetupPermissions.needsLaunchAgentHandoff {
+            pending = launchRow
+        } else if SetupPermissions.microphone() != .granted {
+            pending = micRow
+        } else if SetupPermissions.needsSystemAudioTest(systemAudio) || systemAudio == .silent {
+            pending = audioRow
+        } else {
+            pending = nil
+        }
+        for row in rows { row.setAttention(row === pending) }
     }
 
     /// What the primary button will do, or nil when the window has nothing
@@ -871,22 +879,33 @@ private final class AccessRow: NSView {
 
     private let mark = NSImageView()
     private let title: NSTextField
+    private let note = NSTextField(labelWithString: "")
     private let detail: NSTextField
     private let button: NSButton
     private let defaultDetail: String
+    private let grantedNote: String
+    private let isOptional: Bool
 
-    init(title: String, detail: String, action: String) {
+    init(title: String, detail: String, action: String,
+         grantedNote: String = "granted", optional: Bool = false) {
         self.title = NSTextField(labelWithString: title)
         self.detail = NSTextField(labelWithString: detail)
         self.defaultDetail = detail
+        self.grantedNote = grantedNote
+        self.isOptional = optional
         button = NSButton(title: action, target: nil, action: nil)
         super.init(frame: .zero)
 
-        self.detail.font = .systemFont(ofSize: 11)
+        self.title.font = SetupLayout.titleFont
+        note.font = SetupLayout.detailFont
+        note.textColor = .tertiaryLabelColor
+        wantsLayer = true
+
+        self.detail.font = SetupLayout.detailFont
         self.detail.textColor = .secondaryLabelColor
         self.detail.lineBreakMode = .byWordWrapping
         self.detail.maximumNumberOfLines = 3
-        self.detail.preferredMaxLayoutWidth = 420
+        self.detail.preferredMaxLayoutWidth = 460
 
         button.bezelStyle = .rounded
         button.controlSize = .small
@@ -895,7 +914,12 @@ private final class AccessRow: NSView {
 
         mark.widthAnchor.constraint(equalToConstant: 18).isActive = true
 
-        let text = NSStackView(views: [self.title, self.detail])
+        let heading = NSStackView(views: [self.title, note])
+        heading.orientation = .horizontal
+        heading.alignment = .firstBaseline
+        heading.spacing = 6
+
+        let text = NSStackView(views: [heading, self.detail])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
@@ -904,7 +928,7 @@ private final class AccessRow: NSView {
         stack.orientation = .horizontal
         stack.alignment = .top
         stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 9, left: 10, bottom: 9, right: 10)
+        stack.edgeInsets = SetupLayout.rowInsets
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -926,9 +950,40 @@ private final class AccessRow: NSView {
         detail.stringValue = message
     }
 
+    /// The one row the person is being asked to act on right now is tinted.
+    /// macOS shows one TCC dialog at a time, so more than one highlighted row
+    /// would be pointing at work that cannot be done yet.
+    func setAttention(_ on: Bool) {
+        layer?.backgroundColor = on
+            ? NSColor.systemOrange.withAlphaComponent(0.12).cgColor
+            : NSColor.clear.cgColor
+        title.textColor = on ? .systemOrange : .labelColor
+        detail.textColor = on ? .systemOrange : .secondaryLabelColor
+        if on {
+            mark.image = NSImage(
+                systemSymbolName: "exclamationmark.circle",
+                accessibilityDescription: "needs your attention")
+            mark.contentTintColor = .systemOrange
+        }
+    }
+
     func update(_ state: SetupPermissions.State, detail override: String? = nil) {
         button.isEnabled = true
         detail.stringValue = override ?? defaultDetail
+
+        // A granted permission is one line: the title and how it stands. The
+        // reasoning underneath is there to talk someone into granting it, and
+        // it has nothing left to say once they have.
+        let settled = state == .granted && override == nil
+        detail.isHidden = settled
+        note.stringValue = {
+            switch state {
+            case .granted: return grantedNote
+            case .notAsked, .unknown: return isOptional ? "optional" : ""
+            case .denied: return ""
+            }
+        }()
+        note.isHidden = note.stringValue.isEmpty
 
         switch state {
         case .granted:
@@ -989,22 +1044,24 @@ final class ChoiceCard: NSView {
         }
     }
 
-    init(id: String, title: String, detail: String, accessories: [NSView] = []) {
+    init(id: String, title: String, detail: String, accessories: [NSView] = [],
+         compact: Bool = false) {
         self.id = id
         radio = NSButton(radioButtonWithTitle: title, target: nil, action: nil)
         super.init(frame: .zero)
 
         radio.target = self
         radio.action = #selector(chose)
+        radio.font = SetupLayout.titleFont
 
         let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.font = SetupLayout.detailFont
         detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.maximumNumberOfLines = 4
-        detailLabel.preferredMaxLayoutWidth = 170
+        detailLabel.lineBreakMode = compact ? .byTruncatingTail : .byWordWrapping
+        detailLabel.maximumNumberOfLines = compact ? 1 : 4
+        detailLabel.preferredMaxLayoutWidth = 190
 
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = SetupLayout.statusFont
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.isHidden = true
@@ -1012,15 +1069,17 @@ final class ChoiceCard: NSView {
         linkButton = accessories.compactMap { $0 as? NSButton }.last { $0.bezelStyle == .inline }
 
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = SetupLayout.corner
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.separatorColor.cgColor
 
-        let stack = NSStackView(views: [radio, detailLabel, statusLabel] + accessories)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        let stack = compact
+            ? NSStackView(views: [radio, detailLabel, NSView(), statusLabel] + accessories)
+            : NSStackView(views: [radio, detailLabel, statusLabel] + accessories)
+        stack.orientation = compact ? .horizontal : .vertical
+        stack.alignment = compact ? .centerY : .leading
+        stack.spacing = compact ? 8 : 7
+        stack.edgeInsets = compact ? SetupLayout.rowInsets : SetupLayout.cardInsets
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -1029,6 +1088,7 @@ final class ChoiceCard: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        guard !compact else { return }
         for accessory in accessories where accessory is NSTextField || accessory is NSSegmentedControl {
             accessory.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         }

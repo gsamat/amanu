@@ -49,6 +49,23 @@ belongs in the middle of a recording.
 - Close Setup with the red window button once and confirm this behaves like
   **Later**: the window closes and the daemon continues running.
 
+## Layout
+
+- Confirm the section headings — Access, Transcription, Files, Summaries — are
+  the small grey labels, each sitting close to its own group and well clear of
+  the group above.
+- Confirm exactly one Access row is tinted amber: the one the primary button
+  is about to act on. A granted row is a single line with its state beside the
+  title and no explanation underneath.
+
+## Files
+
+- Confirm the recordings folder row shows the current path in a monospaced
+  font, and that **Choose…** writes the new path into `config.json` as
+  `recordings_dir` (with `~` when the folder is under the home directory).
+- Confirm a folder chosen inside Documents or Desktop still records: make a
+  short test recording afterwards and check the files land there.
+
 ## Transcription
 
 - Confirm **Whichever works** is selected by default.
@@ -56,8 +73,8 @@ belongs in the middle of a recording.
   confirm the whole outlined rectangle selects the card. Confirm **Download**,
   key fields, and links still perform their own actions instead.
 - Confirm the Parakeet card says either **downloaded** or approximately 600 MB.
-  If the model is absent, start Download and verify that the byte progress
-  changes without freezing the window.
+  If the model is absent, start Download and verify that the progress bar and
+  the megabyte count both advance without freezing the window.
 - Confirm the AssemblyAI card always shows **Get a key** and the link opens the
   signup page.
 - If an AssemblyAI key is available, paste it and verify **key works**. Do not
@@ -87,10 +104,10 @@ belongs in the middle of a recording.
   stat -f '%Sp %N' ~/.config/anthropic/token ~/.config/openai/token
   ```
 
-- Confirm the Ollama card reports whether it is installed and running and names
-  up to two installed models. When Ollama is absent, confirm **Install Ollama**
-  opens `https://ollama.com/download/mac`; when present, confirm the link is
-  hidden.
+- Confirm Ollama is the slim row under the three cards — still selectable,
+  still reporting whether it is installed and running, and naming up to two
+  installed models. When Ollama is absent, confirm **Install Ollama** opens
+  `https://ollama.com/download/mac`; when present, confirm the link is hidden.
 - Turn Summaries off and confirm all backend choices become disabled; turn it
   back on afterwards.
 
