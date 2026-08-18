@@ -24,7 +24,7 @@ the middle of a recording.
 - Run the automated checks from the repository:
 
   ```sh
-  AMANU_NO_NOTIFY=1 swift test
+  swift test
   swift build -c release
   ```
 

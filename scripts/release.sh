@@ -59,7 +59,7 @@ ASC_KEY="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
 [ -z "$(git status --porcelain)" ] || die "working tree is dirty"
 
 step "1/8  tests"
-AMANU_NO_NOTIFY=1 swift test 2>&1 | tail -3
+swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
 make app
