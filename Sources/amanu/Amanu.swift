@@ -7,7 +7,7 @@ struct Amanu: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "amanu",
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
-        subcommands: [Run.self, Doctor.self, Install.self],
+        subcommands: [Run.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self],
         defaultSubcommand: Run.self
     )
 }
@@ -191,6 +191,8 @@ final class AppController {
     private let autoRecord: AutoRecordController
     private var session: RecordingSession?
     private var ticker: Timer?
+    private lazy var recordings = RecordingsWindow(root: root)
+    private var network: NetworkMonitor?
 
     init(root: URL) {
         self.root = root
@@ -206,6 +208,7 @@ final class AppController {
         menuBar.onTogglePause = { [weak self] in self?.togglePause() }
         menuBar.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
+        menuBar.onShowRecordings = { [weak self] in self?.showRecordings() }
         menuBar.onShowWindow = { [weak self] in self?.showWindow() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
@@ -214,6 +217,7 @@ final class AppController {
         window.onTogglePause = { [weak self] in self?.togglePause() }
         window.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         window.onOpenFolder = { [weak self] in self?.openFolder() }
+        window.onShowRecordings = { [weak self] in self?.showRecordings() }
         if Config.showWindowAtLaunch() { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
@@ -235,7 +239,20 @@ final class AppController {
                 }
             }
             await transcription.resumePending(root: root)
+            // After the queue, not before: a session that transcribes in this
+            // pass gets named and summarized by the coordinator itself, and
+            // the sweep is only for what was left over from earlier runs.
+            await PostProcessor.sweep(root: root)
         }
+
+        // A backlog deferred for want of a model is only half-solved by
+        // recording the fact — something has to come back for it when the
+        // network does.
+        let monitor = NetworkMonitor { [root] in
+            Task { await PostProcessor.sweep(root: root) }
+        }
+        monitor.start()
+        network = monitor
 
         Task { [weak self] in
             // Ask once, before anything wants an answer: the auto-record loop
@@ -427,6 +444,16 @@ final class AppController {
     private func openFolder() {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         NSWorkspace.shared.open(root)
+    }
+
+    private func showRecordings() {
+        // A session put back in the queue should start transcribing now, not
+        // at the next launch — the person asking for it is watching.
+        recordings.onRetranscribe = { [transcription, root] _ in
+            Task { await transcription.resumePending(root: root) }
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        recordings.show()
     }
 
     private static func format(_ interval: TimeInterval) -> String {

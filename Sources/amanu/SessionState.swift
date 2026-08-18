@@ -16,6 +16,11 @@ enum SessionState {
         /// won't work on a retry. Absent — nothing to do, either because the
         /// summary exists or because summarizing is off.
         static let summaryStatus = "summary_status"
+        /// The same three states for putting names to the speaker labels.
+        /// `deferred` — no model could be reached: retry later. `failed` — it
+        /// won't work on a retry. Absent — nothing to do, either because
+        /// `speakers.json` exists or because naming is off.
+        static let speakersStatus = "speakers_status"
     }
 
     static let deferred = "deferred"

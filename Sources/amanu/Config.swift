@@ -142,6 +142,39 @@ enum Config {
         load()?["transcript_echo_filter"] as? Bool ?? true
     }
 
+    // MARK: - speaker names
+
+    /// What to call the person doing the recording, instead of "me".
+    ///
+    /// Unset falls back to the machine's account name, but only when that
+    /// reads as a person's name — see `SpeakerNamer.personName`.
+    static func userName() -> String? {
+        guard let name = load()?["user_name"] as? String, !name.trimmed.isEmpty else {
+            return nil
+        }
+        return name.trimmed
+    }
+
+    /// Putting real names to the transcript's mechanical speaker labels.
+    struct SpeakerNamesSettings {
+        var enabled = true
+        /// Which model to ask, in `LLMBackend`'s vocabulary.
+        var backend = "auto"
+        /// Anthropic model for this pass specifically. nil uses the summary's,
+        /// which is the strong one — fine, but naming is an easier job than
+        /// summarizing and doesn't need to cost the same.
+        var model: String?
+    }
+
+    static func speakerNames() -> SpeakerNamesSettings {
+        var settings = SpeakerNamesSettings()
+        guard let json = load()?["speaker_names"] as? [String: Any] else { return settings }
+        if let v = json["enabled"] as? Bool { settings.enabled = v }
+        if let v = json["backend"] as? String, !v.isEmpty { settings.backend = v }
+        if let v = json["model"] as? String, !v.isEmpty { settings.model = v }
+        return settings
+    }
+
     // MARK: - auto-record
 
     /// When and how amanu starts recording by itself.

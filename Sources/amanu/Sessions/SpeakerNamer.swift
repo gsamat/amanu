@@ -79,7 +79,11 @@ enum SpeakerNamer {
             return finish(merged, transcript: transcript, dir: dir, log: log)
         }
 
-        let backends = LLMBackend.available(preference: settings.backend)
+        // The naming model is configurable separately because this is an
+        // easier job than summarizing; unset, it inherits the summary's.
+        let backends = LLMBackend.available(
+            preference: settings.backend, anthropicModel: settings.model
+        )
         var allTransient = true
 
         for backend in backends {
