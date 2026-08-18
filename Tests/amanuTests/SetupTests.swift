@@ -85,17 +85,6 @@ struct SetupTests {
         #expect(!DoctorReport.canContinueIntoSetup([microphone, recordings]))
     }
 
-    @Test("Launch setup hands off unless this process is already launchd's copy")
-    @MainActor
-    func launchAgentHandoffPolicy() {
-        #expect(SetupPermissions.needsLaunchAgentHandoff(
-            installed: false, runningUnderLaunchd: false))
-        #expect(SetupPermissions.needsLaunchAgentHandoff(
-            installed: true, runningUnderLaunchd: false))
-        #expect(!SetupPermissions.needsLaunchAgentHandoff(
-            installed: true, runningUnderLaunchd: true))
-    }
-
     @Test("A detected tool's status is visible inside its choice card")
     @MainActor
     func choiceCardShowsStatus() {

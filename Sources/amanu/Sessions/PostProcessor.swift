@@ -128,7 +128,6 @@ enum PostProcessor {
             guard FileManager.default.fileExists(
                 atPath: dir.appendingPathComponent("meta.json").path
             ) else { continue }
-            SessionScript.install(in: dir)
             let work = await finish(dir)
             if !work.isEmpty { finished += 1 }
         }

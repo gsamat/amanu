@@ -59,9 +59,8 @@ at close. `kill -9` mid-meeting left 99 KB and zero recoverable seconds.
 
 So amanu records uncompressed PCM — about a gigabyte an hour — and re-encodes
 to AAC only once the transcript exists, deleting the PCM after `meta.json`
-already points at the new stereo archive. It handles SIGTERM, because logging out,
-rebooting and `launchctl kickstart -k` all send one and all used to take the
-meeting with them. And a session left behind by a crash is adopted on the next
+already points at the new stereo archive. It handles SIGTERM, because logging out, rebooting and quitting all send one
+and all used to take the meeting with them. And a session left behind by a crash is adopted on the next
 launch rather than orphaned.
 
 ## Transcription that finishes
@@ -136,9 +135,9 @@ otherwise.
   grants to the code signature, and SwiftPM only ad-hoc signs — so every
   rebuild looked like a new program, re-prompted, and left another dead entry
   in System Settings.
-- **The Info.plist is linked into the binary** (`__TEXT,__info_plist`) so TCC
-  can attribute permissions to amanu when it runs as a LaunchAgent with no app
-  bundle to carry a plist.
+- **amanu ships as an application bundle**, which is what makes it its own
+  responsible process for system audio — the thing a LaunchAgent used to buy,
+  and the reason that agent is gone. `spike/tcc-bundle` is the measurement.
 - **The mix is summed by hand.** `AVAssetExportSession` drags in AVFoundation's
   media-library machinery, and macOS answers by asking for Photos, Media &
   Apple Music and the Documents folder — mid-meeting, from a recorder that

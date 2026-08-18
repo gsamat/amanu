@@ -238,7 +238,6 @@ actor TranscriptionCoordinator {
         // completion marker, so anything that runs before it risks retiring a
         // session that has no transcript. Naming and summarizing both just log
         // when they can't run, and are picked up again by a later sweep.
-        SessionScript.install(in: dir)
         await PostProcessor.finish(dir)
     }
 

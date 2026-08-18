@@ -128,44 +128,22 @@ enum DoctorReport {
     }
 
     /// There is no public API to query the system-audio-capture TCC state
-    /// without side effects. But the *structural* precondition is checkable,
-    /// and it's the one that actually bites: TCC attributes the tap request to
-    /// the responsible process, so a terminal-launched amanu has no identity
-    /// to grant, raises no prompt, and records a full-length silent file
-    /// (rca-002). Under launchd amanu is its own responsible process.
+    /// without side effects, and there is no structural precondition left to
+    /// check either: an application bundle is its own responsible process,
+    /// which `spike/tcc-bundle` measured by playing a tone into its own tap.
+    /// What remains unknowable is the grant, and only a recording settles it.
     static func checkSystemAudio() -> Check {
-        // An application bundle is its own responsible process, whoever
-        // launched it — measured, not assumed: spike/tcc-bundle plays a tone
-        // into its own tap and counts the samples that come back. So for the
-        // app the only unknown left is the grant itself, which macOS will not
-        // report and which only a real recording can settle.
-        if Runtime.isBundled {
+        guard Runtime.isBundled else {
             return Check(
                 name: "system audio",
-                status: .warn("grant state unknowable until first use"),
-                remediation: "if system.caf is silent: System Settings → Privacy & Security → System Audio Recording Only"
-            )
-        }
-        // Reparented to launchd — either we were started by it, or our parent
-        // already exited. For the daemon this is the case that matters.
-        if getppid() == 1 {
-            return Check(
-                name: "system audio",
-                status: .warn("running under launchd — grant state unknowable until first use"),
-                remediation: "if system.caf is silent: System Settings → Privacy & Security → System Audio Recording Only"
-            )
-        }
-        guard FileManager.default.fileExists(atPath: Install.agentPlistURL.path) else {
-            return Check(
-                name: "system audio",
-                status: .warn("no LaunchAgent — a terminal-launched amanu records SILENT system audio"),
-                remediation: "install Amanu.app and run that, or amanu install --launch-at-login (see .issues/rca-002)"
+                status: .warn("a bare build records SILENT system audio"),
+                remediation: "run Amanu.app — `make app`, then put it in /Applications"
             )
         }
         return Check(
             name: "system audio",
-            status: .warn("LaunchAgent installed; this process isn't under it"),
-            remediation: "record via the agent — system audio captured from a terminal-launched amanu is silent"
+            status: .warn("grant state unknowable until first use"),
+            remediation: "if system.caf is silent: System Settings → Privacy & Security → System Audio Recording Only"
         )
     }
 

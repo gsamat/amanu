@@ -11,10 +11,10 @@ import UserNotifications
 /// bare binary, because `UNUserNotificationCenter` needs a bundle to belong to.
 ///
 /// Inside `Amanu.app` there is one, so the banner says amanu, carries the
-/// recording it is about, and clicking it opens that folder.
+/// recording it is about, and clicking it opens that folder. A bare build —
+/// `swift run`, a test — has no bundle to post under and stays silent, which
+/// is the right answer for something nobody installed.
 enum Notifications {
-    /// The bundled path when there is a bundle, and the old trick when there
-    /// isn't — the LaunchAgent copy still runs on machines mid-migration.
     static var usesNotificationCenter: Bool { Runtime.isBundled }
 
     private static let sessionKey = "me.samat.amanu.session"
@@ -37,10 +37,7 @@ enum Notifications {
     @MainActor
     static func post(title: String, body: String, opening session: URL?) {
         guard ProcessInfo.processInfo.environment["AMANU_NO_NOTIFY"] == nil else { return }
-        guard usesNotificationCenter else {
-            postThroughAppleScript(title: title, body: body)
-            return
-        }
+        guard usesNotificationCenter else { return }
 
         let content = UNMutableNotificationContent()
         content.title = title
@@ -61,22 +58,6 @@ enum Notifications {
                 UNNotificationRequest(
                     identifier: UUID().uuidString, content: content, trigger: nil))
         }
-    }
-
-    /// A banner has no business anywhere on disk; give it an empty scratch
-    /// directory rather than whatever the daemon happens to be standing in.
-    private static func postThroughAppleScript(title: String, body: String) {
-        func quoted(_ s: String) -> String {
-            "\"" + s.replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "\"", with: "\\\"") + "\""
-        }
-        let task = Process()
-        task.launchPath = "/usr/bin/osascript"
-        task.arguments = [
-            "-e", "display notification \(quoted(body)) with title \(quoted(title))",
-        ]
-        task.currentDirectoryURL = FileManager.default.temporaryDirectory
-        try? task.run()
     }
 
     /// The folder a banner was about, or nil when it named none.

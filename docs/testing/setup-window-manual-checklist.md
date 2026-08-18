@@ -1,8 +1,8 @@
 # Setup window: manual verification
 
-Run this only after the current meeting and recording have ended. Installing
-and kickstarting the LaunchAgent replaces the running daemon, so neither step
-belongs in the middle of a recording.
+Run this only after the current meeting and recording have ended. Replacing
+the installed application closes the copy that is running, so it doesn't
+belong in the middle of a recording.
 
 ## Before installing
 
@@ -18,23 +18,24 @@ belongs in the middle of a recording.
 
 ## Install and first launch
 
-1. Install the signed build and restart the LaunchAgent:
+1. Install the signed build and start it:
 
    ```sh
-   make install
-   launchctl kickstart -k gui/$(id -u)/me.samat.amanu
+   make app
+   rm -rf /Applications/Amanu.app && cp -R .build/Amanu.app /Applications/
+   open /Applications/Amanu.app
    ```
 
-2. Confirm there is one daemon, not two:
+2. Confirm there is one copy, not two:
 
    ```sh
-   pgrep -fl '(^|/)amanu( |$)'
+   pgrep -fl Amanu.app
    ```
 
 3. Confirm Setup opens automatically and the ordinary status window does not
    open in front of it.
-4. Confirm **Start at login** is green. It must not say that this copy was
-   started outside launchd.
+4. Confirm **Start at login** is green, and that System Settings → General →
+   Login Items lists Amanu.
 
 ## Access
 
@@ -138,9 +139,9 @@ belongs in the middle of a recording.
 
 ## Reopening and restart behavior
 
-- While the daemon is running, execute `amanu setup`. Confirm the existing
-  process opens Setup, the command exits, and `pgrep` still shows one daemon.
-- Click **Later** or **Done**, restart the LaunchAgent, and confirm Setup does
+- While the app is running, execute `amanu setup`. Confirm the existing app
+  opens Setup, the command exits, and `pgrep` still shows one copy.
+- Click **Later** or **Done**, quit and reopen the app, and confirm Setup does
   not open automatically again.
 - Reopen Setup from both the menu-bar menu and the app menu.
 - Make one final ordinary meeting test and verify auto-record, transcription,

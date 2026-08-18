@@ -44,9 +44,8 @@ and removes the LaunchAgent this program used to write, and points
 keep working. The binary it replaces is moved aside with the date, never
 deleted.
 
-`make install` still exists and still builds the bare binary into
-`~/.local/bin` — useful for a machine that would rather run it as a daemon,
-and the path the LaunchAgent takes.
+`make` on its own builds and signs the app; `make run-app` launches it the way
+Finder would. There is no other way to install amanu, and no daemon.
 
 **Signing isn't cosmetic here.** macOS attributes the microphone and Screen &
 System Audio Recording grants to the binary's code signature, and SwiftPM only
@@ -62,7 +61,7 @@ designated => identifier "me.samat.amanu" and anchor apple generic and ...
 
 No hash in there, so grants survive rebuilds. With no certificate on the
 machine it falls back to ad-hoc and still works — you just get the re-prompts.
-`make install SIGN_ID="Developer ID Application: ..."` to pick one explicitly.
+`make SIGN_ID="Developer ID Application: ..."` to pick one explicitly.
 
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
 virtual device, no kernel extension). Apple Silicon recommended for
@@ -79,7 +78,7 @@ tone into its own tap and counting the samples that come back.
 
 ## How to use
 
-1. **Run `amanu`.** On the first run, Setup installs the LaunchAgent before it
+1. **Open Amanu.** On the first run, Setup registers it at login before it
    asks for access, requests microphone/system-audio/calendar permissions, and
    lets you choose transcription, summaries, and whether audio is kept. It also
    detects working Claude Code and Codex CLIs, including Codex bundled with the
@@ -125,7 +124,6 @@ Inside:
 | `transcript.md` | the same transcript rendered for reading, with names where they're known |
 | `speakers.json` | who each speaker label is, where the name came from, and the line that proves it |
 | `summary.md` | topic, key points, decisions, action items, open questions |
-| `Finish processing.command` | double-click to finish whatever is still missing, wherever the folder now lives |
 | `transcribe.log` | transcription progress/errors for this session |
 | `mixed.m4a` | temporary mix for a diarizing engine; removed after transcription |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
@@ -199,7 +197,8 @@ Four buttons, on the selected session:
 
 - **Finish processing** — do whatever is still outstanding: a missing
   transcript, the names, the summary. The same work as `amanu process` and as
-  the folder's own `Finish processing.command`.
+  `amanu process <folder>` from a terminal — which works wherever the folder
+  has been moved to.
 - **Re-transcribe** — throw the transcript, its names and the summary away and
   make them again from the audio, which is kept either way. It asks first, and
   says that.
@@ -579,17 +578,18 @@ started from a terminal is attributed to the terminal, and its system-audio
 track is digital silence (below). With nothing running, the command says so
 instead of quietly becoming a second, deaf recorder.
 
-`--launch-at-login` points the agent at the binary you ran it from, so install
-first, then register. `amanu process` takes a path rather than a session name,
+`amanu install --launch-at-login` registers the bundle with Login Items — the
+same thing the switch in Setup does. `amanu process` takes a path rather than a
+session name,
 because a session is complete in its own folder — move it out of
 `~/Recordings` and it still finishes.
 
 ```sh
-make            # build + sign
-make install    # also copy to $(PREFIX)/bin
+make            # build and sign Amanu.app
+make run-app    # and launch it through LaunchServices
+make icon       # redraw Resources/Amanu.icns from the feather
 make identities # list signing identities
-make verify     # show the installed binary's signature
-make uninstall  # remove the binary and the LaunchAgent
+make verify     # show the built app's signature
 ```
 
 Start and stop from a hotkey tool by signal, without a window in the way:
@@ -644,8 +644,8 @@ decodes, and the same `kill -9` now yields a playable file with the meeting on
 it. Compression happens afterwards, when the transcript already exists.
 
 SIGTERM is handled rather than ignored, which covers the ordinary cases —
-logout, restart, `launchctl kickstart -k`, `amanu install --uninstall` — by
-closing the tracks cleanly instead of dying mid-file.
+logout, restart, quitting the app — by closing the tracks cleanly instead of
+dying mid-file.
 
 The other half is knowing the session was there at all. The transcription queue
 only considers folders with a `meta.json`, and that's written on a clean stop
@@ -669,23 +669,21 @@ afterwards, not a mystery.
 - With `system_audio: "all"` the tap records *everything* the Mac plays —
   notification dings, music, all of it. The default (`app`) records only the
   call app.
-- **`system.caf` is silent unless amanu runs as a LaunchAgent.** Launched from
-  a terminal, amanu's TCC request is attributed to the terminal rather than to
+- **`system.caf` is silent if you run the binary instead of the app.** Launched
+  from a terminal, the TCC request is attributed to the terminal rather than to
   amanu, so the process tap is created successfully and then delivers nothing
-  but zeros — no error, no prompt, a full-length silent file. Under launchd
-  amanu is its own responsible process, macOS prompts by name, and capture
-  works. See `.issues/rca-002-system-tap-silent-outside-launchagent.md`.
-- System audio is gated on the **System Audio Recording Only** list
-  in System Settings → Privacy & Security, not on Screen Recording. A Screen
-  Recording grant does not cover it, and a bare binary can't be added to either
-  list by hand — the LaunchAgent is what makes the prompt appear.
+  but zeros — no error, no prompt, a full-length silent file. `Amanu.app` is its
+  own responsible process, macOS prompts by name, and capture works. See
+  `.issues/rca-002-system-tap-silent-outside-launchagent.md` for the failure and
+  `spike/tcc-bundle` for the measurement that ended it.
+- System audio is gated on the **System Audio Recording Only** list in System
+  Settings → Privacy & Security, not on Screen Recording. A Screen Recording
+  grant does not cover it.
 - Parakeet v3 covers 25 European languages, not every language. Outside that
   set, use the assemblyai engine.
 - Echo confuses speaker attribution on the assemblyai path: if the meeting
   plays through speakers, your mic hears them too. That's what
   `mic_voice_processing` is for.
-- The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
-  attribute permissions to amanu itself when running as a LaunchAgent.
-- `spctl` rejects the binary if you ask it to. That's expected: Gatekeeper
-  only accepts Developer ID or notarized code, and it never evaluates this
-  binary anyway — nothing you built locally carries a quarantine flag.
+- `spctl` rejects a locally built app if you ask it to. That's expected until
+  the release is notarized; Gatekeeper never evaluates it anyway, because
+  nothing you built yourself carries a quarantine flag.

@@ -19,17 +19,15 @@ struct NativeAppTests {
         #expect(Runtime.meaningfulArguments(typed) == typed)
     }
 
-    @Test("Start at login asks a different question of an app than of a binary")
+    @Test("Start at login is a question only an application can answer")
     @MainActor
-    func startAtLoginDependsOnHowItRuns() {
-        #expect(!SetupPermissions.needsStartAtLogin(bundled: true, loginItem: .enabled))
-        #expect(SetupPermissions.needsStartAtLogin(bundled: true, loginItem: .notRegistered))
-        #expect(SetupPermissions.needsStartAtLogin(bundled: true, loginItem: .needsApproval))
-        // Unbundled, the login-item state is irrelevant: what matters is the
-        // LaunchAgent, which this process either is under or isn't.
-        #expect(
-            SetupPermissions.needsStartAtLogin(bundled: false, loginItem: .unavailable)
-                == SetupPermissions.needsLaunchAgentHandoff)
+    func startAtLoginPolicy() {
+        #expect(!SetupPermissions.needsStartAtLogin(loginItem: .enabled))
+        #expect(SetupPermissions.needsStartAtLogin(loginItem: .notRegistered))
+        #expect(SetupPermissions.needsStartAtLogin(loginItem: .needsApproval))
+        // A bare build has nothing to register, and saying so in the window
+        // would be asking for something nobody can do.
+        #expect(!SetupPermissions.needsStartAtLogin(loginItem: .unavailable))
     }
 
     @Test("Only the LaunchAgent amanu wrote is retired by amanu")

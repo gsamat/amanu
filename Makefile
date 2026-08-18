@@ -1,26 +1,22 @@
-# amanu — build, sign, install.
+# amanu — build the application.
 #
 # Signing is not cosmetic here. macOS attributes the microphone and Screen &
-# System Audio Recording grants to the binary's code signature; SwiftPM only
-# ad-hoc signs, which means the identity *is* the hash, so every rebuild looks
-# like a brand-new program and macOS asks for permission again (leaving a trail
-# of dead amanu entries in System Settings). Signing with a real identity gives
-# the binary a stable designated requirement, and the grants survive rebuilds.
+# System Audio Recording grants to the code signature, and SwiftPM only ad-hoc
+# signs, which means the identity *is* the hash — every rebuild would look like
+# a brand-new program and macOS would ask for permission again, leaving a trail
+# of dead amanu entries in System Settings. A real identity gives the bundle a
+# stable designated requirement, and the grants survive rebuilds.
 #
-#   make            build + sign the bare binary
-#   make install    also copy to $(PREFIX)/bin
-#   make app        assemble and sign Amanu.app
-#   make run-app    assemble, sign, and launch it through LaunchServices
-#   make uninstall  remove the binary and the LaunchAgent
+#   make            build + sign Amanu.app
+#   make run-app    and launch it through LaunchServices
+#   make icon       redraw Resources/Amanu.icns from the feather
 #   make identities list available signing identities
+#   make verify     show the built app's signature
 #
-# Override the defaults if you need to:
-#   make install PREFIX=/usr/local SIGN_ID="Developer ID Application: ..."
+# Override the signing identity if you need to:
+#   make SIGN_ID="Developer ID Application: ..."
 
-PREFIX  ?= $(HOME)/.local
-BINDIR   = $(PREFIX)/bin
-BUILT    = .build/release/amanu
-INSTALLED = $(BINDIR)/amanu
+BUILT = .build/release/amanu
 
 # The application bundle. Assembled by hand rather than by an Xcode project:
 # the package already builds and tests with SwiftPM, and an .app is a
@@ -46,57 +42,13 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build sign install app icon run-app uninstall identities verify clean
+.PHONY: all build app icon run-app identities verify clean
 
-all: sign
+all: app
 
 build:
 	swift build -c release
 
-# --identifier pins the signature to the same bundle ID the embedded
-# Info.plist and the LaunchAgent label use, so System Settings shows one
-# coherent "amanu" rather than a path.
-#
-# --timestamp keeps the signature valid after the certificate expires (Apple
-# Development certs last a year). It needs the network, so fall back to an
-# untimestamped signature rather than failing the build on a plane.
-#
-# No --options runtime: the hardened runtime only buys anything if you're
-# notarizing for distribution, and it would gate the mic behind an extra
-# entitlement for no local benefit.
-sign: build
-	@# The Developer ID key lives in its own keychain, which is locked after a
-	@# reboot. Unlocking here rather than relying on a login item means a
-	@# release build works on a machine that just booted — and the failure it
-	@# prevents is a confusing one: codesign returns errSecInternalComponent
-	@# while find-identity still lists the certificate, because that reads the
-	@# certificate and never touches the private key.
-	@[ -x $(HOME)/.local/bin/unlock-signing-keychain ] \
-		&& $(HOME)/.local/bin/unlock-signing-keychain >/dev/null 2>&1 || true
-	@echo "signing as: $(SIGN_ID)"
-	@codesign --force --sign "$(SIGN_ID)" \
-		--identifier me.samat.amanu \
-		--timestamp $(BUILT) 2>/dev/null \
-	|| codesign --force --sign "$(SIGN_ID)" \
-		--identifier me.samat.amanu \
-		--timestamp=none $(BUILT)
-	@codesign --verify --strict --verbose=2 $(BUILT)
-
-install: sign
-	@mkdir -p $(BINDIR)
-	@# Rename rather than copy in place: overwriting a running binary fails
-	@# with ETXTBSY, and rename swaps the directory entry atomically so a
-	@# live daemon keeps its old inode until it restarts.
-	@cp $(BUILT) $(INSTALLED).new
-	@mv -f $(INSTALLED).new $(INSTALLED)
-	@echo "installed → $(INSTALLED)"
-	@command -v amanu >/dev/null 2>&1 \
-		|| echo "note: $(BINDIR) is not on your PATH"
-
-# Assemble the bundle, then sign it as one thing. The hardened runtime and
-# the entitlements are what notarization will ask for later; the identifier is
-# pinned so this app and the bare binary it grew out of are the same program
-# as far as TCC is concerned.
 # Drawn from the same feather the menu bar uses, so the Dock, the window and
 # the status item are one program rather than three.
 icon:
@@ -135,16 +87,11 @@ app: build $(ICON)
 run-app: app
 	@open $(APP)
 
-uninstall:
-	-@$(INSTALLED) install --uninstall 2>/dev/null || true
-	@rm -f $(INSTALLED)
-	@echo "removed $(INSTALLED)"
-
 identities:
 	@security find-identity -v -p codesigning
 
 verify:
-	@codesign -dvvv $(INSTALLED) 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier|Signature|flags'
+	@codesign -dvvv $(APP) 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier|Signature|flags'
 
 clean:
 	swift package clean

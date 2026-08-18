@@ -84,8 +84,6 @@ struct ProcessSession: ParsableCommand {
             throw ExitCode(1)
         }
 
-        SessionScript.install(in: dir)
-
         let work = runBlocking { await PostProcessor.finish(dir) }
         if work.isEmpty {
             print("\nNothing to do — everything that can be done is done.")

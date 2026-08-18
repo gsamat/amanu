@@ -25,7 +25,10 @@ changing either.
   through `SMAppService`. `Login Items` in System Settings shows it.
 - `~/Library/LaunchAgents/me.samat.amanu.plist` is **gone** — the app retired
   it on first launch. The binary it used to start was moved to
-  `~/.local/bin/amanu.legacy-20260818`.
+  `~/.local/bin/amanu.legacy-20260818`. Nothing writes a LaunchAgent any more:
+  the code that did was deleted, and `LegacyMigration` is the only place that
+  still knows the plist's name, so it can take one off a machine that has it.
+  Delete that too once the first native release has been out for a while.
 - `~/.local/bin/amanu` is a symlink into the bundle. Scripts and agents that
   call `amanu …` still work, and they now reach the same executable the app
   runs.
@@ -174,7 +177,7 @@ two places it no longer asks for what it originally did:
 ## How to work on it
 
 ```sh
-make app                       # build + sign .build/Amanu.app
+make                           # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/   # replace the installed copy
 open /Applications/Amanu.app
 AMANU_NO_NOTIFY=1 swift test   # 124 tests

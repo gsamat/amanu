@@ -191,24 +191,4 @@ struct SessionInventoryTests {
         #expect(!markdown.contains("Фёдор"))
     }
 
-    // MARK: - the script in the folder
-
-    @Test("The folder script is installed executable and passes its own location")
-    func scriptIsSelfLocating() throws {
-        let dir = try Self.session()
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        SessionScript.install(in: dir)
-        let script = dir.appendingPathComponent(SessionScript.file)
-        let body = try String(contentsOf: script, encoding: .utf8)
-
-        // The two properties that make it survive both a move and an upgrade.
-        #expect(body.contains("cd \"$(dirname \"$0\")\""))
-        #expect(body.contains("process \"$PWD\""))
-        #expect(!body.contains(dir.path))
-
-        let permissions = try FileManager.default
-            .attributesOfItem(atPath: script.path)[.posixPermissions] as? NSNumber
-        #expect(permissions?.int16Value == 0o755)
-    }
 }

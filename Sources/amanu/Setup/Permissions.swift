@@ -62,44 +62,22 @@ enum SetupPermissions {
 
     // MARK: - launch at login
 
-    static var launchAgentInstalled: Bool {
-        FileManager.default.fileExists(atPath: Install.agentPlistURL.path)
-    }
-
-    /// True when this process is launchd's — the state in which a system-audio
-    /// grant is worth having, because it will be granted to a program that
-    /// still exists tomorrow.
-    static var runningUnderLaunchd: Bool { getppid() == 1 }
-
-    /// A plist on disk is not enough: permissions requested by a copy launched
-    /// from Terminal are still attributed to Terminal. Setup is safe to move
-    /// on only in the process launchd actually owns.
-    static func needsLaunchAgentHandoff(
-        installed: Bool,
-        runningUnderLaunchd: Bool
-    ) -> Bool {
-        !installed || !runningUnderLaunchd
-    }
-
-    static var needsLaunchAgentHandoff: Bool {
-        needsLaunchAgentHandoff(
-            installed: launchAgentInstalled,
-            runningUnderLaunchd: runningUnderLaunchd
-        )
-    }
-
-    /// Whether the Start-at-login row still has work in it.
-    ///
-    /// The bare binary had to hand itself over to launchd before any grant was
-    /// worth asking for. An application bundle is already its own responsible
-    /// process, so the only question left is the ordinary one macOS asks of
-    /// every app: is it in Login Items, and has someone allowed it there.
-    static func needsStartAtLogin(bundled: Bool, loginItem: LoginItem.State) -> Bool {
-        bundled ? loginItem != .enabled : needsLaunchAgentHandoff
+    /// Whether the Start-at-login row still has work in it. The bare binary
+    /// used to have to hand itself over to launchd before any grant was worth
+    /// asking for; an application is already its own responsible process, so
+    /// the only question left is the ordinary one macOS asks of every app.
+    static func needsStartAtLogin(loginItem: LoginItem.State) -> Bool {
+        switch loginItem {
+        case .enabled: return false
+        // A bare build can't register anything, and nagging about it in a
+        // window someone opened from `swift run` helps nobody.
+        case .unavailable: return false
+        case .notRegistered, .needsApproval: return true
+        }
     }
 
     static var needsStartAtLogin: Bool {
-        needsStartAtLogin(bundled: Runtime.isBundled, loginItem: LoginItem.status())
+        needsStartAtLogin(loginItem: LoginItem.status())
     }
 
     // MARK: - system audio

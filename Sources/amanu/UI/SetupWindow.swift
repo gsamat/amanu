@@ -414,7 +414,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     // MARK: - actions
 
     private func wireActions() {
-        launchRow.onAct = { [weak self] in self?.installAgent() }
+        launchRow.onAct = { [weak self] in self?.startAtLogin() }
         micRow.onAct = { [weak self] in Task { await self?.askMicrophone() } }
         audioRow.onAct = { [weak self] in Task { await self?.testSystemAudio() } }
         calendarRow.onAct = { [weak self] in Task { await self?.askCalendar() } }
@@ -502,44 +502,21 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         keyProvider.selectedSegment == 1 ? "openai-api" : "anthropic-api"
     }
 
-    /// Installing the agent hands amanu to launchd — and this process, started
-    /// some other way, has to get out of the way of the one launchd starts.
-    /// That is the point of the exercise rather than a side effect: only the
-    /// launchd copy has an identity macOS can attach a system-audio grant to.
-    private func installAgent() {
+    /// Register with Login Items, the way every other application does.
+    private func startAtLogin() {
         if isRecording?() == true {
             report(launchRow, "not while a recording is running — stop it and try again")
             return
         }
-        // An app registers itself with macOS the way every other app does.
-        // Only the bare binary still needs a LaunchAgent of its own.
-        if Runtime.isBundled {
-            do {
-                let state = try LoginItem.register()
-                if state == .needsApproval { LoginItem.openSettings() }
-            } catch {
-                report(launchRow, "couldn't register at login: \(error.localizedDescription)")
-            }
-            refresh()
-            return
-        }
         do {
-            try Install.installAgent()
+            let state = try LoginItem.register()
+            // Registered but held: macOS wants a person to say yes, and the
+            // only place they can is System Settings.
+            if state == .needsApproval { LoginItem.openSettings() }
         } catch {
-            report(launchRow, "couldn't install: \(error)")
-            return
+            report(launchRow, "couldn't register at login: \(error.localizedDescription)")
         }
         refresh()
-
-        let alert = NSAlert()
-        alert.messageText = "amanu will restart"
-        alert.informativeText = """
-            launchd has its own copy running now. This one is closing so the two \
-            don't both record; the setup window opens again in the new one.
-            """
-        alert.addButton(withTitle: "Restart")
-        alert.runModal()
-        NSApp.terminate(nil)
     }
 
     private func askMicrophone() async {
@@ -774,25 +751,20 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Redraw everything from the machine and the config file. Cheap: no
     /// subprocesses, no network — those write into fields this only reads.
     private func refresh() {
-        if Runtime.isBundled {
-            switch LoginItem.status() {
-            case .enabled:
-                launchRow.update(.granted, note: "on")
-            case .needsApproval:
-                launchRow.update(
-                    .denied,
-                    detail: "macOS wants this allowed in Login Items.",
-                    action: "Open Settings")
-            case .notRegistered, .unavailable:
-                launchRow.update(.notAsked, detail: "So a meeting is never missed.")
-            }
-        } else {
+        switch LoginItem.status() {
+        case .enabled:
+            launchRow.update(.granted, note: "on")
+        case .needsApproval:
             launchRow.update(
-                SetupPermissions.needsLaunchAgentHandoff ? .notAsked : .granted,
-                detail: SetupPermissions.launchAgentInstalled
-                    && !SetupPermissions.runningUnderLaunchd
-                    ? "Installed, but this copy isn't the one launchd started."
-                    : nil)
+                .denied,
+                detail: "macOS wants this allowed in Login Items.",
+                action: "Open Settings")
+        case .notRegistered:
+            launchRow.update(.notAsked, detail: "So a meeting is never missed.")
+        case .unavailable:
+            launchRow.update(
+                .notAsked,
+                detail: "Only Amanu.app can register itself; this is a bare build.")
         }
         micRow.update(SetupPermissions.microphone())
         calendarRow.update(SetupPermissions.calendar())
@@ -889,7 +861,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// first, because a grant given to the wrong process is worse than none.
     private var nextAction: (() -> Void)? {
         if SetupPermissions.needsStartAtLogin {
-            return { [weak self] in self?.installAgent() }
+            return { [weak self] in self?.startAtLogin() }
         }
         if SetupPermissions.microphone() == .notAsked {
             return { [weak self] in Task { await self?.askMicrophone() } }
@@ -924,12 +896,9 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         primary.title = {
             if SetupPermissions.needsStartAtLogin {
-                if Runtime.isBundled {
-                    return LoginItem.status() == .needsApproval
-                        ? "Open Login Items"
-                        : "Start at login"
-                }
-                return SetupPermissions.launchAgentInstalled ? "Restart" : "Install"
+                return LoginItem.status() == .needsApproval
+                    ? "Open Login Items"
+                    : "Start at login"
             }
             if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }
             if SetupPermissions.needsSystemAudioTest(systemAudio) { return "Allow and test" }
