@@ -8,7 +8,7 @@ import Foundation
 ///         "enabled": true,
 ///         "engine": "auto",
 ///         "language": "ru",
-///         "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
+///         "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
 ///       },
 ///       "mic_voice_processing": true,
 ///       "keep_audio": false,
@@ -88,13 +88,41 @@ enum Config {
         return settings?["enabled"] as? Bool ?? false
     }
 
-    static let assemblyAIDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
+    /// amanu's own key drawer: one directory, mode 0700, one file per
+    /// service, mode 0600.
+    ///
+    /// Keys used to be written to the shared locations — ~/.config/assemblyai,
+    /// ~/.config/anthropic, ~/.config/openai — which several unrelated tools
+    /// read and write. That is how a working AssemblyAI key became two bytes
+    /// one evening and every meeting after it failed with HTTP 401. What amanu
+    /// writes now belongs to amanu; what other tools keep is still *read*, so
+    /// nobody has to paste a key twice.
+    static let keysDir = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/amanu/keys", isDirectory: true)
+
+    static let assemblyAIKeyPath = keysDir.appendingPathComponent("assemblyai")
+    static let openAIKeyPath = keysDir.appendingPathComponent("openai")
+    static let anthropicKeyPath = keysDir.appendingPathComponent("anthropic")
+
+    /// Where the rest of a machine's toolchain tends to keep the same secret.
+    /// Read-only as far as amanu is concerned.
+    static let assemblyAISharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/assemblyai/token")
+    static let openAISharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/openai/token")
+    static let anthropicSharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/anthropic/token")
+
+    static func secret(at path: URL) -> String? {
+        guard let contents = try? String(contentsOf: path, encoding: .utf8),
+              !contents.trimmed.isEmpty
+        else { return nil }
+        return contents.trimmed
+    }
 
     /// AssemblyAI key, in order: ASSEMBLYAI_API_KEY, an inline `api_key` in the
-    /// config, then a token file (`api_key_path`, defaulting to
-    /// ~/.config/assemblyai/token — the same place the rest of the toolchain
-    /// keeps it).
+    /// config, a token file named by `api_key_path`, amanu's own key file, and
+    /// finally the shared one this machine may already have.
     static func assemblyAIKey() -> String? {
         if let env = ProcessInfo.processInfo.environment["ASSEMBLYAI_API_KEY"],
            !env.trimmed.isEmpty {
@@ -103,13 +131,11 @@ enum Config {
         if let inline = assemblyAI()?["api_key"] as? String, !inline.trimmed.isEmpty {
             return inline.trimmed
         }
-        let path = (assemblyAI()?["api_key_path"] as? String)
-            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? assemblyAIDefaultKeyPath
-        guard let contents = try? String(contentsOf: path, encoding: .utf8),
-              !contents.trimmed.isEmpty
-        else { return nil }
-        return contents.trimmed
+        if let configured = (assemblyAI()?["api_key_path"] as? String)
+            .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
+            return secret(at: configured)
+        }
+        return secret(at: assemblyAIKeyPath) ?? secret(at: assemblyAISharedKeyPath)
     }
 
     /// Override AssemblyAI's default speech model. nil sends nothing and lets
@@ -334,44 +360,33 @@ enum Config {
         return settings
     }
 
-    static let openAIDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/openai/token")
-
-    /// OpenAI key, in order: OPENAI_API_KEY, then a token file
-    /// (`summary.openai_api_key_path`, defaulting to ~/.config/openai/token).
+    /// OpenAI key, in order: OPENAI_API_KEY, a token file named by
+    /// `summary.openai_api_key_path`, amanu's own key file, then the shared one.
     static func openAIKey() -> String? {
         if let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
            !env.trimmed.isEmpty {
             return env.trimmed
         }
-        let path = (summaryJSON()?["openai_api_key_path"] as? String)
-            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
-            ?? openAIDefaultKeyPath
-        guard let contents = try? String(contentsOf: path, encoding: .utf8),
-              !contents.trimmed.isEmpty
-        else { return nil }
-        return contents.trimmed
+        if let configured = (summaryJSON()?["openai_api_key_path"] as? String)
+            .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
+            return secret(at: configured)
+        }
+        return secret(at: openAIKeyPath) ?? secret(at: openAISharedKeyPath)
     }
 
     private static func summaryJSON() -> [String: Any]? {
         load()?["summary"] as? [String: Any]
     }
 
-    static let anthropicDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/anthropic/token")
-
-    /// Anthropic key, in order: ANTHROPIC_API_KEY, then a token file
-    /// (`summary.api_key_path`, defaulting to ~/.config/anthropic/token).
+    /// Anthropic key, in order: ANTHROPIC_API_KEY, a token file named by
+    /// `summary.api_key_path`, amanu's own key file, then the shared one.
     static func anthropicKey() -> String? {
         if let env = ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"],
            !env.trimmed.isEmpty {
             return env.trimmed
         }
-        let path = summary().apiKeyPath ?? anthropicDefaultKeyPath
-        guard let contents = try? String(contentsOf: path, encoding: .utf8),
-              !contents.trimmed.isEmpty
-        else { return nil }
-        return contents.trimmed
+        if let configured = summary().apiKeyPath { return secret(at: configured) }
+        return secret(at: anthropicKeyPath) ?? secret(at: anthropicSharedKeyPath)
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather

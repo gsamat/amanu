@@ -322,13 +322,16 @@ a crash re-renders from that file instead of re-uploading and re-paying.
 AssemblyAI's servers. `amanu doctor` says so out loud when the engine is
 selected.
 
-The key is read from `~/.config/assemblyai/token` (chmod 600), or
+The key is read from `~/.config/amanu/keys/assemblyai` (chmod 600) — amanu's
+own drawer, mode 0700, so no other tool that keeps a key on this machine can
+overwrite it. A key already sitting in the shared `~/.config/assemblyai/token`
+is read as a fallback, so nobody has to paste theirs twice. Or
 `ASSEMBLYAI_API_KEY`, or `transcription.assemblyai.api_key`:
 
 ```sh
-mkdir -p ~/.config/assemblyai
-printf '%s' YOUR_KEY > ~/.config/assemblyai/token
-chmod 600 ~/.config/assemblyai/token
+mkdir -p ~/.config/amanu/keys
+printf '%s' YOUR_KEY > ~/.config/amanu/keys/assemblyai
+chmod 600 ~/.config/amanu/keys/assemblyai
 ```
 
 To transcribe a session again — with the other engine, or because the first
@@ -376,7 +379,7 @@ walks this chain, using the first that answers:
    so it doesn't spend a minute starting every server you've configured for a
    one-shot prompt.
 2. **The Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
-   `~/.config/anthropic/token`.
+   `~/.config/amanu/keys/anthropic` (or the shared `~/.config/anthropic/token`).
 3. **The `codex` CLI**, then **the OpenAI API** — same idea on the other side.
 4. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
 
@@ -447,7 +450,7 @@ Optional, at `~/.config/amanu/config.json`:
     "enabled": true,
     "engine": "auto",
     "language": "ru",
-    "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
+    "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
   },
   "auto_record": {
     "enabled": true,

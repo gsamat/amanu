@@ -665,7 +665,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             return
         }
         do {
-            try Self.writeSecret(key, to: Config.assemblyAIDefaultKeyPath)
+            try Self.writeSecret(key, to: Config.assemblyAIKeyPath)
         } catch {
             assemblyStatus.stringValue = "couldn't save the key: \(error)"
             return
@@ -681,8 +681,8 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let backend = selectedKeyBackend
         let provider: SummaryKeyProbe.Provider = backend == "anthropic-api" ? .anthropic : .openAI
         let path = backend == "anthropic-api"
-            ? Config.anthropicDefaultKeyPath
-            : Config.openAIDefaultKeyPath
+            ? Config.anthropicKeyPath
+            : Config.openAIKeyPath
         summaryKeyStatus.stringValue = "checking…"
         guard await SummaryKeyProbe.works(provider: provider, key: key) else {
             summaryKeyStatus.stringValue = "that key was refused — nothing was overwritten"
@@ -701,10 +701,14 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 
     /// A key is a secret: it goes to a file only its owner can read, never
-    /// into the config file — which the settings window shows on screen.
+    /// into the config file — which the settings window shows on screen. The
+    /// directory is amanu's own and mode 0700, so a key pasted here can't be
+    /// overwritten by some other tool that keeps its secrets in the same place.
     private static func writeSecret(_ value: String, to path: URL) throws {
         try FileManager.default.createDirectory(
-            at: path.deletingLastPathComponent(), withIntermediateDirectories: true
+            at: path.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         try Data(value.utf8).write(to: path, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)

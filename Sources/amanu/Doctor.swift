@@ -92,7 +92,7 @@ enum DoctorReport {
         return Check(
             name: "summary",
             status: .warn("no key and no claude or codex CLI — will fall back to ollama"),
-            remediation: "put a key in ~/.config/anthropic/token, or run ollama, or set summary.enabled=false"
+            remediation: "paste a key in Setup, or run ollama, or set summary.enabled=false"
         )
     }
 
@@ -235,8 +235,8 @@ enum DoctorReport {
             return Check(
                 name: "transcription",
                 status: .warn("assemblyai engine selected but no API key — transcripts will fail"),
-                remediation: "printf '%s' YOUR_KEY > \(Config.assemblyAIDefaultKeyPath.path)"
-                    + " && chmod 600 \(Config.assemblyAIDefaultKeyPath.path)"
+                remediation: "printf '%s' YOUR_KEY > \(Config.assemblyAIKeyPath.path)"
+                    + " && chmod 600 \(Config.assemblyAIKeyPath.path)"
             )
         }
         guard let language = Config.transcriptionLanguage() else {
