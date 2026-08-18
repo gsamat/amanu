@@ -11,6 +11,9 @@ recording, the transcript and the summary in a folder.
   with neither it runs parakeet locally on the machine. It decides when there
   is work to do, so a meeting recorded on a train still gets a transcript on
   the train.
+- **Puts names to the speakers.** `them A` becomes the person who was on the
+  call — from the calendar's invitees and from people saying each other's
+  names out loud, and only when a line in the transcript proves it.
 - **Summarizes by itself.** Topic, key points, decisions, action items, open
   questions — through Anthropic or OpenAI, whichever you've given it a
   subscription or a key for, or through ollama with no account at all.
@@ -18,6 +21,9 @@ recording, the transcript and the summary in a folder.
   the elapsed time on it, a small ordinary window for status and controls, and
   the menu bar item — three surfaces, because a menu bar that has run out of
   room hides the only control of a recorder without telling you.
+- **Lists what it has recorded** and what is still owed on each session —
+  transcript, names, summary — with the buttons to finish it, correct a name,
+  or throw the meeting away.
 - **Everything in one folder per meeting**, under `~/Recordings`: the audio,
   `transcript.md`, `summary.md`, and the metadata that produced them.
 
@@ -74,13 +80,15 @@ transcription speed.
 3. **Click → Stop recording** when the meeting ends. Transcription starts
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
-
-4. **Or don't touch it at all.** With auto-record on (the default), amanu starts
-   when a call app opens the microphone and stops when the call ends — see
-   [Recording by itself](#recording-by-itself).
+4. **Or don't touch it at all.** With auto-record on (the default), amanu
+   starts when a call app opens the microphone and stops when the call ends —
+   see [Recording by itself](#recording-by-itself).
 5. **Pause** from the menu for the part you'd rather not have on tape. Capture
    keeps running and silence is written, so everything after the pause stays
    aligned to the wall clock.
+6. **Look at what came out** in **Manage recordings…** — every session with
+   its transcript, names and summary, and what is still missing from any of
+   them.
 
 Each session lands in `~/Recordings/`, named so a folder listing is readable
 on its own:
@@ -124,7 +132,8 @@ is rewritten to point at the new files first, so an interruption anywhere in
 that sequence still leaves a session whose files exist. `compress_tracks:
 false` keeps the PCM, `keep_uncompressed: true` keeps both.
 
-The format is not an aesthetic choice — see below.
+The format is not an aesthetic choice — see [If amanu dies
+mid-meeting](#if-amanu-dies-mid-meeting).
 
 ## Where the controls live
 
@@ -134,13 +143,15 @@ alone:
 - **A window.** Small and ordinary — it sits in the normal stacking order and
   goes behind whatever you bring forward. Recording state and elapsed time,
   Start/Stop, Pause/Resume, the auto-record switch with its current reasoning,
-  and a button to the recordings folder. Closing it hides it; the Dock icon or
-  the menu's **Show Amanu window** brings it back.
+  and buttons to the recordings folder and to the list of recordings. Closing
+  it hides it; the Dock icon or the menu's **Show Amanu window** brings it
+  back.
 - **A Dock icon**, which turns red while recording and orange while paused,
   with the elapsed time as its badge. Clicking it opens the window, and
   clicking it again — with amanu already in front — puts it away.
-- **The menu bar item**, as before — and where **Settings…** lives, alongside
-  ⌘, from the app menu.
+- **The menu bar item**, as before: the same state and the same controls,
+  plus **Manage recordings…** and **Settings…** — the latter also on ⌘, from
+  the app menu.
 
 The window and the Dock icon exist because a status item is not a dependable
 place for the only control of a recorder. When the menu bar runs out of room
@@ -151,6 +162,82 @@ answering "am I recording?" is the worst way it can fail.
 
 `dock_icon: false` returns amanu to a menu-bar-only accessory; `window: false`
 stops the window opening at launch.
+
+## What's recorded, and what's still owed on it
+
+**Manage recordings…** — from the menu bar item, from the window, or as
+`amanu sessions` in a terminal — is the other half: not "am I recording" but
+what has been recorded. Every session under `~/Recordings`, newest first, with
+a column each for the transcript, the names and the summary, and the state of
+each: `done`, `pending`, `deferred` (nothing could be reached, it comes back
+on its own), `failed` (a retry won't help), or `off`.
+
+The list is read from the disk each time and keeps no index of its own. The
+recordings folder is somewhere you go with the Finder — you delete things from
+it and move folders out of it — and a cache of what's in there would spend its
+life being wrong. A few hundred folders scan in milliseconds.
+
+Selecting a session shows how the meeting opened and, per speaker, how many
+turns they took, their first line and their longest one, with a field for the
+name. Both lines are there because they answer different questions: the first
+is where somebody gets greeted by name, and the longest is what identifies a
+person by what they were talking about when nobody said any names at all. A
+name typed in that field is marked `manual`, and no later run overwrites it.
+
+Four buttons, on the selected session:
+
+- **Finish processing** — do whatever is still outstanding: a missing
+  transcript, the names, the summary. The same work as `amanu process` and as
+  the folder's own `Finish processing.command`.
+- **Re-transcribe** — throw the transcript, its names and the summary away and
+  make them again from the audio, which is kept either way. It asks first, and
+  says that.
+- **Open folder** — in the Finder; double-clicking a row does the same.
+- **Delete** — to the Trash, never `rm`. These are meetings: a mistaken delete
+  costs somebody's only record of a conversation, and the Trash is what makes
+  that recoverable.
+
+## Recording by itself
+
+Two independent triggers, either of which is enough:
+
+- **A call app opens the microphone** and holds it for `start_delay_seconds`.
+  This needs no per-app integration and no calendar — it fires for Zoom, Teams,
+  Meet in a browser tab, Slack huddles, Telegram, FaceTime.
+- **A calendar event that looks like a call** just started: more than one
+  attendee, or a conference link in the location, URL, or notes. Off by default
+  because it costs a permission prompt and is only as good as your calendar.
+
+Who is on the microphone is read per process, not per device — otherwise
+amanu's own capture looks like a meeting in progress and keeps itself alive in
+a loop. And it counts only apps on a whitelist (`auto_record.apps`), rather
+than anything that opens the mic: dictation tools, Voice Memos and a browser
+tab checking levels all open it, and every false positive is a recording of
+whatever was in the room. A missed meeting costs one click; a false one costs
+privacy. Set `"apps": []` to count any app instead.
+
+Stopping is the part that has to be right, because the failure mode is
+unbounded. Three rules, any of which ends the session:
+
+- nobody has held the mic for `stop_delay_seconds` **and** the far end has been
+  quiet that long;
+- **silence on both tracks** for `silence_stop_minutes`, whatever the mic says.
+  This is the backstop: an app that never releases the input device would
+  otherwise keep a recording alive indefinitely — mygranola, amanu's ancestor,
+  produced three back-to-back recordings totalling about fifteen hours in one
+  night this way;
+- `max_duration_minutes`, the hard ceiling, which applies to manual recordings
+  too.
+
+An automatic recording shorter than `min_duration_seconds` is deleted rather
+than transcribed — that's what a mic opening for a few seconds is. Manual
+recordings are never auto-stopped and never discarded: if you pressed the
+button, only you decide.
+
+The menu shows what the loop is currently thinking ("waiting", "Zoom on the mic
+for 7s", "quiet for 40s"), which is the difference between debugging a missed
+recording and guessing at it. The checkbox next to it turns the whole thing off
+immediately, without touching the config file.
 
 ## Whose audio is on the far-end track
 
@@ -177,143 +264,24 @@ error at all.
 
 `system_audio: "all"` restores the old global behaviour.
 
-## Recording by itself
-
-Two independent triggers, either of which is enough:
-
-- **A call app opens the microphone** and holds it for `start_delay_seconds`.
-  This needs no per-app integration and no calendar — it fires for Zoom, Teams,
-  Meet in a browser tab, Slack huddles, Telegram, FaceTime.
-- **A calendar event that looks like a call** just started: more than one
-  attendee, or a conference link in the location, URL, or notes. Off by default
-  because it costs a permission prompt and is only as good as your calendar.
-
-Attribution is by whitelist (`auto_record.apps`), not by "someone opened the
-mic". Dictation tools, Voice Memos and a browser tab checking levels all open
-the microphone, and every false positive is a recording of whatever was in the
-room. A missed meeting costs one click; a false one costs privacy. Set
-`"apps": []` to count any app instead.
-
-Stopping is the part that has to be right, because the failure mode is
-unbounded. Three rules, any of which ends the session:
-
-- nobody has held the mic for `stop_delay_seconds` **and** the far end has been
-  quiet that long;
-- **silence on both tracks** for `silence_stop_minutes`, whatever the mic says.
-  This is the backstop: an app that never releases the input device would
-  otherwise keep a recording alive indefinitely — mygranola, amanu's ancestor,
-  produced three back-to-back recordings totalling about fifteen hours in one
-  night this way;
-- `max_duration_minutes`, the hard ceiling, which applies to manual recordings
-  too.
-
-An automatic recording shorter than `min_duration_seconds` is deleted rather
-than transcribed — that's what a mic opening for a few seconds is. Manual
-recordings are never auto-stopped and never discarded: if you pressed the
-button, only you decide.
-
-The menu shows what the loop is currently thinking ("waiting", "Zoom on the mic
-for 7s", "quiet for 40s"), which is the difference between debugging a missed
-recording and guessing at it. The checkbox next to it turns the whole thing off
-immediately, without touching the config file.
-
-Requires macOS 14.4 for per-process microphone attribution. Below that, amanu
-can't tell your call from its own capture, so auto-record stays off rather than
-recording itself in a loop.
-
-## Summaries
-
-After the transcript is written, amanu writes `summary.md`: topic, key points,
-decisions, action items, open questions. With `summary.backend` on `auto` it
-walks this chain, using the first that answers:
-
-1. **The local `claude` CLI** — bills against the subscription already signed
-   in on this machine rather than per token. Invoked with an empty MCP config,
-   so it doesn't spend a minute starting every server you've configured for a
-   one-shot prompt.
-2. **The Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
-   `~/.config/anthropic/token`.
-3. **The `codex` CLI**, then **the OpenAI API** — same idea on the other side.
-4. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
-
-Subscriptions before metered keys, and a spent allowance is not an error: when
-a CLI reports it is out, the log says so plainly and the next backend takes
-over.
-
-The default model is the strong one (`claude-opus-5`, `summary.model`). A
-summary is where a cheap model quietly costs you something — a decision missed
-in a meeting nobody will listen to again — and the difference between tiers is
-a few cents per meeting.
-
-Whatever the session knows about the meeting goes in above the transcript —
-title, participants, the app it ran in. The participant list earns its place:
-given names, the summary says "Anna will send the contract" instead of "them
-will send the contract".
-
-Long transcripts are summarized in parts and the parts summarized together. A
-failed summary never costs the transcript — but it is no longer simply dropped:
-when nothing could be reached at all (no network, every allowance spent), the
-session is marked `summary_status: deferred` in `meta.json` so a later run can
-finish the job. A meeting summarized on a plane still gets its summary that
-evening. A backend that answered badly is marked `failed` instead and not
-retried.
-
-## Speaker names
-
-A transcript comes out of the recognizer saying `me` and `them A`. Before the
-summary is written, amanu tries to put real people to those labels, using the
-calendar's attendee list and the meeting itself — people say each other's
-names out loud, and that is the evidence.
-
-You are resolved without asking anyone: `user_name`, else the account's full
-name, else `me`. The account name is only used when it reads as a person's —
-"Samat Galimov" yes, "samat" and "Samat's MacBook" no.
-
-The rest go to a model, and two rules stand between its answer and the file:
-
-1. **Only high confidence is applied.** Reasoning from who was invited rather
-   than from what was said doesn't qualify. A label nobody could identify
-   stays `them A`, which is honest; a wrong name is a transcript that lies.
-2. **The justifying quote has to exist.** The model must cite the line its
-   answer came from, and that line is checked against the transcript. A model
-   that invents a name usually invents its source too.
-
-Names live in `speakers.json`, never in `transcript.json` — the canonical
-transcript keeps the recognizer's own labels for ever. `transcript.md` is
-rendered from both, so naming is re-runnable and reversible.
-
-**Manage recordings…** (menu bar, the window, or `amanu sessions`) lists every
-session with what's still owed on it. Selecting one shows how the meeting
-opened and, per speaker, their first and longest turn with a field for the
-name. A name typed there is marked `manual` and no later run overwrites it.
-
-### When there's no network
-
-Naming and summarizing both need a model, which a laptop on a train hasn't
-got. Neither fails: the session is marked `deferred` and picked up later — at
-the next launch, when the network comes back, from the recordings window, or
-from the `Finish processing.command` script now written into every session
-folder. That script passes its own location, so a folder moved out of
-`~/Recordings` still finishes, and it holds no logic of its own, so it can't
-go stale.
-
-An answer that came back malformed is marked `failed` instead and not retried;
-delete the key from `meta.json` to offer it again.
-
 ## Transcription
 
 Built in and automatic, with two engines behind one protocol. Which one runs
 is `transcription.engine`, `auto` by default: cloud when a key and a network
-are both there, local otherwise. Jobs run in a serial queue — you can start a new recording while the last one transcribes.
-Unfinished jobs resume on next launch (the filesystem is the queue: a session
-with `meta.json` but no `transcript.json` is pending). A session that keeps
-failing is eventually retired rather than retried for ever — three attempts, or
-one if the error is of a kind repetition cannot fix, such as audio with no
-speech in it. Retiring writes `transcription_failed` into `meta.json`, keeps
-the audio and compresses it; delete that field to offer the session to the
-queue again. Without this a cloud engine re-uploaded, and re-charged for, the
-same unusable recording at every launch. Failures append to the
-session's `transcribe.log` and never block later jobs.
+are both there, local otherwise.
+
+Jobs run in a serial queue, so a new recording can start while the last one is
+still being transcribed, and unfinished jobs resume at the next launch — the
+filesystem *is* the queue, a session with a `meta.json` and no
+`transcript.json` is pending. Failures append to that session's
+`transcribe.log` and never block later jobs.
+
+A session that keeps failing is retired rather than retried for ever: three
+attempts, or one if the error is of a kind repetition cannot fix, such as
+audio with no speech in it. Retiring writes `transcription_failed` into
+`meta.json`, keeps the audio and compresses it; delete that field to offer the
+session to the queue again. Without this a cloud engine re-uploaded, and
+re-charged for, the same unusable recording at every launch.
 
 Set `transcription.language` either way. Both engines do better told than
 guessing, and the failure mode of a wrong guess is a transcript that reads as
@@ -373,8 +341,89 @@ printf '%s' YOUR_KEY > ~/.config/assemblyai/token
 chmod 600 ~/.config/assemblyai/token
 ```
 
-To re-transcribe a session with the other engine, delete its
-`transcript.json` and restart amanu — it'll come back through the queue.
+To transcribe a session again — with the other engine, or because the first
+result was poor — use **Re-transcribe** in the recordings list, or delete its
+`transcript.json` by hand and restart amanu; either way it comes back through
+the queue.
+
+## Speaker names
+
+A transcript comes out of the recognizer saying `me` and `them A`. Before the
+summary is written, amanu tries to put real people to those labels, using the
+calendar's attendee list and the meeting itself — people say each other's
+names out loud, and that is the evidence.
+
+You are resolved without asking anyone: `user_name`, else the account's full
+name, else `me`. The account name is only used when it reads as a person's —
+"Samat Galimov" yes, "samat" and "Samat's MacBook" no.
+
+The rest go to a model, and two rules stand between its answer and the file:
+
+1. **Only high confidence is applied.** Reasoning from who was invited rather
+   than from what was said doesn't qualify. A label nobody could identify
+   stays `them A`, which is honest; a wrong name is a transcript that lies.
+2. **The justifying quote has to exist.** The model must cite the line its
+   answer came from, and that line is checked against the transcript. A model
+   that invents a name usually invents its source too.
+
+Names live in `speakers.json`, never in `transcript.json` — the canonical
+transcript keeps the recognizer's own labels for ever. `transcript.md` is
+rendered from both, so naming is re-runnable and reversible.
+
+A label the model wouldn't touch is not a dead end: **Manage recordings…**
+shows each speaker's first and longest line with a field for the name, and a
+name typed there is marked `manual` — see [What's recorded, and what's still
+owed on it](#whats-recorded-and-whats-still-owed-on-it).
+
+## Summaries
+
+After the transcript is written, amanu writes `summary.md`: topic, key points,
+decisions, action items, open questions. With `summary.backend` on `auto` it
+walks this chain, using the first that answers:
+
+1. **The local `claude` CLI** — bills against the subscription already signed
+   in on this machine rather than per token. Invoked with an empty MCP config,
+   so it doesn't spend a minute starting every server you've configured for a
+   one-shot prompt.
+2. **The Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
+   `~/.config/anthropic/token`.
+3. **The `codex` CLI**, then **the OpenAI API** — same idea on the other side.
+4. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
+
+Subscriptions before metered keys, and a spent allowance is not an error: when
+a CLI reports it is out, the log says so plainly and the next backend takes
+over.
+
+The default model is the strong one (`claude-opus-5`, `summary.model`). A
+summary is where a cheap model quietly costs you something — a decision missed
+in a meeting nobody will listen to again — and the difference between tiers is
+a few cents per meeting.
+
+Whatever the session knows about the meeting goes in above the transcript —
+title, participants, the app it ran in. The participant list earns its place:
+given names, the summary says "Anna will send the contract" instead of "them
+will send the contract".
+
+Long transcripts are summarized in parts and the parts summarized together. A
+failed summary never costs the transcript, and it isn't simply dropped either:
+when nothing could be reached at all (no network, every allowance spent), the
+session is marked `summary_status: deferred` in `meta.json` so a later run can
+finish the job. A meeting recorded on a plane still gets its summary that
+evening. A backend that answered badly is marked `failed` instead, and is not
+retried.
+
+### When there's no network
+
+Naming and summarizing both need a model, which a laptop on a train hasn't
+got. Neither fails: the session is marked `deferred` and picked up later — at
+the next launch, when the network comes back, from **Finish processing** in
+the recordings list, or from the `Finish processing.command` script written
+into every session folder. That script passes its own location, so a folder
+moved out of `~/Recordings` still finishes, and it holds no logic of its own,
+so it can't go stale.
+
+An answer that came back malformed is marked `failed` instead and not retried;
+delete the key from `meta.json` to offer it again.
 
 ## Settings
 
@@ -418,6 +467,7 @@ Optional, at `~/.config/amanu/config.json`:
     "min_duration_seconds": 45,
     "silence_stop_minutes": 10,
     "max_duration_minutes": 300,
+    "apps": ["us.zoom", "com.google.Chrome"],
     "ignore_apps": []
   },
   "summary": {
@@ -442,16 +492,16 @@ Optional, at `~/.config/amanu/config.json`:
   languages, it returns English-looking nonsense.
 - `transcription.language` — two-letter code, e.g. `ru`. Unset means parakeet
   runs unhinted and assemblyai auto-detects; set it.
+- `transcription.assemblyai.api_key_path` / `api_key` — where the key lives, or
+  the key itself. `ASSEMBLYAI_API_KEY` wins over both.
+- `transcription.assemblyai.speech_model` — override AssemblyAI's default
+  model. Unset sends nothing and lets the API pick.
 - `transcript_echo_filter` — drop mic segments that duplicate overlapping
   system speech at merge time (default on). The text-level guard for sessions
   recorded raw through speakers, where the far end lands on both tracks and
   every sentence appears twice. Per-track engines only — a diarizing engine
   reads one mixed file and can't produce the duplicate. Costs nothing when
   there's no echo; `false` keeps every segment.
-- `transcription.assemblyai.api_key_path` / `api_key` — where the key lives, or
-  the key itself. `ASSEMBLYAI_API_KEY` wins over both.
-- `transcription.assemblyai.speech_model` — override AssemblyAI's default
-  model. Unset sends nothing and lets the API pick.
 - `mic_voice_processing` — Apple's echo cancellation on the mic (default on).
   A meeting held through the speakers otherwise lands on both tracks, and
   everything downstream has to work around a mic track that isn't only yours.
@@ -481,28 +531,19 @@ Optional, at `~/.config/amanu/config.json`:
   an hour.
 - `keep_uncompressed` — keep the PCM alongside the compressed tracks rather
   than deleting it (default off).
-- `summary.*` — `enabled`, `backend` (`auto`, `anthropic-api`, `claude-cli`,
-  `ollama`, `none`), `language` (unset means the language of the meeting),
-  `model`, `ollama_model`, `api_key_path`.
+- `summary.*` — `enabled`, `backend` (`auto`, `claude-cli`, `anthropic-api`,
+  `codex-cli`, `openai-api`, `ollama`, or `none` to skip summarizing without
+  turning off the rest), `language` (unset means the language of the meeting),
+  `model` (Anthropic, API path only — a CLI uses whatever model it is set to),
+  `openai_model`, `ollama_model`, `api_key_path` and `openai_api_key_path`
+  (where the two keys live; `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` win over
+  both).
 - `on_stop` — shell command spawned with the session directory as its
   argument, **after the transcript and summary are written** (or right after
   recording if transcription is disabled). Wire it to whatever comes next:
   filing, indexing, posting.
 
 ## CLI
-
-```sh
-kill -USR1 $(pgrep -x amanu)  # start/stop from a hotkey tool
-```
-
-If the menu bar item is nowhere to be seen, it has been pushed off-screen
-rather than lost — the window and the Dock icon are unaffected. To confirm:
-
-```sh
-osascript -e 'tell application "System Events" to tell process "amanu" to get position of menu bar item 1 of menu bar 1'
-```
-
-A negative x means the item is parked outside the display.
 
 ```sh
 amanu                        # run the menu-bar daemon (^C to quit)
@@ -516,7 +557,9 @@ amanu install --uninstall
 ```
 
 `--launch-at-login` points the agent at the binary you ran it from, so install
-first, then register.
+first, then register. `amanu process` takes a path rather than a session name,
+because a session is complete in its own folder — move it out of
+`~/Recordings` and it still finishes.
 
 ```sh
 make            # build + sign
@@ -526,19 +569,36 @@ make verify     # show the installed binary's signature
 make uninstall  # remove the binary and the LaunchAgent
 ```
 
+Start and stop from a hotkey tool by signal, without a window in the way:
+
+```sh
+kill -USR1 $(pgrep -x amanu)
+```
+
+If the menu bar item is nowhere to be seen, it has been pushed off-screen
+rather than lost — the window and the Dock icon are unaffected. To confirm:
+
+```sh
+osascript -e 'tell application "System Events" to tell process "amanu" to get position of menu bar item 1 of menu bar 1'
+```
+
+A negative x means the item is parked outside the display.
+
 ## Stack
 
 - **Swift** — single SPM executable target
-- **Core Audio process tap** (`AudioHardwareCreateProcessTap`, macOS 14.2+) —
-  system audio capture via a private aggregate device
+- **Core Audio process tap** (`AudioHardwareCreateProcessTap`) — system audio
+  capture via a private aggregate device
 - **AVAudioEngine** — mic capture
-- **AVAudioFile** — streaming PCM capture, AAC re-encode once the transcript exists
+- **AVAudioFile** — streaming PCM capture, AAC re-encode once the transcript
+  exists
 - **AVAudioConverter** — offset-aware mixdown for the diarizing engine, summed
   by hand rather than exported (`AVAssetExportSession` makes macOS ask for the
   photo library)
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
-- **NSStatusItem** — the whole UI
+- **AppKit** — the whole UI by hand: a status item, the Dock icon, and three
+  plain windows (status, recordings, settings). No SwiftUI
 
 ## If amanu dies mid-meeting
 
@@ -568,7 +628,7 @@ The other half is knowing the session was there at all. The transcription queue
 only considers folders with a `meta.json`, and that's written on a clean stop
 (upstream issue #8).
 
-So a live session now keeps a small `.recording.json` manifest — the owner's
+So a live session keeps a small `.recording.json` manifest — the owner's
 PID, the start time, the track names, the clock offsets. On the next launch,
 amanu adopts every manifest whose owner process is gone, writes the `meta.json`
 the clean-stop path would have written (`"stop_reason": "recovered-after-crash"`),
@@ -592,7 +652,7 @@ afterwards, not a mystery.
   but zeros — no error, no prompt, a full-length silent file. Under launchd
   amanu is its own responsible process, macOS prompts by name, and capture
   works. See `.issues/rca-002-system-tap-silent-outside-launchagent.md`.
-- Note that system audio is gated on the **System Audio Recording Only** list
+- System audio is gated on the **System Audio Recording Only** list
   in System Settings → Privacy & Security, not on Screen Recording. A Screen
   Recording grant does not cover it, and a bare binary can't be added to either
   list by hand — the LaunchAgent is what makes the prompt appear.
