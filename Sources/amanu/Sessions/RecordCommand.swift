@@ -59,7 +59,7 @@ enum RecordRequest {
     }
 
     @MainActor
-    static func askRunningApp(_ action: Action, timeout: TimeInterval = 1.5) -> Bool {
+    static func askRunningApp(_ action: Action, timeout: TimeInterval = 4) -> Bool {
         let center = DistributedNotificationCenter.default()
         let requestID = UUID().uuidString
         let reply = Reply()

@@ -88,6 +88,20 @@ enum SetupPermissions {
         )
     }
 
+    /// Whether the Start-at-login row still has work in it.
+    ///
+    /// The bare binary had to hand itself over to launchd before any grant was
+    /// worth asking for. An application bundle is already its own responsible
+    /// process, so the only question left is the ordinary one macOS asks of
+    /// every app: is it in Login Items, and has someone allowed it there.
+    static func needsStartAtLogin(bundled: Bool, loginItem: LoginItem.State) -> Bool {
+        bundled ? loginItem != .enabled : needsLaunchAgentHandoff
+    }
+
+    static var needsStartAtLogin: Bool {
+        needsStartAtLogin(bundled: Runtime.isBundled, loginItem: LoginItem.status())
+    }
+
     // MARK: - system audio
 
     /// What a test of the system-audio path found.

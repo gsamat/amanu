@@ -37,7 +37,7 @@ enum SetupRequest {
     }
 
     @MainActor
-    static func askRunningApp(timeout: TimeInterval = 0.75) -> Bool {
+    static func askRunningApp(timeout: TimeInterval = 4) -> Bool {
         let center = DistributedNotificationCenter.default()
         let requestID = UUID().uuidString
         let reply = Reply()

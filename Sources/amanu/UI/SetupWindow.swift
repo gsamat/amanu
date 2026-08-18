@@ -511,6 +511,18 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             report(launchRow, "not while a recording is running — stop it and try again")
             return
         }
+        // An app registers itself with macOS the way every other app does.
+        // Only the bare binary still needs a LaunchAgent of its own.
+        if Runtime.isBundled {
+            do {
+                let state = try LoginItem.register()
+                if state == .needsApproval { LoginItem.openSettings() }
+            } catch {
+                report(launchRow, "couldn't register at login: \(error.localizedDescription)")
+            }
+            refresh()
+            return
+        }
         do {
             try Install.installAgent()
         } catch {
@@ -762,11 +774,26 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Redraw everything from the machine and the config file. Cheap: no
     /// subprocesses, no network — those write into fields this only reads.
     private func refresh() {
-        launchRow.update(
-            SetupPermissions.needsLaunchAgentHandoff ? .notAsked : .granted,
-            detail: SetupPermissions.launchAgentInstalled && !SetupPermissions.runningUnderLaunchd
-                ? "Installed, but this copy isn't the one launchd started."
-                : nil)
+        if Runtime.isBundled {
+            switch LoginItem.status() {
+            case .enabled:
+                launchRow.update(.granted, note: "on")
+            case .needsApproval:
+                launchRow.update(
+                    .denied,
+                    detail: "macOS wants this allowed in Login Items.",
+                    action: "Open Settings")
+            case .notRegistered, .unavailable:
+                launchRow.update(.notAsked, detail: "So a meeting is never missed.")
+            }
+        } else {
+            launchRow.update(
+                SetupPermissions.needsLaunchAgentHandoff ? .notAsked : .granted,
+                detail: SetupPermissions.launchAgentInstalled
+                    && !SetupPermissions.runningUnderLaunchd
+                    ? "Installed, but this copy isn't the one launchd started."
+                    : nil)
+        }
         micRow.update(SetupPermissions.microphone())
         calendarRow.update(SetupPermissions.calendar())
 
@@ -845,7 +872,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func highlightNextGrant() {
         let rows = [launchRow, micRow, audioRow, calendarRow]
         let pending: AccessRow?
-        if SetupPermissions.needsLaunchAgentHandoff {
+        if SetupPermissions.needsStartAtLogin {
             pending = launchRow
         } else if SetupPermissions.microphone() != .granted {
             pending = micRow
@@ -861,7 +888,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// left to offer. The order is the order things must happen in: the agent
     /// first, because a grant given to the wrong process is worse than none.
     private var nextAction: (() -> Void)? {
-        if SetupPermissions.needsLaunchAgentHandoff {
+        if SetupPermissions.needsStartAtLogin {
             return { [weak self] in self?.installAgent() }
         }
         if SetupPermissions.microphone() == .notAsked {
@@ -881,7 +908,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private func updateFooter() {
         var outstanding: [String] = []
-        if SetupPermissions.needsLaunchAgentHandoff { outstanding.append("start at login") }
+        if SetupPermissions.needsStartAtLogin { outstanding.append("start at login") }
         if SetupPermissions.microphone() != .granted { outstanding.append("microphone") }
         if systemAudio != .heard { outstanding.append("system audio") }
         if Config.liveTranscriptionEnabled() {
@@ -896,7 +923,12 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 : "Left: \(outstanding.joined(separator: ", "))")
 
         primary.title = {
-            if SetupPermissions.needsLaunchAgentHandoff {
+            if SetupPermissions.needsStartAtLogin {
+                if Runtime.isBundled {
+                    return LoginItem.status() == .needsApproval
+                        ? "Open Login Items"
+                        : "Start at login"
+                }
                 return SetupPermissions.launchAgentInstalled ? "Restart" : "Install"
             }
             if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }

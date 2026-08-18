@@ -32,6 +32,29 @@ struct Run: ParsableCommand {
 
     @MainActor
     private func runMain() throws {
+        // Someone already recording is the answer to "start amanu": show them
+        // its window rather than starting a second recorder beside it.
+        if SingleInstance.handOverToRunningCopy() {
+            FileHandle.standardError.write(Data("amanu is already running\n".utf8))
+            return
+        }
+
+        // Retiring the LaunchAgent that starts the old bare binary. Runs
+        // before anything can record, and does nothing at all on a machine
+        // that never had one.
+        let migration = LegacyMigration.run()
+        if migration.stoppedAgent || migration.removedPlist || migration.linkedCLI {
+            FileHandle.standardError.write(Data(
+                ("migrated from the standalone binary:"
+                    + (migration.stoppedAgent ? " stopped the LaunchAgent," : "")
+                    + (migration.removedPlist ? " removed its plist," : "")
+                    + (migration.linkedCLI ? " pointed ~/.local/bin/amanu at the app," : "")
+                    + " done\n").utf8))
+        }
+        for note in migration.notes {
+            FileHandle.standardError.write(Data("migration: \(note)\n".utf8))
+        }
+
         let root = Config.resolveRoot(cliOverride: out)
 
         // launchd starts us in `/`, and every process we spawn inherits that.
@@ -251,6 +274,15 @@ final class AppController {
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
     private var recordRequestObserver: NSObjectProtocol?
+    private var activateObserver: NSObjectProtocol?
+    /// App Nap throttles timers, network and IPC for an app nobody is looking
+    /// at — which is amanu's normal condition and exactly when it must not be
+    /// slow. A recorder that answers a request three seconds late has already
+    /// missed the beginning of the meeting.
+    private var awake: NSObjectProtocol?
+    /// Held only while recording: the Mac may sleep between meetings, but not
+    /// in the middle of one.
+    private var recordingActivity: NSObjectProtocol?
     private var automaticFeaturesStarted = false
 
     init(root: URL) {
@@ -305,7 +337,12 @@ final class AppController {
             MainActor.assumeIsolated { self?.tick() }
         }
 
+        awake = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .suddenTerminationDisabled, .automaticTerminationDisabled],
+            reason: "amanu watches for meetings and answers its command line")
+
         setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
+        activateObserver = SingleInstance.observe { [weak self] in self?.showWindow() }
         recordRequestObserver = RecordRequest.observe { [weak self] action in
             self?.perform(action)
         }
@@ -461,6 +498,10 @@ final class AppController {
             return
         }
 
+        recordingActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "amanu is recording a meeting")
+
         guard let newSession = session else { return }
         let liveEnabled = Config.liveTranscriptionEnabled()
         let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
@@ -488,6 +529,10 @@ final class AppController {
     }
 
     private func stopSession(reason: String = "manual") {
+        if let recordingActivity {
+            ProcessInfo.processInfo.endActivity(recordingActivity)
+            self.recordingActivity = nil
+        }
         guard let session else { return }
         session.installLiveAudioSinks(mic: nil, system: nil)
         session.stop(reason: reason)
