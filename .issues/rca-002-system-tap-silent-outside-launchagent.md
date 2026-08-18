@@ -189,18 +189,18 @@ uses a working system-audio grant.
 
 - `README.md` — presents terminal and LaunchAgent as equivalent; the Gotchas
   entry sends users to the wrong permission list.
-- `Sources/quill/Audio/SystemAudioRecorder.swift` — no liveness check; every
+- `Sources/amanu/Audio/SystemAudioRecorder.swift` — no liveness check; every
   error path passes because nothing returns an error.
-- `Sources/quill/Doctor.swift` — `checkSystemAudio` cannot report the one thing
+- `Sources/amanu/Doctor.swift` — `checkSystemAudio` cannot report the one thing
   it could actually determine.
 - `Package.swift` — embeds the Info.plist that the resulting signature does not
   bind.
 
 **Flow:**
 
-- `Sources/quill/RecordingSession.swift` — starts the system recorder first; a
+- `Sources/amanu/RecordingSession.swift` — starts the system recorder first; a
   silent tap does not fail, so the session proceeds normally.
-- `Sources/quill/Transcription/TranscriptionCoordinator.swift` — transcribes a
+- `Sources/amanu/Transcription/TranscriptionCoordinator.swift` — transcribes a
   silent track without complaint, yielding a transcript with no `them` segments.
 
 **Precedent:**
