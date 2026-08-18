@@ -540,6 +540,7 @@ Optional, at `~/.config/amanu/config.json`:
 amanu                        # run the menu-bar daemon (^C to quit)
 amanu run --out <dir>        # custom recordings root (default ~/Recordings)
 amanu setup                  # reopen first-run setup in the running daemon
+amanu record start|stop|toggle  # record on purpose, in the running daemon
 amanu doctor                 # check permissions, recordings folder, models/keys
 amanu sessions               # what's recorded and what's still owed on it
 amanu sessions --pending     # only the sessions with work outstanding
@@ -547,6 +548,12 @@ amanu process <folder>       # finish one session: names, summary, or both
 amanu install --launch-at-login
 amanu install --uninstall
 ```
+
+`amanu record` never records anything itself: it rings the running daemon and
+exits. That is not politeness, it's the only thing that works — a recorder
+started from a terminal is attributed to the terminal, and its system-audio
+track is digital silence (below). With nothing running, the command says so
+instead of quietly becoming a second, deaf recorder.
 
 `--launch-at-login` points the agent at the binary you ran it from, so install
 first, then register. `amanu process` takes a path rather than a session name,

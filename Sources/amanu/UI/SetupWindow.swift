@@ -162,10 +162,17 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         footer.translatesAutoresizingMaskIntoConstraints = false
         footerNote.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        let divider = SetupLayout.hairline()
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
         let content = NSView()
         content.addSubview(scroll)
+        content.addSubview(divider)
         content.addSubview(footer)
         NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: scroll.bottomAnchor),
             scroll.topAnchor.constraint(equalTo: content.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -641,9 +648,22 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         Config.update(path: ["transcription", "language"], value: code.isEmpty ? nil : code)
     }
 
+    /// Check first, write second.
+    ///
+    /// The other order costs someone their working key: two characters typed
+    /// into the field by accident used to replace a good key on disk, and the
+    /// only sign was every later meeting failing to transcribe with HTTP 401.
+    /// A key that isn't accepted never reaches the file.
     private func saveAssemblyKey() async {
         let key = assemblyKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
+        assemblyStatus.stringValue = "checking…"
+        guard await Self.assemblyKeyWorks(key) else {
+            assemblyStatus.stringValue = Config.assemblyAIKey() == nil
+                ? "that key was refused"
+                : "that key was refused — the saved one is untouched"
+            return
+        }
         do {
             try Self.writeSecret(key, to: Config.assemblyAIDefaultKeyPath)
         } catch {
@@ -651,10 +671,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             return
         }
         assemblyKey.stringValue = ""
-        assemblyStatus.stringValue = "checking…"
-        assemblyStatus.stringValue = await Self.assemblyKeyWorks(key)
-            ? "key works"
-            : "that key was refused"
+        assemblyStatus.stringValue = "key works"
         refresh()
     }
 
@@ -666,6 +683,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let path = backend == "anthropic-api"
             ? Config.anthropicDefaultKeyPath
             : Config.openAIDefaultKeyPath
+        summaryKeyStatus.stringValue = "checking…"
+        guard await SummaryKeyProbe.works(provider: provider, key: key) else {
+            summaryKeyStatus.stringValue = "that key was refused — nothing was overwritten"
+            return
+        }
         do {
             try Self.writeSecret(key, to: path)
         } catch {
@@ -673,10 +695,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             return
         }
         summaryKey.stringValue = ""
-        summaryKeyStatus.stringValue = "checking…"
-        summaryKeyStatus.stringValue = await SummaryKeyProbe.works(provider: provider, key: key)
-            ? "key works"
-            : "that key was refused"
+        summaryKeyStatus.stringValue = "key works"
         Config.update(path: ["summary", "backend"], value: backend)
         refresh()
     }
@@ -771,6 +790,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: livePrompt) {
             liveStatus.stringValue = "downloaded"
+            liveStatus.textColor = .systemGreen
         } else if !liveDownloading, Config.liveTranscriptionEnabled(), liveStatus.stringValue.isEmpty {
             liveStatus.stringValue = "about 600 MB — downloads when switched on"
         } else if !Config.liveTranscriptionEnabled() {
@@ -789,9 +809,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         parakeetDownload.isHidden = downloaded
         if downloaded {
             parakeetStatus.stringValue = "downloaded"
+            parakeetStatus.textColor = .systemGreen
             parakeetBar.isHidden = true
         } else if parakeetProgress == nil {
             parakeetStatus.stringValue = "about 600 MB"
+            parakeetStatus.textColor = .secondaryLabelColor
         }
 
         if Config.assemblyAIKey() != nil, assemblyStatus.stringValue.isEmpty {
@@ -1017,12 +1039,12 @@ private final class AccessRow: NSView {
         switch state {
         case .granted:
             mark.image = NSImage(
-                systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "granted")
+                systemSymbolName: "checkmark.circle", accessibilityDescription: "granted")
             mark.contentTintColor = .systemGreen
             button.isHidden = actionTitle == nil
         case .denied:
             mark.image = NSImage(
-                systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "denied")
+                systemSymbolName: "exclamationmark.circle", accessibilityDescription: "denied")
             mark.contentTintColor = .systemOrange
             button.isHidden = false
             button.title = "Open Settings"
@@ -1043,45 +1065,60 @@ final class ChoiceCard: NSView {
     let id: String
     var onSelect: ((String) -> Void)?
 
-    private let radio: NSButton
+    private let radio = NSImageView()
+    private let titleLabel: NSTextField
     private let statusLabel = NSTextField(labelWithString: "")
     private var linkButton: NSButton?
+    private var selected = false
 
     var status: String {
         get { statusLabel.stringValue }
         set {
             statusLabel.stringValue = newValue
             statusLabel.isHidden = newValue.isEmpty
+            // "answers", "downloaded", "key works" are the states worth
+            // seeing across the window; everything else is a note.
+            let good = ["answers", "downloaded", "key works", "running"]
+            statusLabel.textColor = good.contains(where: newValue.hasPrefix)
+                ? .systemGreen
+                : .secondaryLabelColor
         }
     }
 
     var isEnabled: Bool = true {
-        didSet {
-            radio.isEnabled = isEnabled
-            alphaValue = isEnabled ? 1 : 0.45
-        }
+        didSet { alphaValue = isEnabled ? 1 : 0.45 }
     }
 
     var isSelected: Bool {
-        get { radio.state == .on }
+        get { selected }
         set {
-            radio.state = newValue ? .on : .off
+            selected = newValue
+            radio.image = NSImage(
+                systemSymbolName: newValue ? "largecircle.fill.circle" : "circle",
+                accessibilityDescription: newValue ? "chosen" : "not chosen")
+            radio.contentTintColor = newValue ? .controlAccentColor : .tertiaryLabelColor
             layer?.borderColor = newValue
                 ? NSColor.controlAccentColor.cgColor
-                : NSColor.separatorColor.cgColor
-            layer?.borderWidth = newValue ? 2 : 1
+                : NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+            layer?.borderWidth = newValue ? 1.5 : 1
         }
     }
 
     init(id: String, title: String, detail: String, accessories: [NSView] = [],
          compact: Bool = false) {
         self.id = id
-        radio = NSButton(radioButtonWithTitle: title, target: nil, action: nil)
+        titleLabel = NSTextField(labelWithString: title)
         super.init(frame: .zero)
 
-        radio.target = self
-        radio.action = #selector(chose)
-        radio.font = SetupLayout.titleFont
+        titleLabel.font = SetupLayout.titleFont
+        radio.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        radio.widthAnchor.constraint(equalToConstant: 17).isActive = true
+        isSelected = false
+
+        let heading = NSStackView(views: [radio, titleLabel])
+        heading.orientation = .horizontal
+        heading.alignment = .firstBaseline
+        heading.spacing = 7
 
         let detailLabel = NSTextField(labelWithString: detail)
         detailLabel.font = SetupLayout.detailFont
@@ -1103,8 +1140,8 @@ final class ChoiceCard: NSView {
         layer?.borderColor = NSColor.separatorColor.cgColor
 
         let stack = compact
-            ? NSStackView(views: [radio, detailLabel, NSView(), statusLabel] + accessories)
-            : NSStackView(views: [radio, detailLabel, statusLabel] + accessories)
+            ? NSStackView(views: [heading, detailLabel, NSView(), statusLabel] + accessories)
+            : NSStackView(views: [heading, detailLabel, statusLabel] + accessories)
         stack.orientation = compact ? .horizontal : .vertical
         stack.alignment = compact ? .centerY : .leading
         stack.spacing = compact ? 8 : 7
@@ -1128,8 +1165,12 @@ final class ChoiceCard: NSView {
     /// The install link only belongs on a card for something that isn't here.
     func showLink(_ show: Bool) { linkButton?.isHidden = !show }
 
+    /// `hitTest` is asked in the *superview's* coordinates, so the test has to
+    /// be against `frame`. Against `bounds` it silently answers "not mine" for
+    /// every card that isn't at the origin of its row — which is how a row of
+    /// three cards ends up with only the leftmost one responding to a click.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, bounds.contains(point) else { return nil }
+        guard !isHidden, frame.contains(point) else { return nil }
         guard let hit = super.hitTest(point) else { return self }
         if hit === self || containsInteractiveControl(hit) { return hit }
         return self
@@ -1151,10 +1192,8 @@ final class ChoiceCard: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        chose()
+        onSelect?(id)
     }
-
-    @objc private func chose() { onSelect?(id) }
 }
 
 /// A set of cards where exactly one is chosen. AppKit only groups radio

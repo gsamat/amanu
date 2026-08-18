@@ -128,6 +128,29 @@ struct SetupTests {
 
     /// Static labels must behave as part of the card, while controls placed
     /// inside it keep receiving their own clicks.
+    /// The regression this catches made every card except the leftmost one
+    /// inert: `hitTest` is asked in the superview's coordinates, and a test
+    /// against `bounds` answers "not mine" for anything not at the origin.
+    @Test("A card away from the origin of its row still takes the click")
+    @MainActor
+    func choiceCardAwayFromOriginIsHit() throws {
+        let first = ChoiceCard(id: "first", title: "First", detail: "A backend")
+        let second = ChoiceCard(id: "second", title: "Second", detail: "Another")
+        let row = NSStackView(views: [first, second])
+        row.orientation = .horizontal
+        row.distribution = .fillEqually
+        row.spacing = 12
+        row.frame = NSRect(x: 0, y: 0, width: 400, height: 120)
+        row.layoutSubtreeIfNeeded()
+
+        #expect(second.frame.minX > 0, "the second card should not be at the origin")
+        let insideSecond = NSPoint(x: second.frame.midX, y: second.frame.midY)
+        #expect(row.hitTest(insideSecond) != nil)
+        #expect(second.hitTest(insideSecond) != nil)
+        // And the first card must not claim a point that belongs to its neighbour.
+        #expect(first.hitTest(insideSecond) == nil)
+    }
+
     @Test("Choice-card labels route clicks to the whole card")
     @MainActor
     func choiceCardLabelsArePartOfHitArea() throws {
@@ -189,9 +212,11 @@ struct SetupTests {
         let ollama = try #require(panel.contentView?.allDescendants
             .compactMap { $0 as? ChoiceCard }
             .first { $0.id == "ollama" })
+        // The visible label carries a link arrow; the destination is what
+        // this test is actually about.
         let install = try #require(ollama.allDescendants
             .compactMap { $0 as? NSButton }
-            .first { $0.title == "Install Ollama" })
+            .first { $0.title.hasPrefix("Install Ollama") })
 
         #expect(install.identifier?.rawValue == "https://ollama.com/download/mac")
     }

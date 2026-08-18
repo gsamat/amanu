@@ -19,7 +19,7 @@ enum SetupLayout {
     static let headerGap: CGFloat = 8
     static let groupGap: CGFloat = 16
     static let cardGap: CGFloat = 12
-    static let corner: CGFloat = 8
+    static let corner: CGFloat = 10
 
     static let rowInsets = NSEdgeInsets(top: 13, left: 14, bottom: 13, right: 14)
     static let cardInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
@@ -176,11 +176,20 @@ enum SetupLayout {
     }
 
     /// A link is an ordinary button whose identifier carries the destination,
-    /// so one handler opens whichever one was clicked.
+    /// so one handler opens whichever one was clicked. It is drawn as a link
+    /// rather than as a small grey pill: a pill beside a card's own controls
+    /// reads as another thing to press, and this one only opens a web page.
     static func link(_ title: String, _ url: String, target: AnyObject, action: Selector) -> NSButton {
         let button = NSButton(title: title, target: target, action: action)
         button.bezelStyle = .inline
+        button.isBordered = false
         button.controlSize = .small
+        button.attributedTitle = NSAttributedString(
+            string: "\(title) ↗",
+            attributes: [
+                .font: statusFont,
+                .foregroundColor: NSColor.linkColor,
+            ])
         button.identifier = NSUserInterfaceItemIdentifier(url)
         return button
     }
