@@ -36,9 +36,19 @@ final class StatusWindow {
     private let liveScroll = NSScrollView()
     private let liveSection = NSStackView()
 
+    /// The window is deliberately small. It answers one question — am I being
+    /// recorded — and a recorder that needs a big window to say so is a worse
+    /// recorder. The live transcript is the one thing that needs room, so it
+    /// borrows it while it runs and gives it back afterwards.
+    private static let compactSize = NSSize(width: 320, height: 210)
+    private static let expandedHeight: CGFloat = 460
+    private var liveTextVisible = false
+    private var heightBeforeLive: CGFloat?
+
     init() {
         panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 430),
+            contentRect: NSRect(x: 0, y: 0, width: Self.compactSize.width,
+                                height: Self.compactSize.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -53,7 +63,7 @@ final class StatusWindow {
         panel.hidesOnDeactivate = false
         // Closing must hide, not destroy: the Dock icon reopens this window.
         panel.isReleasedWhenClosed = false
-        panel.minSize = NSSize(width: 340, height: 250)
+        panel.minSize = Self.compactSize
 
         stateLabel.font = .systemFont(ofSize: 13, weight: .medium)
         transcriptionLabel.font = .systemFont(ofSize: 11)
@@ -256,7 +266,38 @@ final class StatusWindow {
         let wasAtBottom = documentHeight - visibleBottom < 24
         liveText.textStorage?.setAttributedString(rendered)
         if wasAtBottom { liveText.scrollToEndOfDocument(nil) }
-        liveScroll.isHidden = snapshot.entries.isEmpty && !snapshot.isEnabled
+        showLiveText(!snapshot.entries.isEmpty || snapshot.isEnabled)
+    }
+
+    /// Grow only on the way in, and only from a compact window: someone who
+    /// has dragged this taller keeps their size, and the height they get back
+    /// when live stops is the one the window had before it expanded.
+    private func showLiveText(_ visible: Bool) {
+        guard visible != liveTextVisible else { return }
+        liveTextVisible = visible
+        liveScroll.isHidden = !visible
+
+        if visible {
+            panel.minSize = NSSize(width: Self.compactSize.width, height: 320)
+            guard panel.frame.height < Self.expandedHeight else { return }
+            heightBeforeLive = panel.frame.height
+            resize(to: Self.expandedHeight)
+        } else {
+            panel.minSize = Self.compactSize
+            guard let restored = heightBeforeLive else { return }
+            heightBeforeLive = nil
+            guard panel.frame.height > restored else { return }
+            resize(to: restored)
+        }
+    }
+
+    /// Keep the title bar where it is: a window that grows downward off the
+    /// screen edge is how a status window ends up half-visible.
+    private func resize(to height: CGFloat) {
+        var frame = panel.frame
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+        panel.setFrame(frame, display: true, animate: panel.isVisible)
     }
 
     func updateLivePreference(enabled: Bool) {
