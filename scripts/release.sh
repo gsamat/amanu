@@ -32,10 +32,14 @@ BUILD=$(git rev-list --count HEAD)
 TAG="v$VERSION"
 DMG="dist/amanu-$TAG-macos-arm64.dmg"
 VOLNAME="amanu $VERSION"
-ASSET_URL="https://github.com/gsamat/amanu/releases/download/$TAG/$(basename "$DMG")"
+ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")"
 SPARKLE_KEY="$HOME/.appstoreconnect/amanu-sparkle-ed25519.key"
 SPARKLE_BIN=$(find .build/artifacts/sparkle -type d -name bin 2>/dev/null | head -1)
 SITE="$HOME/Documents/проекты/samatme3"
+# Named explicitly: this checkout also has an `upstream` remote pointing at the
+# project amanu was forked from, and gh picks a remote on its own — which meant
+# the first release attempt tried to publish into somebody else's repository.
+REPO="gsamat/amanu"
 NOTES="docs/release-notes-$TAG.md"
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
@@ -109,14 +113,14 @@ else
     # Re-running the script is normal; clobbering a release people have
     # already downloaded is not. A draft is ours to replace, a published one
     # is not.
-    if gh release view "$TAG" >/dev/null 2>&1; then
-        [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ] \
+    if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+        [ "$(gh release view "$TAG" --repo "$REPO" --json isDraft -q .isDraft)" = "true" ] \
             || die "$TAG is already published — bump VERSION in the Makefile"
-        gh release delete "$TAG" --yes --cleanup-tag=false
+        gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag=false
     fi
     git tag -f "$TAG"
     git push -q origin "$TAG" --force
-    gh release create "$TAG" "$DMG" "$DMG.sha256" \
+    gh release create "$TAG" "$DMG" "$DMG.sha256" --repo "$REPO" \
         --draft --title "amanu $TAG" --notes-file "$NOTES"
 fi
 
@@ -158,7 +162,7 @@ if [ "$DRY_RUN" = 1 ]; then
 fi
 
 step "8/8  publishing"
-gh release edit "$TAG" --draft=false --latest
+gh release edit "$TAG" --repo "$REPO" --draft=false --latest
 # Only now, with the download live, does the feed start pointing at it.
 git -C "$SITE" add amanu/appcast.xml
 git -C "$SITE" commit -q -m "amanu $VERSION in the appcast" || true
@@ -174,5 +178,5 @@ grep -qE '^HTTP/[0-9.]+ 200' <<<"$ASSET_HEAD" \
     || die "the release asset the feed points at is not downloadable"
 echo
 echo "amanu $TAG is out."
-echo "  https://github.com/gsamat/amanu/releases/tag/$TAG"
+echo "  https://github.com/$REPO/releases/tag/$TAG"
 echo "  https://samat.me/amanu/appcast.xml"
