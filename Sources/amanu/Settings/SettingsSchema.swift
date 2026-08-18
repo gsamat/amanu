@@ -126,6 +126,13 @@ enum SettingsSchema {
             Entry(["transcript_echo_filter"], "Drop echoed speech",
                   "Removes mic segments duplicating system audio — the far end coming back through the speakers.",
                   .toggle, default: true),
+            Entry(["transcription", "assemblyai", "api_key_path"], "AssemblyAI key file",
+                  "Where the cloud engine's key is read from. ASSEMBLYAI_API_KEY wins over it.",
+                  .text(placeholder: "~/.config/assemblyai/token"),
+                  default: "~/.config/assemblyai/token"),
+            Entry(["transcription", "assemblyai", "speech_model"], "AssemblyAI speech model",
+                  "Empty sends nothing and lets the API pick its own default.",
+                  .text(placeholder: "best"), default: "the API's own default"),
         ]),
 
         Section(title: "Summaries", entries: [
@@ -148,6 +155,14 @@ enum SettingsSchema {
             Entry(["summary", "language"], "Summary language",
                   "Leave empty to write in whichever language the meeting was held in.",
                   .text(placeholder: "ru"), default: "the language of the meeting"),
+            Entry(["summary", "api_key_path"], "Anthropic key file",
+                  "Where the Anthropic key is read from. ANTHROPIC_API_KEY wins over it.",
+                  .text(placeholder: "~/.config/anthropic/token"),
+                  default: "~/.config/anthropic/token"),
+            Entry(["summary", "openai_api_key_path"], "OpenAI key file",
+                  "Where the OpenAI key is read from. OPENAI_API_KEY wins over it.",
+                  .text(placeholder: "~/.config/openai/token"),
+                  default: "~/.config/openai/token"),
         ]),
 
         Section(title: "Calendar and naming", entries: [
@@ -243,10 +258,48 @@ enum SettingsSchema {
         }
     }
 
+    /// Settings the program reads but the window deliberately doesn't show.
+    ///
+    /// One entry, and it earns the exception: an API key pasted into the
+    /// config file is a secret, and a text field would put it on screen and
+    /// into a screenshot. The path to a key file is offered instead. Keys
+    /// listed here still count as known — a setting amanu obeys must never be
+    /// reported as one it ignores.
+    static let unrenderedKeys = ["transcription.assemblyai.api_key"]
+
     /// Every key the program understands, as `a.b` strings — used to spot
     /// settings in a config file that nothing reads (a typo, or a key from an
     /// older version).
     static var knownKeys: [String] {
-        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") }
+        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") } + unrenderedKeys
+    }
+
+    /// Keys present in a config file that nothing reads.
+    ///
+    /// Here rather than in the window because it is the schema's own question
+    /// — and because getting it wrong is invisible in the direction that
+    /// matters: a *false* stray tells someone their working setting is
+    /// ignored, which is worse than the silence this list was built to break.
+    static func strayKeys(in config: [String: Any]) -> [String] {
+        let known = Set(knownKeys)
+        var stray: [String] = []
+
+        func walk(_ object: [String: Any], prefix: [String]) {
+            for (key, value) in object {
+                let path = prefix + [key]
+                let joined = path.joined(separator: ".")
+                if known.contains(joined) { continue }
+                if let nested = value as? [String: Any] {
+                    // A branch on the way to known leaves is not itself stray.
+                    if known.contains(where: { $0.hasPrefix(joined + ".") }) {
+                        walk(nested, prefix: path)
+                        continue
+                    }
+                }
+                stray.append(joined)
+            }
+        }
+        walk(config, prefix: [])
+        return stray.sorted()
     }
 }

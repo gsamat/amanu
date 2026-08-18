@@ -316,29 +316,10 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// version that had it. Worth saying out loud, because the failure looks
     /// exactly like a setting being ignored — which it is.
     private func showStrayKeys(in config: [String: Any]) {
-        let known = Set(SettingsSchema.knownKeys)
-        var stray: [String] = []
-
-        func walk(_ object: [String: Any], prefix: [String]) {
-            for (key, value) in object {
-                let path = prefix + [key]
-                let joined = path.joined(separator: ".")
-                if known.contains(joined) { continue }
-                if let nested = value as? [String: Any] {
-                    // A branch on the way to known leaves is not itself stray.
-                    if known.contains(where: { $0.hasPrefix(joined + ".") }) {
-                        walk(nested, prefix: path)
-                        continue
-                    }
-                }
-                stray.append(joined)
-            }
-        }
-        walk(config, prefix: [])
-
+        let stray = SettingsSchema.strayKeys(in: config)
         strayKeys.stringValue = stray.isEmpty
             ? ""
-            : "Not read by this version: \(stray.sorted().joined(separator: ", "))"
+            : "Not read by this version: \(stray.joined(separator: ", "))"
         strayKeys.isHidden = stray.isEmpty
     }
 

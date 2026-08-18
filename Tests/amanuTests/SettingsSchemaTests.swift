@@ -102,6 +102,95 @@ struct SettingsSchemaTests {
         #expect(!keys.isEmpty)
     }
 
+    /// The list that tells someone a setting is being ignored has to be right
+    /// in one direction above all: a key amanu *does* read must never appear
+    /// in it. It did — `transcription.assemblyai.*` and the two summary key
+    /// paths had no entry, so a config written straight from the README was
+    /// reported as unread.
+    ///
+    /// The sample below is every key `Config` reads, which is what the README
+    /// documents. Adding a setting to `Config` without adding it here is the
+    /// mistake this catches.
+    @Test("No setting amanu reads is reported as one it ignores")
+    func everySettingConfigReadsIsKnown() {
+        let config: [String: Any] = [
+            "recordings_dir": "~/Recordings",
+            "on_stop": "my-hook",
+            "mic_voice_processing": true,
+            "transcript_echo_filter": true,
+            "system_audio": "app",
+            "calendar": true,
+            "dock_icon": true,
+            "window": true,
+            "compress_tracks": true,
+            "keep_uncompressed": false,
+            "user_name": "Samat Galimov",
+            "transcription": [
+                "enabled": true,
+                "engine": "auto",
+                "model": "v3",
+                "language": "ru",
+                "assemblyai": [
+                    "api_key": "secret",
+                    "api_key_path": "~/.config/assemblyai/token",
+                    "speech_model": "best",
+                ],
+            ],
+            "auto_record": [
+                "enabled": true,
+                "mic_activity": true,
+                "calendar": false,
+                "start_delay_seconds": 12,
+                "stop_delay_seconds": 90,
+                "min_duration_seconds": 45,
+                "max_duration_minutes": 300,
+                "silence_stop_minutes": 10,
+                "apps": ["us.zoom"],
+                "ignore_apps": [],
+            ],
+            "speaker_names": ["enabled": true, "backend": "auto", "model": "claude-sonnet-5"],
+            "summary": [
+                "enabled": true,
+                "backend": "auto",
+                "language": "ru",
+                "model": "claude-opus-5",
+                "openai_model": "gpt-5",
+                "ollama_model": "qwen3:8b",
+                "api_key_path": "~/.config/anthropic/token",
+                "openai_api_key_path": "~/.config/openai/token",
+            ],
+        ]
+        #expect(SettingsSchema.strayKeys(in: config).isEmpty,
+                "reported as unread: \(SettingsSchema.strayKeys(in: config))")
+    }
+
+    /// The other direction, which is the point of the list existing.
+    @Test("A key nothing reads is named, nested or not")
+    func strayKeysAreReported() {
+        let config: [String: Any] = [
+            "recordings_dir": "~/Recordings",
+            "recordings_directory": "~/Meetings",
+            "transcription": ["enabled": true, "engien": "auto"],
+            "summarize": ["enabled": true],
+        ]
+        #expect(SettingsSchema.strayKeys(in: config)
+            == ["recordings_directory", "summarize", "transcription.engien"])
+    }
+
+    /// An inline API key is the one setting with no control, and the reason is
+    /// that a text field would put a secret on screen. It still has to count
+    /// as read.
+    @Test("The unrendered inline key is known but has no control")
+    func unrenderedKeysStayKnown() {
+        let rendered = Set(SettingsSchema.sections
+            .flatMap(\.entries)
+            .map { $0.path.joined(separator: ".") })
+        for key in SettingsSchema.unrenderedKeys {
+            #expect(!rendered.contains(key), "\(key) has a control after all")
+            #expect(SettingsSchema.knownKeys.contains(key))
+        }
+    }
+
     /// A default of the wrong type would render as a placeholder saying one
     /// thing and compare as another — the control would never clear, and the
     /// file would collect a key holding the default forever.
