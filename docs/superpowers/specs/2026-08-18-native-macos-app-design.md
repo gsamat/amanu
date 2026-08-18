@@ -6,7 +6,8 @@
 > differently from the plan below, deliberately, and the sections concerned say
 > so: the bundle is assembled by `make app` around the SwiftPM binary rather
 > than by an Xcode target, and the agent interface is the distributed
-> notification doorbell plus a symlinked CLI rather than a Unix socket.
+> notification doorbell plus a symlinked CLI, and the socket the plan called
+> for is not being built.
 >
 > Everything from **Packaging and updates** onwards is still a plan: there is
 > no DMG of the application, no notarization pass, no Sparkle, no release.
@@ -175,27 +176,24 @@ responsible-process failure.
 
 ## Local automation transport
 
-**Built as a doorbell, not a socket. Read this before building the socket.**
+A distributed notification carrying a request id, answered by an
+acknowledgement the caller waits for. `SetupRequest` opens the window,
+`RecordRequest` starts and stops a recording, `SingleInstance` hands a second
+launch over to the copy already running. Both sides are the same signed
+executable, the notifications never leave this Mac, and the whole thing is
+about a hundred lines.
 
-The plan below this paragraph was a Unix domain socket with a versioned
-protocol, typed payloads and peer-UID verification. What exists instead is the
-mechanism `amanu setup` had already been using for a year: a distributed
-notification carrying a request id, answered by an acknowledgement the caller
-waits for. `SetupRequest` opens the window, `RecordRequest` starts and stops a
-recording, `SingleInstance` hands a second launch over to the first. Both sides
-are the same signed executable, distributed notifications never leave the Mac,
-and the whole thing is about a hundred lines.
+This is the interface. An earlier draft of this document specified a Unix
+domain socket with a versioned protocol, typed payloads and peer-UID checks;
+that is a day of work and a suite of tests for something scripts on one machine
+already have, and it is not being built. Anyone reading this later and
+reaching for it should have a concrete requirement in hand first, and should
+know they are reversing a decision rather than completing a plan.
 
 Two rules it turned out to need, both learned the hard way: acknowledge before
 acting, because starting a recording takes longer than a caller will wait and
 being slow is not the same as being absent; and hold a process activity, or App
-Nap delays the delivery past any reasonable timeout.
-
-The socket remains a reasonable design for a richer interface — structured
-errors, streaming status, several concurrent callers. It is a day of work plus
-tests for an interface used by scripts on one machine, and nothing has asked
-for it yet. Build it when something does, not because this document once said
-so.
+Nap delays delivery past any reasonable timeout.
 
 A URL scheme may still be added for Finder links such as opening a particular
 recording.
@@ -312,8 +310,8 @@ Automated coverage includes:
 - single-instance activation;
 - legacy plist recognition and fail-safe migration;
 - replacement of only the known legacy CLI;
-- socket permissions, peer identity, protocol versioning, timeouts, and stale
-  endpoint recovery;
+- the doorbell: a request that is answered, a request nobody answers, and a
+  malformed one;
 - every agent CLI request and structured response;
 - serialized session processing;
 - update deferral during recording;

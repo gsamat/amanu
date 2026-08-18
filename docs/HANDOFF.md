@@ -142,13 +142,12 @@ two places it no longer asks for what it originally did:
   by an Xcode target, because the package already builds and tests with SwiftPM
   and a second build system would have to be kept in step with the first;
 - control is the distributed-notification doorbell `amanu setup` already used
-  (`SetupRequest`, `RecordRequest`, `SingleInstance`) plus a symlinked CLI,
-  rather than a Unix socket with a versioned protocol — a day of work and its
-  tests for an interface used by scripts on one machine.
-
-Neither decision is closed forever. The socket is still the right shape for
-structured errors, streaming status or several concurrent callers; build it
-when something asks for it, not because a document once said so.
+  (`SetupRequest`, `RecordRequest`, `SingleInstance`) plus a symlinked CLI.
+  The socket the spec once asked for is not being built — it is a day of work
+  and a suite of tests for something scripts on this machine already have.
+  Don't resurrect it; if some future requirement genuinely needs structured
+  errors or streaming status, that is a new decision to argue for on its own
+  merits, not a plan left half-finished.
 
 ## Things that will bite
 
