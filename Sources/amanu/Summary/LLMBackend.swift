@@ -18,11 +18,26 @@ struct LLMBackend {
 
     /// The backends to try, in order.
     ///
-    /// - Parameter preference: `auto` (default) or an explicit backend name;
-    ///   an explicit name returns just that one, so a deliberate choice is
-    ///   never silently second-guessed.
-    static func available(preference: String = "auto") -> [LLMBackend] {
+    /// - Parameters:
+    ///   - preference: `auto` (default) or an explicit backend name; an
+    ///     explicit name returns just that one, so a deliberate choice is
+    ///     never silently second-guessed.
+    ///   - anthropicModel / openAIModel: ask a different model than the
+    ///     summary settings name, keeping this ordering. nil — the default —
+    ///     behaves exactly as before. They are separate because one string
+    ///     can't serve both providers: handing an Anthropic model id to the
+    ///     OpenAI backend further down the chain would just fail there.
+    ///
+    /// Callers override models rather than assembling their own chains: which
+    /// backend comes first is a decision that belongs in one place.
+    static func available(
+        preference: String = "auto",
+        anthropicModel: String? = nil,
+        openAIModel overriddenOpenAIModel: String? = nil
+    ) -> [LLMBackend] {
         let settings = Config.summary()
+        let anthropicModelID = anthropicModel ?? settings.model
+        let openAIModelID = overriddenOpenAIModel ?? settings.openAIModel
         let claude = cliPath("claude")
         let codex = cliPath("codex")
         let anthropicKey = Config.anthropicKey()
@@ -32,21 +47,21 @@ struct LLMBackend {
         case "claude-cli":
             return claude.map { [claudeCLI(path: $0)] } ?? []
         case "anthropic-api":
-            return anthropicKey.map { [anthropic(key: $0, model: settings.model)] } ?? []
+            return anthropicKey.map { [anthropic(key: $0, model: anthropicModelID)] } ?? []
         case "codex-cli":
-            return codex.map { [codexCLI(path: $0, model: settings.openAIModel)] } ?? []
+            return codex.map { [codexCLI(path: $0, model: openAIModelID)] } ?? []
         case "openai-api":
-            return openAIKey.map { [openAI(key: $0, model: settings.openAIModel)] } ?? []
+            return openAIKey.map { [openAI(key: $0, model: openAIModelID)] } ?? []
         case "ollama":
             return [ollama(model: settings.ollamaModel)]
         default:
             var backends: [LLMBackend] = []
             if let claude { backends.append(claudeCLI(path: claude)) }
             if let anthropicKey {
-                backends.append(anthropic(key: anthropicKey, model: settings.model))
+                backends.append(anthropic(key: anthropicKey, model: anthropicModelID))
             }
-            if let codex { backends.append(codexCLI(path: codex, model: settings.openAIModel)) }
-            if let openAIKey { backends.append(openAI(key: openAIKey, model: settings.openAIModel)) }
+            if let codex { backends.append(codexCLI(path: codex, model: openAIModelID)) }
+            if let openAIKey { backends.append(openAI(key: openAIKey, model: openAIModelID)) }
             backends.append(ollama(model: settings.ollamaModel))
             return backends
         }
