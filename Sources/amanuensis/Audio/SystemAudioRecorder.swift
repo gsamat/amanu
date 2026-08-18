@@ -52,7 +52,7 @@ final class SystemAudioRecorder {
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private let queue = DispatchQueue(label: "com.digimata.quill.system-tap")
+    private let queue = DispatchQueue(label: "me.samat.amanuensis.system-tap")
     private(set) var isRecording = false
 
     // Thread-safe shared state: accessed from both the main thread and the
@@ -198,7 +198,7 @@ final class SystemAudioRecorder {
         let description = objects.isEmpty
             ? CATapDescription(stereoGlobalTapButExcludeProcesses: [])
             : CATapDescription(stereoMixdownOfProcesses: objects)
-        description.name = "quill system tap"
+        description.name = "amanuensis system tap"
         description.isPrivate = true
         description.muteBehavior = .unmuted
 
@@ -230,7 +230,7 @@ final class SystemAudioRecorder {
 
     private func createAggregateDevice(tapUUID: UUID) throws {
         let desc: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "quill-tap",
+            kAudioAggregateDeviceNameKey: "amanuensis-tap",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

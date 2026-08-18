@@ -1,4 +1,4 @@
-# quill
+# amanuensis
 
 A minimal macOS meeting recorder + transcriber. It records your mic and all
 system audio as two separate tracks — on a menu-bar click, or on its own when a
@@ -12,9 +12,9 @@ Swift binary, menu-bar tray, no app bundle.
 ## Install
 
 ```sh
-cd quill
-make install                      # build, sign, → ~/.local/bin/quill
-quill install --launch-at-login   # required for system audio — see Gotchas
+cd amanuensis
+make install                      # build, sign, → ~/.local/bin/amanuensis
+amanuensis install --launch-at-login   # required for system audio — see Gotchas
 ```
 
 No sudo: `~/.local/bin` is yours, and `/usr/local/bin` doesn't exist on a
@@ -25,12 +25,12 @@ does need write access).
 System Audio Recording grants to the binary's code signature, and SwiftPM only
 ad-hoc signs — meaning the identity *is* the hash of the binary, so every
 rebuild looks like a brand-new program, re-prompts for permission, and leaves
-another dead `quill` in System Settings. `make` signs with the first real
+another dead `amanuensis` in System Settings. `make` signs with the first real
 identity it finds (`make identities` lists them), which gives a stable
 designated requirement:
 
 ```
-designated => identifier "com.digimata.quill" and anchor apple generic and ...
+designated => identifier "me.samat.amanuensis" and anchor apple generic and ...
 ```
 
 No hash in there, so grants survive rebuilds. With no certificate on the
@@ -43,8 +43,8 @@ transcription speed.
 
 ## How to use
 
-1. **Run it** via the LaunchAgent (`quill install --launch-at-login`). Running
-   `quill` from a terminal records the mic fine, but the system-audio track
+1. **Run it** via the LaunchAgent (`amanuensis install --launch-at-login`). Running
+   `amanuensis` from a terminal records the mic fine, but the system-audio track
    comes out silent — see Gotchas.
 2. **Click the feather in the menu bar → Start recording.** First use prompts
    for microphone and System Audio Recording permissions. While recording, the
@@ -54,7 +54,7 @@ transcription speed.
    automatically (the menu shows progress); a notification fires when the
    transcript is ready.
 
-4. **Or don't touch it at all.** With auto-record on (the default), quill starts
+4. **Or don't touch it at all.** With auto-record on (the default), amanuensis starts
    when a call app opens the microphone and stops when the call ends — see
    [Recording by itself](#recording-by-itself).
 5. **Pause** from the menu for the part you'd rather not have on tape. Capture
@@ -112,10 +112,10 @@ alone:
   goes behind whatever you bring forward. Recording state and elapsed time,
   Start/Stop, Pause/Resume, the auto-record switch with its current reasoning,
   and a button to the recordings folder. Closing it hides it; the Dock icon or
-  the menu's **Show quill window** brings it back.
+  the menu's **Show Amanuensis window** brings it back.
 - **A Dock icon**, which turns red while recording and orange while paused,
   with the elapsed time as its badge. Clicking it opens the window, and
-  clicking it again — with quill already in front — puts it away.
+  clicking it again — with amanuensis already in front — puts it away.
 - **The menu bar item**, as before.
 
 The window and the Dock icon exist because a status item is not a dependable
@@ -125,12 +125,12 @@ notch — and a menu bar manager can hide it outright. The item stays perfectly
 clickable and completely invisible, which for a program whose entire job is
 answering "am I recording?" is the worst way it can fail.
 
-`dock_icon: false` returns quill to a menu-bar-only accessory; `window: false`
+`dock_icon: false` returns amanuensis to a menu-bar-only accessory; `window: false`
 stops the window opening at launch.
 
 ## Whose audio is on the far-end track
 
-By default quill taps **only the call app's output**, not everything the Mac
+By default amanuensis taps **only the call app's output**, not everything the Mac
 plays. The app is whichever call app holds the microphone when recording
 starts, and the tap follows its whole bundle-id family — Chrome renders call
 audio in a helper process, Zoom and Teams each ship several — plus any other
@@ -177,7 +177,7 @@ unbounded. Three rules, any of which ends the session:
   quiet that long;
 - **silence on both tracks** for `silence_stop_minutes`, whatever the mic says.
   This is the backstop: an app that never releases the input device would
-  otherwise keep a recording alive indefinitely — mygranola, quill's ancestor,
+  otherwise keep a recording alive indefinitely — mygranola, amanuensis's ancestor,
   produced three back-to-back recordings totalling about fifteen hours in one
   night this way;
 - `max_duration_minutes`, the hard ceiling, which applies to manual recordings
@@ -193,13 +193,13 @@ for 7s", "quiet for 40s"), which is the difference between debugging a missed
 recording and guessing at it. The checkbox next to it turns the whole thing off
 immediately, without touching the config file.
 
-Requires macOS 14.4 for per-process microphone attribution. Below that, quill
+Requires macOS 14.4 for per-process microphone attribution. Below that, amanuensis
 can't tell your call from its own capture, so auto-record stays off rather than
 recording itself in a loop.
 
 ## Summaries
 
-After the transcript is written, quill writes `summary.md`: topic, key points,
+After the transcript is written, amanuensis writes `summary.md`: topic, key points,
 decisions, action items, open questions. Three backends, tried in order when
 `summary.backend` is `auto`:
 
@@ -243,7 +243,7 @@ fluent nonsense rather than one that's obviously broken.
 [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Core ML port:
 25 European languages including Russian, roughly 20 seconds per hour of audio
 on Apple Silicon, nothing leaving the machine. Models (~600 MB) download once
-on first transcription; `quill doctor` tells you whether they're already cached
+on first transcription; `amanuensis doctor` tells you whether they're already cached
 so you're never downloading after an important meeting.
 
 Each track is transcribed separately, shifted by its start offset so both share
@@ -260,12 +260,12 @@ Opt-in with `"engine": "assemblyai"`. Better on Russian than parakeet, and it
 tells apart multiple people sharing one audio channel — a call with three
 others on the far side comes back as three speakers instead of one `them`.
 
-Diarization needs everyone on one stream, so quill first mixes the two tracks
+Diarization needs everyone on one stream, so amanuensis first mixes the two tracks
 into `mixed.m4a`, laid out on the same shared clock the two-track transcript
 uses. That file is uploaded, transcribed, and polled until done. It's derived,
 so deleting it is safe — it regenerates.
 
-Speaker labels then come back anonymous (`A`, `B`), and quill maps them onto
+Speaker labels then come back anonymous (`A`, `B`), and amanuensis maps them onto
 `me`/`them` by asking the source tracks: whichever track was loud while an
 utterance was spoken is the side that spoke it. That runs per utterance, not
 per label, so a model that merges two similar voices into one label still comes
@@ -277,8 +277,8 @@ the log says so.
 The full API response is cached as `transcript.assemblyai.json`. A retry after
 a crash re-renders from that file instead of re-uploading and re-paying.
 
-**This is the one part of quill that isn't local.** Your meeting audio goes to
-AssemblyAI's servers. `quill doctor` says so out loud when the engine is
+**This is the one part of amanuensis that isn't local.** Your meeting audio goes to
+AssemblyAI's servers. `amanuensis doctor` says so out loud when the engine is
 selected.
 
 The key is read from `~/.config/assemblyai/token` (chmod 600), or
@@ -291,11 +291,11 @@ chmod 600 ~/.config/assemblyai/token
 ```
 
 To re-transcribe a session with the other engine, delete its
-`transcript.json` and restart quill — it'll come back through the queue.
+`transcript.json` and restart amanuensis — it'll come back through the queue.
 
 ## Config
 
-Optional, at `~/.config/quill/config.json`:
+Optional, at `~/.config/amanuensis/config.json`:
 
 ```json
 {
@@ -353,7 +353,7 @@ Optional, at `~/.config/quill/config.json`:
   the voice unit is live, macOS ducks other playback slightly (`.min` ducking
   is configured, but it can't be zeroed). On headphones there's no echo to
   cancel, so raw capture is the better default.
-- `auto_record.*` — when quill records on its own; see
+- `auto_record.*` — when amanuensis records on its own; see
   [Recording by itself](#recording-by-itself). `apps` is the whitelist of
   bundle-id prefixes that count as a call (defaults to the known conferencing
   apps and browsers; `[]` means any app), `ignore_apps` never counts.
@@ -362,7 +362,7 @@ Optional, at `~/.config/quill/config.json`:
 - `calendar` — read the calendar to name sessions after the meeting (default
   on; costs a one-time permission prompt). Independent of
   `auto_record.calendar`, which is about *starting* a recording from an event.
-- `dock_icon` — show quill in the Dock and ⌘-Tab (default on). `false` makes
+- `dock_icon` — show amanuensis in the Dock and ⌘-Tab (default on). `false` makes
   it a menu-bar-only accessory again.
 - `window` — open the status window at launch (default on).
 - `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
@@ -381,24 +381,24 @@ Optional, at `~/.config/quill/config.json`:
 ## CLI
 
 ```sh
-kill -USR1 $(pgrep -x quill)  # start/stop from a hotkey tool
+kill -USR1 $(pgrep -x amanuensis)  # start/stop from a hotkey tool
 ```
 
 If the menu bar item is nowhere to be seen, it has been pushed off-screen
 rather than lost — the window and the Dock icon are unaffected. To confirm:
 
 ```sh
-osascript -e 'tell application "System Events" to tell process "quill" to get position of menu bar item 1 of menu bar 1'
+osascript -e 'tell application "System Events" to tell process "amanuensis" to get position of menu bar item 1 of menu bar 1'
 ```
 
 A negative x means the item is parked outside the display.
 
 ```sh
-quill                        # run the menu-bar daemon (^C to quit)
-quill run --out <dir>        # custom recordings root (default ~/Recordings)
-quill doctor                 # check permissions, recordings folder, models/keys
-quill install --launch-at-login
-quill install --uninstall
+amanuensis                        # run the menu-bar daemon (^C to quit)
+amanuensis run --out <dir>        # custom recordings root (default ~/Recordings)
+amanuensis doctor                 # check permissions, recordings folder, models/keys
+amanuensis install --launch-at-login
+amanuensis install --uninstall
 ```
 
 `--launch-at-login` points the agent at the binary you ran it from, so install
@@ -424,7 +424,7 @@ make uninstall  # remove the binary and the LaunchAgent
 - **AssemblyAI** — optional cloud transcription with diarization
 - **NSStatusItem** — the whole UI
 
-## If quill dies mid-meeting
+## If amanuensis dies mid-meeting
 
 **A CAF full of AAC does not survive a crash, whatever the format's reputation
 says.** AAC is variable-bitrate, so the file is undecodable without its packet
@@ -445,7 +445,7 @@ decodes, and the same `kill -9` now yields a playable file with the meeting on
 it. Compression happens afterwards, when the transcript already exists.
 
 SIGTERM is handled rather than ignored, which covers the ordinary cases —
-logout, restart, `launchctl kickstart -k`, `quill install --uninstall` — by
+logout, restart, `launchctl kickstart -k`, `amanuensis install --uninstall` — by
 closing the tracks cleanly instead of dying mid-file.
 
 The other half is knowing the session was there at all. The transcription queue
@@ -454,7 +454,7 @@ only considers folders with a `meta.json`, and that's written on a clean stop
 
 So a live session now keeps a small `.recording.json` manifest — the owner's
 PID, the start time, the track names, the clock offsets. On the next launch,
-quill adopts every manifest whose owner process is gone, writes the `meta.json`
+amanuensis adopts every manifest whose owner process is gone, writes the `meta.json`
 the clean-stop path would have written (`"stop_reason": "recovered-after-crash"`),
 and lets the session through the normal queue. A manifest with a live owner is
 left strictly alone, and a session with no audio in it is skipped rather than
@@ -470,11 +470,11 @@ afterwards, not a mystery.
 - With `system_audio: "all"` the tap records *everything* the Mac plays —
   notification dings, music, all of it. The default (`app`) records only the
   call app.
-- **`system.caf` is silent unless quill runs as a LaunchAgent.** Launched from
-  a terminal, quill's TCC request is attributed to the terminal rather than to
-  quill, so the process tap is created successfully and then delivers nothing
+- **`system.caf` is silent unless amanuensis runs as a LaunchAgent.** Launched from
+  a terminal, amanuensis's TCC request is attributed to the terminal rather than to
+  amanuensis, so the process tap is created successfully and then delivers nothing
   but zeros — no error, no prompt, a full-length silent file. Under launchd
-  quill is its own responsible process, macOS prompts by name, and capture
+  amanuensis is its own responsible process, macOS prompts by name, and capture
   works. See `.issues/rca-002-system-tap-silent-outside-launchagent.md`.
 - Note that system audio is gated on the **System Audio Recording Only** list
   in System Settings → Privacy & Security, not on Screen Recording. A Screen
@@ -486,7 +486,7 @@ afterwards, not a mystery.
   plays through speakers, your mic hears them too. That's what
   `mic_voice_processing` is for.
 - The binary embeds its Info.plist (`__TEXT,__info_plist`) so TCC can
-  attribute permissions to quill itself when running as a LaunchAgent.
+  attribute permissions to amanuensis itself when running as a LaunchAgent.
 - `spctl` rejects the binary if you ask it to. That's expected: Gatekeeper
   only accepts Developer ID or notarized code, and it never evaluates this
   binary anyway — nothing you built locally carries a quarantine flag.

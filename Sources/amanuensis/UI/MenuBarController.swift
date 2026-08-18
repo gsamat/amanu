@@ -79,7 +79,7 @@ final class MenuBarController {
         // The window is the reliable surface — this item is how you get it
         // back when the menu bar is where you happened to look first.
         let showWindow = NSMenuItem(
-            title: "Show quill window",
+            title: "Show Amanuensis window",
             action: #selector(showWindowClicked),
             keyEquivalent: "w"
         )
@@ -95,7 +95,7 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
-            title: "Quit quill",
+            title: "Quit Amanuensis",
             action: #selector(quitClicked),
             keyEquivalent: "q"
         )

@@ -1,17 +1,17 @@
 import ArgumentParser
 import Foundation
 
-/// Manage quill's LaunchAgent so the daemon starts at login.
+/// Manage amanuensis's LaunchAgent so the daemon starts at login.
 ///
 /// We deliberately do NOT use SMAppService.mainApp here — that requires a full
-/// .app bundle. Since quill ships as a single binary, a plain LaunchAgent
+/// .app bundle. Since amanuensis ships as a single binary, a plain LaunchAgent
 /// plist is the simpler, more honest mechanism.
 struct Install: ParsableCommand {
     static let configuration = CommandConfiguration(
         abstract: "Install or remove the launch-at-login LaunchAgent."
     )
 
-    @Flag(name: .long, help: "Register quill to start at login.")
+    @Flag(name: .long, help: "Register amanuensis to start at login.")
     var launchAtLogin: Bool = false
 
     @Flag(name: .long, help: "Remove the launch-at-login agent.")
@@ -34,9 +34,9 @@ struct Install: ParsableCommand {
 
     // MARK: -
 
-    static let label = "com.digimata.quill"
+    static let label = "me.samat.amanuensis"
 
-    /// Where the LaunchAgent lives. Shared with `quill doctor`, which reports
+    /// Where the LaunchAgent lives. Shared with `amanuensis doctor`, which reports
     /// whether it's installed — without it, system audio records silence
     /// (rca-002).
     static var agentPlistURL: URL {
@@ -56,8 +56,8 @@ struct Install: ParsableCommand {
             "RunAtLoad": true,
             "KeepAlive": ["SuccessfulExit": false] as [String: Any],
             "ProcessType": "Interactive",
-            "StandardOutPath": "/tmp/quill.out.log",
-            "StandardErrorPath": "/tmp/quill.err.log",
+            "StandardOutPath": "/tmp/amanuensis.out.log",
+            "StandardErrorPath": "/tmp/amanuensis.err.log",
         ]
 
         let url = plistURL
@@ -84,7 +84,7 @@ struct Install: ParsableCommand {
         print("✓ launch-at-login installed")
         print("  plist:  \(url.path)")
         print("  binary: \(binary)")
-        print("  logs:   /tmp/quill.out.log, /tmp/quill.err.log")
+        print("  logs:   /tmp/amanuensis.out.log, /tmp/amanuensis.err.log")
     }
 
     private func removeAgent() throws {
@@ -98,12 +98,12 @@ struct Install: ParsableCommand {
         }
     }
 
-    /// The agent points at whichever binary you ran `quill install` from —
+    /// The agent points at whichever binary you ran `amanuensis install` from —
     /// there's no canonical install path to assume, and there shouldn't be
     /// (`~/.local/bin` needs no sudo; `/usr/local/bin` doesn't exist on a
     /// stock Mac).
     ///
-    /// Asking dyld beats trusting argv[0]: a shell invoking quill off PATH
+    /// Asking dyld beats trusting argv[0]: a shell invoking amanuensis off PATH
     /// usually passes an absolute path, but nothing guarantees it, and the
     /// consequence of getting it wrong is an agent that silently never starts.
     /// Symlinks are resolved so TCC sees the same path the daemon runs from.
@@ -112,7 +112,7 @@ struct Install: ParsableCommand {
         var buffer = [CChar](repeating: 0, count: Int(size))
         guard _NSGetExecutablePath(&buffer, &size) == 0 else {
             FileHandle.standardError.write(Data(
-                "couldn't locate the running quill binary\n".utf8
+                "couldn't locate the running amanuensis binary\n".utf8
             ))
             throw ExitCode(1)
         }

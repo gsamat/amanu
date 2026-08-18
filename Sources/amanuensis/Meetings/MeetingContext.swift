@@ -1,6 +1,6 @@
 import Foundation
 
-/// Everything quill knows about a meeting at the moment it starts recording:
+/// Everything amanuensis knows about a meeting at the moment it starts recording:
 /// what the calendar calls it, who else is invited, and which app is holding
 /// the microphone.
 ///

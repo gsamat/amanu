@@ -2,7 +2,7 @@ import Foundation
 
 /// AssemblyAI, with speaker diarization, over the mixed-down session audio.
 ///
-/// The one part of quill that isn't local: the mix is uploaded, transcribed
+/// The one part of amanuensis that isn't local: the mix is uploaded, transcribed
 /// server-side, and polled until done. In exchange you get a model that
 /// handles Russian properly and real diarization — so a call with three people
 /// on the far side comes back as three speakers instead of one "them".
@@ -200,7 +200,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
         FileHandle.standardError.write(Data("assemblyai: \(message)\n".utf8))
     }
 
-    /// The slice of the API response quill uses. Decoding is lenient about the
+    /// The slice of the API response amanuensis uses. Decoding is lenient about the
     /// rest — AssemblyAI adds fields regularly and none of them are our
     /// business.
     private struct TranscriptResponse: Decodable {

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import quill
+@testable import amanuensis
 
 /// The filter's risk isn't missing an echo — it's dropping something the user
 /// actually said. These lean on that side: the keep cases matter more than the

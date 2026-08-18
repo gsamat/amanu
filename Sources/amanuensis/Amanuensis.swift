@@ -3,9 +3,9 @@ import ArgumentParser
 import Foundation
 
 @main
-struct Quill: ParsableCommand {
+struct Amanuensis: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "quill",
+        commandName: "amanuensis",
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
         subcommands: [Run.self, Doctor.self, Install.self],
         defaultSubcommand: Run.self
@@ -41,7 +41,7 @@ struct Run: ParsableCommand {
         }
 
         let app = NSApplication.shared
-        // .regular puts quill in the Dock and in ⌘-Tab. That's the point: the
+        // .regular puts amanuensis in the Dock and in ⌘-Tab. That's the point: the
         // menu bar is not a dependable place for the only control surface of a
         // recorder — when it fills up macOS parks the status item off-screen
         // and it stays clickable but invisible. The Dock can't be crowded out.
@@ -68,7 +68,7 @@ struct Run: ParsableCommand {
         sigint.resume()
         signal(SIGINT, SIG_IGN)
 
-        // Logout, restart, `launchctl kickstart -k`, `quill install
+        // Logout, restart, `launchctl kickstart -k`, `amanuensis install
         // --uninstall` — all of them send SIGTERM, and the default action for
         // it kills us outright. That matters more than it looks: an AAC track
         // is unreadable until its packet table is written at close, so an
@@ -83,7 +83,7 @@ struct Run: ParsableCommand {
         sigterm.resume()
         signal(SIGTERM, SIG_IGN)
 
-        // Start/stop from a hotkey tool: kill -USR1 $(pgrep -x quill)
+        // Start/stop from a hotkey tool: kill -USR1 $(pgrep -x amanuensis)
         let sigusr1 = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
         sigusr1.setEventHandler {
             MainActor.assumeIsolated { controller.toggleRecording() }
@@ -92,7 +92,7 @@ struct Run: ParsableCommand {
         signal(SIGUSR1, SIG_IGN)
 
         FileHandle.standardError.write(Data(
-            "quill up · recordings → \(root.path) · ^C to quit\n".utf8
+            "amanuensis up · recordings → \(root.path) · ^C to quit\n".utf8
         ))
         app.run()
         // Retained until the run loop exits: NSApp's delegate reference is
@@ -111,7 +111,7 @@ struct Run: ParsableCommand {
         let appMenu = NSMenu()
         // Quit routes through terminate so applicationWillTerminate runs and
         // a live recording is closed properly rather than truncated.
-        appMenu.addItem(withTitle: "Quit quill", action: #selector(NSApplication.terminate(_:)),
+        appMenu.addItem(withTitle: "Quit Amanuensis", action: #selector(NSApplication.terminate(_:)),
                         keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -130,12 +130,12 @@ struct Run: ParsableCommand {
 }
 
 /// Dock behaviour. Clicking the icon of a running app sends a reopen, which is
-/// how the window comes back after you close it; and quill must not quit just
+/// how the window comes back after you close it; and amanuensis must not quit just
 /// because its only window was closed — it's a recorder, the window is a view
 /// onto it.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called on a Dock click, with `alreadyActive` false when that click was
-    /// the one that brought quill forward.
+    /// the one that brought amanuensis forward.
     var onReopen: ((_ alreadyActive: Bool) -> Void)?
     var onTerminate: (() -> Void)?
 
@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Clicking the Dock icon of an app that's already in front should put the
     /// window away again — show, hide, show. The catch is that AppKit
     /// activates the app *before* asking us, so `NSApp.isActive` is true
-    /// either way; the only thing that separates "already working in quill"
+    /// either way; the only thing that separates "already working in amanuensis"
     /// from "just switched to it" is how long ago activation happened.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         let justActivated = Date().timeIntervalSince(becameActiveAt) < 0.3
@@ -255,7 +255,7 @@ final class AppController {
         }
     }
 
-    /// Start or stop by signal — `kill -USR1 $(pgrep -x quill)` — so a hotkey
+    /// Start or stop by signal — `kill -USR1 $(pgrep -x amanuensis)` — so a hotkey
     /// tool can drive recording without going through the menu.
     func toggleRecording() { toggle() }
 
@@ -325,13 +325,13 @@ final class AppController {
             ))
             if trigger != .manual {
                 notifyUser(
-                    title: "quill — recording started",
+                    title: "amanuensis — recording started",
                     body: context.folderSuffix ?? newSession.dir.lastPathComponent
                 )
             }
         } catch {
             FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
-            notifyUser(title: "quill — recording failed", body: "\(error)")
+            notifyUser(title: "amanuensis — recording failed", body: "\(error)")
             return
         }
 
@@ -356,7 +356,7 @@ final class AppController {
         // "app-quit" and "max-duration" say nothing about whether this was a
         // real meeting: they mean we stopped it. Discarding on those threw
         // away the first fifteen seconds of a genuine call that happened to
-        // start while quill was being reinstalled (2026.08.18).
+        // start while amanuensis was being reinstalled (2026.08.18).
         let endedByItself = ["call-ended", "silence", "calendar-event-ended"].contains(reason)
         let minimum = Config.autoRecord().minDuration
         if session.trigger != .manual, endedByItself, duration < minimum {
@@ -387,10 +387,10 @@ final class AppController {
     }
 
     /// Bring the status window up — from the menu, or a second launch of an
-    /// already-running quill.
+    /// already-running amanuensis.
     func showWindow() { window.show() }
 
-    /// The Dock icon: show the window, or put it away if quill was already in
+    /// The Dock icon: show the window, or put it away if amanuensis was already in
     /// front and it's sitting there.
     func toggleWindow(alreadyActive: Bool) {
         if alreadyActive, window.isVisible {

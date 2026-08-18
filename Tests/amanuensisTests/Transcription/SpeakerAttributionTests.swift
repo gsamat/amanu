@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Testing
 
-@testable import quill
+@testable import amanuensis
 
 /// Attribution and mixing are pure functions over audio files, so they're
 /// testable without a meeting: synthesize two tracks with known speech
@@ -57,7 +57,7 @@ struct SpeakerAttributionTests {
 
         init() throws {
             dir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("quill-attr-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("amanuensis-attr-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             mic = dir.appendingPathComponent("mic.caf")
             system = dir.appendingPathComponent("system.caf")
@@ -144,7 +144,7 @@ struct SpeakerAttributionTests {
     @Test("A track holding only room noise loses to the one holding speech")
     func noiseOnlyTrackLosesToSpeech() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quill-noise-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("amanuensis-noise-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 

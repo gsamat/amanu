@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Testing
 
-@testable import quill
+@testable import amanuensis
 
 /// Compression deletes audio, which makes it the most dangerous code in the
 /// program. These tests are about the order of operations: nothing may be
@@ -13,7 +13,7 @@ struct TrackCompressorTests {
     /// pointing at it, shaped exactly as RecordingSession writes them.
     private func makeSession(seconds: Double = 2, channels: AVAudioChannelCount = 1) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quill-compress-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("amanuensis-compress-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         let rate = 48000.0

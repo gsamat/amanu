@@ -35,7 +35,7 @@ final class StatusWindow {
             backing: .buffered,
             defer: false
         )
-        panel.title = "quill"
+        panel.title = "amanuensis"
         // An ordinary window at the ordinary level: it goes behind whatever
         // you bring forward, like everything else. State that must be visible
         // without hunting for a window is the Dock icon's job — it turns red
@@ -105,7 +105,7 @@ final class StatusWindow {
             openFolder.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
         ])
 
-        panel.setFrameAutosaveName("quill.status")
+        panel.setFrameAutosaveName("amanuensis.status")
         if panel.frame.origin == .zero { panel.center() }
         update(state: .idle, elapsed: nil)
     }

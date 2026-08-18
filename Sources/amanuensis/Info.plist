@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>me.samat.amanuensis</string>
+    <key>CFBundleName</key>
+    <string>amanuensis</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>amanuensis records your microphone during meetings so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>amanuensis records system audio (the other side of your meetings) so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>amanuensis reads your calendar to name recordings after the meeting and, if you enable it, to start recording when a scheduled call begins. Calendar data never leaves the machine.</string>
+</dict>
+</plist>
