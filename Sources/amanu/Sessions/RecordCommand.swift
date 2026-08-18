@@ -93,9 +93,13 @@ enum RecordRequest {
             let object = note.object as? String
             MainActor.assumeIsolated {
                 guard let (requestID, action) = decode(object) else { return }
-                act(action)
+                // Answer before acting. Starting a recording takes a moment —
+                // the tap, the file, the engine — and a caller that waits for
+                // the work to finish before hearing anything concludes that
+                // nobody is home and says so, having just been obeyed.
                 center.postNotificationName(
                     acknowledged, object: requestID, deliverImmediately: true)
+                act(action)
             }
         }
     }

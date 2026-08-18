@@ -69,12 +69,15 @@ enum SetupRequest {
             // data-race error even though this observer is delivered on main.
             let requestID = note.object as? String
             MainActor.assumeIsolated {
-                action()
+                // Acknowledge first: opening the window can take longer than
+                // the caller is willing to wait, and being slow is not the
+                // same as being absent.
                 center.postNotificationName(
                     acknowledged,
                     object: requestID,
                     deliverImmediately: true
                 )
+                action()
             }
         }
     }
