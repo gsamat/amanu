@@ -337,6 +337,14 @@ final class AppController {
             MainActor.assumeIsolated { self?.tick() }
         }
 
+        Notifications.install { [weak self] folder in
+            if let folder {
+                NSWorkspace.shared.open(folder)
+            } else {
+                self?.showWindow()
+            }
+        }
+
         awake = ProcessInfo.processInfo.beginActivity(
             options: [.userInitiated, .suddenTerminationDisabled, .automaticTerminationDisabled],
             reason: "amanu watches for meetings and answers its command line")
@@ -489,7 +497,8 @@ final class AppController {
             if trigger != .manual {
                 notifyUser(
                     title: "amanu — recording started",
-                    body: context.folderSuffix ?? newSession.dir.lastPathComponent
+                    body: context.folderSuffix ?? newSession.dir.lastPathComponent,
+                    opening: newSession.dir
                 )
             }
         } catch {

@@ -134,6 +134,18 @@ enum DoctorReport {
     /// to grant, raises no prompt, and records a full-length silent file
     /// (rca-002). Under launchd amanu is its own responsible process.
     static func checkSystemAudio() -> Check {
+        // An application bundle is its own responsible process, whoever
+        // launched it — measured, not assumed: spike/tcc-bundle plays a tone
+        // into its own tap and counts the samples that come back. So for the
+        // app the only unknown left is the grant itself, which macOS will not
+        // report and which only a real recording can settle.
+        if Runtime.isBundled {
+            return Check(
+                name: "system audio",
+                status: .warn("grant state unknowable until first use"),
+                remediation: "if system.caf is silent: System Settings → Privacy & Security → System Audio Recording Only"
+            )
+        }
         // Reparented to launchd — either we were started by it, or our parent
         // already exited. For the daemon this is the case that matters.
         if getppid() == 1 {
@@ -147,7 +159,7 @@ enum DoctorReport {
             return Check(
                 name: "system audio",
                 status: .warn("no LaunchAgent — a terminal-launched amanu records SILENT system audio"),
-                remediation: "amanu install --launch-at-login, then record via the agent (see .issues/rca-002)"
+                remediation: "install Amanu.app and run that, or amanu install --launch-at-login (see .issues/rca-002)"
             )
         }
         return Check(

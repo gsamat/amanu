@@ -387,7 +387,8 @@ final class RecordingSession {
                 if trackStalled.remove(name) != nil {
                     notifyUser(
                         title: "amanu: \(name) track recovered",
-                        body: "\(name) audio is being written again."
+                        body: "\(name) audio is being written again.",
+                        opening: dir
                     )
                 }
             } else if let last = trackLastGrew[name], !trackStalled.contains(name),
@@ -397,7 +398,8 @@ final class RecordingSession {
                 notifyUser(
                     title: "amanu: \(name) track stalled",
                     body: "No \(name) audio written for \(Int(now.timeIntervalSince(last)))s"
-                        + " — the recording may be incomplete."
+                        + " — the recording may be incomplete.",
+                    opening: dir
                 )
             }
         }

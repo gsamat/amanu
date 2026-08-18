@@ -40,10 +40,21 @@ enum Runtime {
     /// ArgumentParser rightly refuses to understand them. They are noise from
     /// the window server, never a command someone typed.
     static func meaningfulArguments(_ arguments: [String]) -> [String] {
-        arguments.filter { argument in
-            !argument.hasPrefix("-psn_")
-                && !argument.hasPrefix("-NS")
-                && !argument.hasPrefix("-Apple")
+        var kept: [String] = []
+        var index = arguments.startIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            index += 1
+            if argument.hasPrefix("-psn_") { continue }
+            // These come in pairs — `-NSDocumentRevisionsDebugMode YES` — and
+            // dropping the flag while keeping its value leaves the value
+            // looking like a subcommand.
+            if argument.hasPrefix("-NS") || argument.hasPrefix("-Apple") {
+                if index < arguments.endIndex, !arguments[index].hasPrefix("-") { index += 1 }
+                continue
+            }
+            kept.append(argument)
         }
+        return kept
     }
 }

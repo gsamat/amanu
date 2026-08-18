@@ -166,6 +166,12 @@ final class StatusWindow {
 
         panel.setFrameAutosaveName("amanu.status")
         if panel.frame.origin == .zero { panel.center() }
+        // The autosaved frame remembers whatever height the window last had —
+        // including the tall one it takes while a live transcript is running.
+        // Idle, it opens compact again; the position is still remembered.
+        if panel.frame.height > Self.compactSize.height {
+            resize(to: Self.compactSize.height)
+        }
         update(state: .idle, elapsed: nil)
     }
 

@@ -46,7 +46,7 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build sign install app run-app uninstall identities verify clean
+.PHONY: all build sign install app icon run-app uninstall identities verify clean
 
 all: sign
 
@@ -97,15 +97,22 @@ install: sign
 # the entitlements are what notarization will ask for later; the identifier is
 # pinned so this app and the bare binary it grew out of are the same program
 # as far as TCC is concerned.
-app: build
+# Drawn from the same feather the menu bar uses, so the Dock, the window and
+# the status item are one program rather than three.
+icon:
+	@swift scripts/make-icon.swift $(ICON)
+
+$(ICON):
+	@swift scripts/make-icon.swift $(ICON)
+
+app: build $(ICON)
 	@rm -rf $(APP)
 	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	@cp $(BUILT) $(APP)/Contents/MacOS/$(APP_NAME)
 	@sed -e 's/__SHORT_VERSION__/$(VERSION)/' -e 's/__BUILD_VERSION__/$(BUILD)/' \
 		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
-	@[ -f $(ICON) ] && cp $(ICON) $(APP)/Contents/Resources/Amanu.icns \
-		|| echo "note: no $(ICON) yet — the app will use the generic icon"
+	@cp $(ICON) $(APP)/Contents/Resources/Amanu.icns
 	@[ -x $(HOME)/.local/bin/unlock-signing-keychain ] \
 		&& $(HOME)/.local/bin/unlock-signing-keychain >/dev/null 2>&1 || true
 	@echo "signing app as: $(SIGN_ID)"
