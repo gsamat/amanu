@@ -19,8 +19,9 @@ import Foundation
 /// are installed *and answer when run*. Nothing here says "should work".
 @MainActor
 final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
-    /// Whether a recording is in progress — installing the LaunchAgent
-    /// restarts amanu, and that must never happen mid-meeting.
+    /// Whether a recording is in progress. Registering at login and testing
+    /// system audio both disturb a running recording, and nothing in this
+    /// window is worth losing a meeting for.
     var isRecording: (() -> Bool)?
     /// Called when the window has done everything it can and been dismissed.
     var onFinished: (() -> Void)?

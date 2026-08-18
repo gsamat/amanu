@@ -17,9 +17,9 @@ struct Setup: ParsableCommand {
         }
         if reachedRunningApp { return }
 
-        // No live app answered. Running normally is important here: TCC grants
-        // belong to the signed amanu process, and the setup window will install
-        // the LaunchAgent before asking for system audio.
+        // No live app answered, so this process becomes the app. That matters:
+        // TCC grants belong to the signed process that asks for them, and the
+        // window asks for system audio.
         try Run().run()
     }
 }

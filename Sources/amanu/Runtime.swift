@@ -6,8 +6,8 @@ import Foundation
 /// The difference decides real behaviour, not cosmetics. A bundle can register
 /// itself with `SMAppService.mainApp`, post notifications under its own name,
 /// and — as the TCC spike measured — be its own responsible process for system
-/// audio. The bare binary can do none of those and needs the LaunchAgent
-/// instead, which is why both paths are kept while the migration runs.
+/// audio. A bare build — `swift run`, a test — can do none of those, so the
+/// few places that depend on it ask here rather than assuming.
 enum Runtime {
     /// The application bundle this process lives in, or nil when it is a bare
     /// executable. `Bundle.main` answers for both, so the question is asked of
@@ -20,7 +20,7 @@ enum Runtime {
         // answers for the path it was invoked through — which is a plain
         // directory. Follow the link before deciding: the CLI running out of
         // the bundle is the same program as the app, and registering a login
-        // item or a LaunchAgent depends on knowing that.
+        // item depends on knowing that.
         guard let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() else {
             return nil
         }
