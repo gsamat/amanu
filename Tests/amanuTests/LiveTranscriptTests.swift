@@ -194,4 +194,59 @@ struct LiveTranscriptTests {
         #expect(snapshot.status == .modelMissing)
         #expect(snapshot.entries.isEmpty)
     }
+
+    @Test("The downloaded model runs both shared live streams end to end")
+    func downloadedModelDualStreamIntegration() async throws {
+        guard ProcessInfo.processInfo.environment["AMANU_RUN_LIVE_MODEL_TEST"] == "1" else {
+            return
+        }
+        let audioPath = try #require(
+            ProcessInfo.processInfo.environment["AMANU_LIVE_TEST_AUDIO"])
+        let store = LiveTranscriptionModelStore()
+        #expect(store.isReady(language: "ru-RU"))
+
+        let updates = OSAllocatedUnfairLock<LiveTranscriptionCoordinator.Snapshot?>(
+            initialState: nil)
+        let coordinator = LiveTranscriptionCoordinator(modelStore: store)
+        let sinks = try #require(await coordinator.beginRecording(
+            enabled: true,
+            language: "ru-RU"
+        ) { snapshot in
+            updates.withLock { $0 = snapshot }
+        })
+
+        func readFixture() throws -> AVAudioPCMBuffer {
+            let file = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
+            let frames = AVAudioFrameCount(file.length)
+            let buffer = try #require(AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat, frameCapacity: frames))
+            try file.read(into: buffer)
+            return buffer
+        }
+        sinks.mic(try readFixture())
+        sinks.system(try readFixture())
+
+        // A cold CoreML preload can take 10–15 seconds even though inference
+        // itself is much faster than realtime. The recorders queue audio while
+        // that happens, so the integration test must wait for load + decode.
+        for _ in 0..<600 {
+            let speakers = updates.withLock { snapshot in
+                Set((snapshot?.entries ?? []).compactMap { entry in
+                    if case .speech(let block) = entry { return block.speaker }
+                    return nil
+                })
+            }
+            if speakers == [.you, .them] { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        let snapshot = try #require(updates.withLock { $0 })
+        let blocks = snapshot.entries.compactMap { entry -> LiveTranscriptState.Block? in
+            if case .speech(let block) = entry { return block }
+            return nil
+        }
+        #expect(Set(blocks.map(\.speaker)) == [.you, .them])
+        #expect(blocks.allSatisfy { !$0.text.isEmpty })
+        await coordinator.finishRecording()
+    }
 }
