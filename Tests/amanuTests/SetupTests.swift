@@ -71,6 +71,100 @@ struct SetupTests {
         #expect(labels.contains("answers · 1.0"))
     }
 
+    /// Catches the border looking clickable while only the small radio title
+    /// actually responds.
+    @Test("Clicking the body of a choice card selects it")
+    @MainActor
+    func choiceCardBodySelects() throws {
+        let card = ChoiceCard(id: "tool", title: "Tool", detail: "A backend")
+        var selected: String?
+        card.onSelect = { selected = $0 }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 150, y: 50),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1))
+
+        card.mouseDown(with: event)
+
+        #expect(selected == "tool")
+    }
+
+    /// Static labels must behave as part of the card, while controls placed
+    /// inside it keep receiving their own clicks.
+    @Test("Choice-card labels route clicks to the whole card")
+    @MainActor
+    func choiceCardLabelsArePartOfHitArea() throws {
+        let accessory = NSButton(title: "Install", target: nil, action: nil)
+        let card = ChoiceCard(
+            id: "tool", title: "Tool", detail: "A backend", accessories: [accessory])
+        card.frame = NSRect(x: 0, y: 0, width: 220, height: 120)
+        card.layoutSubtreeIfNeeded()
+
+        let detail = try #require(card.allDescendants.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "A backend" })
+        let pointOnDetail = card.convert(
+            NSPoint(x: detail.bounds.midX, y: detail.bounds.midY), from: detail)
+        let pointOnAccessory = card.convert(
+            NSPoint(x: accessory.bounds.midX, y: accessory.bounds.midY), from: accessory)
+
+        #expect(card.hitTest(pointOnDetail) === card)
+        #expect(card.hitTest(pointOnAccessory) === accessory)
+    }
+
+    @Test("The Keep Audio label is the checkbox's clickable title")
+    @MainActor
+    func keepAudioUsesTitledCheckbox() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let checkbox = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSButton }
+            .first { $0.title == "Keep the audio after transcribing" })
+
+        checkbox.target = nil
+        checkbox.action = nil
+        checkbox.state = .off
+        checkbox.performClick(nil)
+
+        #expect(checkbox.state == .on)
+    }
+
+    @Test("The Summaries switch sits to the left of its heading")
+    @MainActor
+    func summariesSwitchIsFirst() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let heading = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Summaries" })
+        let header = try #require(heading.superview as? NSStackView)
+
+        #expect(header.arrangedSubviews.first is NSSwitch)
+    }
+
+    @Test("Ollama is a full summary card with the official install link")
+    @MainActor
+    func ollamaIsInstallableChoiceCard() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let ollama = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "ollama" })
+        let install = try #require(ollama.allDescendants
+            .compactMap { $0 as? NSButton }
+            .first { $0.title == "Install Ollama" })
+
+        #expect(install.identifier?.rawValue == "https://ollama.com/download/mac")
+    }
+
     @Test("The Claude card keeps the automatic fallback chain")
     func summaryChoiceMapping() {
         #expect(SetupSelection.summaryBackend(

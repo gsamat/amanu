@@ -46,7 +46,8 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private let engineCards = ChoiceGroup()
     private let language = NSTextField()
-    private let keepAudio = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let keepAudio = NSButton(
+        checkboxWithTitle: "Keep the audio after transcribing", target: nil, action: nil)
     private let assemblyKey = NSSecureTextField()
     private let assemblyStatus = NSTextField(labelWithString: "")
     private let parakeetStatus = NSTextField(labelWithString: "")
@@ -99,7 +100,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
         form.addArrangedSubview(summariesHeader())
         form.addArrangedSubview(summaryChoices())
-        form.addArrangedSubview(box([ollamaRow()]))
 
         form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
         form.addArrangedSubview(box([autoRecordRow()]))
@@ -265,16 +265,19 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func keepAudioRow() -> NSView {
         keepAudio.target = self
         keepAudio.action = #selector(keepAudioChanged)
-        return settingRow(
-            control: keepAudio,
-            title: "Keep the audio after transcribing")
+        let stack = NSStackView(views: [keepAudio, NSView()])
+        stack.orientation = .horizontal
+        stack.alignment = .centerY
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        return stack
     }
 
     private func summariesHeader() -> NSView {
         summariesOn.target = self
         summariesOn.action = #selector(summariesToggled)
-        let stack = NSStackView(views: [header("Summaries"), NSView(), summariesOn])
+        let stack = NSStackView(views: [summariesOn, header("Summaries"), NSView()])
         stack.orientation = .horizontal
+        stack.alignment = .centerY
         stack.spacing = 10
         return stack
     }
@@ -306,30 +309,24 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             title: "My own key",
             detail: "Billed per meeting, needs no CLI.",
             accessories: [keyProvider, summaryKey, summaryKeyStatus, summaryKeyLink])
+        let ollama = ChoiceCard(
+            id: "ollama",
+            title: "Ollama",
+            detail: "No account, no network. Weaker summaries.",
+            accessories: [link("Install Ollama", "https://ollama.com/download/mac")])
 
-        summaryCards.adopt([claude, codex, key])
+        summaryCards.adopt([claude, codex, key, ollama])
         summaryCards.onChange = { [weak self] id in
             guard let self else { return }
             Config.update(path: ["summary", "backend"], value: SetupSelection.summaryBackend(
                 choice: id, keyBackend: self.selectedKeyBackend))
             self.refresh()
         }
-        return row(summaryCards.cards)
-    }
-
-    private func ollamaRow() -> NSView {
-        let radio = NSButton(radioButtonWithTitle: "", target: self, action: #selector(ollamaChosen))
-        let title = NSTextField(labelWithString: "ollama")
-        let detail = NSTextField(labelWithString: "— no account, no network, weaker summaries")
-        detail.textColor = .secondaryLabelColor
-        ollamaState.font = .systemFont(ofSize: 11)
-        ollamaState.textColor = .secondaryLabelColor
-        ollamaRadio = radio
-
-        let stack = NSStackView(views: [radio, title, detail, NSView(), ollamaState])
-        stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+        let stack = NSStackView(views: [row([claude, codex, key]), ollama])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        ollama.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         return stack
     }
 
@@ -386,9 +383,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         return button
     }
 
-    private let ollamaState = NSTextField(labelWithString: "")
-    private var ollamaRadio: NSButton?
-
     private static var systemLanguage: String? {
         Locale.current.language.languageCode?.identifier
     }
@@ -418,11 +412,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     @objc private func summariesToggled() {
         Config.update(path: ["summary", "enabled"], value: summariesOn.state == .on ? nil : false)
-        refresh()
-    }
-
-    @objc private func ollamaChosen() {
-        Config.update(path: ["summary", "backend"], value: "ollama")
         refresh()
     }
 
@@ -650,6 +639,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         // binaries it finds, which is seconds, not milliseconds.
         let claude = await Task.detached { Tooling.probe("claude") }.value
         let codex = await Task.detached { Tooling.probe("codex") }.value
+        let ollama = await Task.detached { Tooling.probe("ollama") }.value
         let models = await Tooling.ollamaModels()
 
         summaryCards.card("claude-cli")?.status = Self.describe(claude)
@@ -657,9 +647,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         summaryCards.card("claude-cli")?.showLink(claude == nil)
         summaryCards.card("codex-cli")?.showLink(codex == nil)
 
-        ollamaState.stringValue = models.map {
+        summaryCards.card("ollama")?.status = models.map {
             $0.isEmpty ? "running, no models" : "running · \($0.prefix(2).joined(separator: ", "))"
-        } ?? "not running"
+        } ?? (ollama == nil ? "not here" : "installed, not running")
+        summaryCards.card("ollama")?.showLink(ollama == nil)
         refresh()
     }
 
@@ -715,9 +706,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         summaryCards.select(SetupSelection.summaryChoice(backend: summary.backend))
         if backendIsKey { keyProvider.selectedSegment = summary.backend == "openai-api" ? 1 : 0 }
         keyProviderChanged()
-        ollamaRadio?.state = summary.backend == "ollama" ? .on : .off
         for card in summaryCards.cards { card.isEnabled = summary.enabled }
-        ollamaRadio?.isEnabled = summary.enabled
 
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
         autoRecord.state = autoRecordOn ? .on : .off
@@ -945,6 +934,32 @@ final class ChoiceCard: NSView {
 
     /// The install link only belongs on a card for something that isn't here.
     func showLink(_ show: Bool) { linkButton?.isHidden = !show }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, bounds.contains(point) else { return nil }
+        guard let hit = super.hitTest(point) else { return self }
+        if hit === self || containsInteractiveControl(hit) { return hit }
+        return self
+    }
+
+    private func containsInteractiveControl(_ hit: NSView) -> Bool {
+        var view: NSView? = hit
+        while let current = view, current !== self {
+            if current is NSButton || current is NSSegmentedControl {
+                return true
+            }
+            if let field = current as? NSTextField, field.isEditable {
+                return true
+            }
+            view = current.superview
+        }
+        return false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        chose()
+    }
 
     @objc private func chose() { onSelect?(id) }
 }

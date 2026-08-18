@@ -52,6 +52,9 @@ belongs in the middle of a recording.
 ## Transcription
 
 - Confirm **Whichever works** is selected by default.
+- Click the title, description, and empty space inside each transcription card;
+  confirm the whole outlined rectangle selects the card. Confirm **Download**,
+  key fields, and links still perform their own actions instead.
 - Confirm the Parakeet card says either **downloaded** or approximately 600 MB.
   If the model is absent, start Download and verify that the byte progress
   changes without freezing the window.
@@ -65,8 +68,13 @@ belongs in the middle of a recording.
 
 ## Summaries
 
+- Confirm the Summaries switch is on the left, matching the Start recording
+  row, and that clicking it disables or enables every backend choice.
 - Confirm the Claude Code card is selected for the default `auto` fallback
   chain and shows a visible `answers · <version>` status when Claude runs.
+- Click the title, description, and empty space inside each summary card;
+  confirm the entire outlined rectangle selects it without swallowing clicks
+  on install links, key fields, or the provider selector.
 - Confirm Codex is detected from either PATH or the copy bundled in
   ChatGPT.app, and its version status is visible.
 - Confirm **Install it** is visible only for a CLI that is missing.
@@ -79,12 +87,17 @@ belongs in the middle of a recording.
   stat -f '%Sp %N' ~/.config/anthropic/token ~/.config/openai/token
   ```
 
-- Confirm the Ollama row reports whether it is running and names up to two
-  installed models.
+- Confirm the Ollama card reports whether it is installed and running and names
+  up to two installed models. When Ollama is absent, confirm **Install Ollama**
+  opens `https://ollama.com/download/mac`; when present, confirm the link is
+  hidden.
 - Turn Summaries off and confirm all backend choices become disabled; turn it
   back on afterwards.
 
 ## Audio retention
+
+- Click both the checkbox square and the words **Keep the audio after
+  transcribing**; confirm either target toggles the same checkbox.
 
 1. Leave **Keep the audio after transcribing** off. Make a short manual test
    recording with both microphone speech and Mac playback, then stop it.
