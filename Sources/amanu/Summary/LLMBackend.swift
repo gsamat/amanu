@@ -236,6 +236,18 @@ struct LLMBackend {
         task.executableURL = URL(fileURLWithPath: executable)
         task.arguments = arguments
 
+        // `claude` and `codex` are agents: they read the directory they are
+        // started in and go looking for context. Started wherever the daemon
+        // happens to stand, they earn privacy prompts that macOS bills to
+        // amanu, which is the process that launched them. An empty directory
+        // of their own leaves nothing to find — the whole conversation goes
+        // over stdin anyway.
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-llm-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        task.currentDirectoryURL = scratch
+
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         task.standardInput = stdin
         task.standardOutput = stdout

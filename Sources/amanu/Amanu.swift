@@ -31,6 +31,14 @@ struct Run: ParsableCommand {
     private func runMain() throws {
         let root = Config.resolveRoot(cliOverride: out)
 
+        // launchd starts us in `/`, and every process we spawn inherits that.
+        // An agent CLI started at the root of the disk goes looking around it,
+        // and macOS bills the privacy prompts it earns to us — we are the
+        // responsible process for everything we launch. Sit in the recordings
+        // folder instead, which is the only place we have business in.
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        FileManager.default.changeCurrentDirectoryPath(root.path)
+
         // Non-blocking: permissions prompt on first recording, so warnings at
         // startup are informational, not fatal.
         let checks = DoctorReport.run(recordingsRoot: root)

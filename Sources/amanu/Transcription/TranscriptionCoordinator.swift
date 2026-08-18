@@ -380,6 +380,8 @@ actor TranscriptionCoordinator {
         let task = Process()
         task.launchPath = "/bin/sh"
         task.arguments = ["-c", "\(cmd) \"$0\"", dir.path]
+        // The session it was fired for is the only sensible place to stand.
+        task.currentDirectoryURL = dir
         do {
             try task.run()
         } catch {

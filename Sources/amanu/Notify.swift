@@ -13,5 +13,8 @@ func notifyUser(title: String, body: String) {
     let task = Process()
     task.launchPath = "/usr/bin/osascript"
     task.arguments = ["-e", script]
+    // A banner has no business anywhere on disk; give it an empty scratch
+    // directory rather than whatever the daemon happens to be standing in.
+    task.currentDirectoryURL = FileManager.default.temporaryDirectory
     try? task.run()
 }
