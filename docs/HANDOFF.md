@@ -132,22 +132,23 @@ staying quiet on a busy machine.
 Parts of it are stale — the window it describes was relaid out — and it should
 be corrected as it is executed.
 
-### 8. The spec no longer matches the code
+### 8. Two deviations from the spec, on purpose
 
-`docs/superpowers/specs/2026-08-18-native-macos-app-design.md` describes an
-Xcode application target and a Unix-socket control protocol with peer UID
-verification. Neither was built, deliberately:
+`docs/superpowers/specs/2026-08-18-native-macos-app-design.md` has been
+corrected to describe what exists, and says why in the sections concerned. The
+two places it no longer asks for what it originally did:
 
-- the bundle is assembled by `make app` around the SwiftPM binary, because the
-  package already builds and tests with SwiftPM and a second build system buys
-  nothing;
-- control goes through the distributed-notification doorbell that `amanu setup`
-  already used (`SetupRequest`, `RecordRequest`, `SingleInstance`), plus a
-  symlinked CLI, because a versioned socket protocol is a day of work for an
-  interface used by scripts on one machine.
+- the bundle is assembled by `make app` around the SwiftPM binary rather than
+  by an Xcode target, because the package already builds and tests with SwiftPM
+  and a second build system would have to be kept in step with the first;
+- control is the distributed-notification doorbell `amanu setup` already used
+  (`SetupRequest`, `RecordRequest`, `SingleInstance`) plus a symlinked CLI,
+  rather than a Unix socket with a versioned protocol — a day of work and its
+  tests for an interface used by scripts on one machine.
 
-Either update the document to describe what exists, or reopen the decision
-knowingly. Do not leave it as it is — the next person will build the socket.
+Neither decision is closed forever. The socket is still the right shape for
+structured errors, streaming status or several concurrent callers; build it
+when something asks for it, not because a document once said so.
 
 ## Things that will bite
 

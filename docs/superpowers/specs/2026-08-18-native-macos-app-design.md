@@ -1,5 +1,17 @@
 # Native macOS application
 
+> **Status, 19 August 2026.** Built and running. The decision gate below was
+> measured and passed, and the application, its login item, the migration off
+> the LaunchAgent and the agent interface all exist. Two things were built
+> differently from the plan below, deliberately, and the sections concerned say
+> so: the bundle is assembled by `make app` around the SwiftPM binary rather
+> than by an Xcode target, and the agent interface is the distributed
+> notification doorbell plus a symlinked CLI rather than a Unix socket.
+>
+> Everything from **Packaging and updates** onwards is still a plan: there is
+> no DMG of the application, no notarization pass, no Sparkle, no release.
+> `docs/HANDOFF.md` tracks what is left.
+
 ## Goal
 
 Turn amanu from a signed command-line binary that happens to open AppKit
@@ -72,9 +84,19 @@ application is reorganized around either lifecycle:
 6. Record a short real two-sided sample and verify both microphone and system
    tracks.
 
-The primary architecture is accepted only if both Finder and login-item paths
-pass. In that case Amanu is one normal application process and **Start at
-login** registers `SMAppService.mainApp`. No embedded LaunchAgent is shipped.
+**Measured 18 August 2026.** `spike/tcc-bundle` — a signed bundle with its own
+identifier, which plays a 440 Hz tone into a global tap and counts what comes
+back — reported 479 232 samples, 100% non-zero, peak −12 dB, when launched
+through LaunchServices, and named itself as its own responsible process. A
+second run while a separate process spoke confirmed the tap hears other
+applications and not merely its own output. The same was then measured on
+amanu itself: a test recording's far-end track came back at −17.6 dBFS.
+
+The Finder path therefore passes and the primary architecture is accepted:
+Amanu is one normal application process, **Start at login** registers
+`SMAppService.mainApp`, and no LaunchAgent is shipped. The login-item path —
+the same measurement after a real logout and login — has not been run yet; it
+is the one open item from this gate.
 
 If either path produces digital silence, the measured fallback is an embedded
 LaunchAgent registered with `SMAppService.agent(plistName:)`. It launches the
@@ -96,15 +118,26 @@ tests continue to exercise this layer.
 
 ### AmanuApp
 
-A real Xcode application target owns `NSApplication`, the Dock and menu-bar
-surfaces, all windows, permissions, the recording session, post-processing,
-update coordination, and the local automation server. It is the only process
-allowed to start audio capture or mutate an active session.
+**Built, without an Xcode target.** The package already builds and tests with
+SwiftPM, and an application is a directory with a plist in it: `make app`
+assembles `.build/Amanu.app` around the same binary and signs it Developer ID
+with the hardened runtime and the audio-input entitlement. A second build
+system would have to be kept in step with the first and buys nothing here.
 
-Its bundle supplies the canonical Info.plist, application icon, entitlements,
-version numbers, usage descriptions, Sparkle configuration, and any service
-metadata selected by the lifecycle spike. The linker-embedded bare-binary
-Info.plist is retired.
+The bundle supplies the canonical Info.plist (`Packaging/Amanu-Info.plist`),
+entitlements, version numbers, usage descriptions and the icon, which
+`scripts/make-icon.swift` draws from the same feather the menu bar uses. The
+linker-embedded Info.plist stays for now: the bare binary is still built by
+`make install`, and a machine mid-migration runs it.
+
+The application owns `NSApplication`, the Dock and menu-bar surfaces, all
+windows, permissions, the recording session and post-processing. It is the only
+process allowed to start audio capture or mutate an active session. Two things
+a bundle needs that the daemon did not: a second launch hands over to the copy
+already running rather than becoming a second recorder (`SingleInstance`), and
+the process holds a `userInitiated` activity for its whole life, because App
+Nap throttles a background application and a recorder is in the background by
+definition.
 
 Repeated launches activate the existing app instead of starting another
 recorder. Window closure and Dock visibility are AppKit state, not process
@@ -113,11 +146,13 @@ to implement the existing Dock preference without introducing a helper.
 
 ### AmanuCLI
 
-A small signed executable is bundled for agents and automation. It is not a
-second recorder and does not load the audio or transcription engines. Setup
-installs `~/.local/bin/amanu` as a symlink to this bundled executable after
-`Amanu.app` is in `/Applications`, so an application update also updates the
-automation interface.
+**Built as the same executable, not a second one.** `~/.local/bin/amanu` is a
+symlink to the binary inside the bundle, so an application update updates the
+automation interface, and the CLI and the app are provably the same signed
+program. `Runtime.appBundle` resolves that symlink before deciding whether it
+is running as an application — Foundation otherwise answers for the path it was
+invoked through, which is a plain directory, and the CLI would install a
+LaunchAgent from inside the app.
 
 The supported surface is intentionally narrow and machine-readable:
 
@@ -140,28 +175,30 @@ responsible-process failure.
 
 ## Local automation transport
 
-The app and CLI communicate through a Unix domain socket rather than assuming
-a named Mach XPC service. A named `NSXPCListener` normally needs launchd
-`MachServices` registration, which the preferred `SMAppService.mainApp`
-lifecycle does not provide.
+**Built as a doorbell, not a socket. Read this before building the socket.**
 
-The socket is `~/Library/Application Support/Amanu/control.sock`. Its parent
-directory is mode `0700`, the socket is mode `0600`, and the server verifies the
-connecting peer's UID. Requests and replies carry a protocol version, request
-identifier, operation, typed payload, and structured error. The wire
-representation is JSON so it can be inspected during diagnosis, while the
-Swift implementations use typed request and response values.
+The plan below this paragraph was a Unix domain socket with a versioned
+protocol, typed payloads and peer-UID verification. What exists instead is the
+mechanism `amanu setup` had already been using for a year: a distributed
+notification carrying a request id, answered by an acknowledgement the caller
+waits for. `SetupRequest` opens the window, `RecordRequest` starts and stops a
+recording, `SingleInstance` hands a second launch over to the first. Both sides
+are the same signed executable, distributed notifications never leave the Mac,
+and the whole thing is about a hundred lines.
 
-If the app is not running, the CLI locates the bundle by bundle identifier,
-launches it through LaunchServices, and waits for the socket for a bounded
-period. A missing bundle, refused launch, incompatible protocol, or timeout
-returns a non-zero exit status and a JSON error. A stale socket is removed at
-application startup after confirming that no server owns it.
+Two rules it turned out to need, both learned the hard way: acknowledge before
+acting, because starting a recording takes longer than a caller will wait and
+being slow is not the same as being absent; and hold a process activity, or App
+Nap delays the delivery past any reasonable timeout.
 
-A URL scheme may be added for Finder links such as opening a particular
-recording. It is not the automation protocol because it cannot provide reliable
-request/reply semantics. Named XPC or a separate XPC service remains out of
-scope until a concrete requirement justifies it.
+The socket remains a reasonable design for a richer interface — structured
+errors, streaming status, several concurrent callers. It is a day of work plus
+tests for an interface used by scripts on one machine, and nothing has asked
+for it yet. Build it when something does, not because this document once said
+so.
+
+A URL scheme may still be added for Finder links such as opening a particular
+recording.
 
 ## Legacy migration
 
@@ -174,10 +211,11 @@ selected by the TCC spike, verifies that the new application instance is
 healthy, and only then removes the old plist. A failure leaves a recoverable
 state and explains how to retry in Setup.
 
-The old `~/.local/bin/amanu` is atomically moved to an unused backup name
-beginning `amanu.legacy-` and replaced with the symlink to bundled AmanuCLI. No
-unknown executable is overwritten. The backup remains for the first native-app
-release and is not started automatically.
+The old `~/.local/bin/amanu` is moved to an unused backup name beginning
+`amanu.legacy-` — numbered if the dated name is already taken — and replaced
+with the symlink into the bundle. An existing *symlink* is simply replaced: it
+is a pointer, not anybody's file. No unknown executable is overwritten, and the
+backup is not started automatically.
 
 Existing configuration, credentials, session folders, queue state, and derived
 files remain in place. The application uses the same bundle identifier and
@@ -295,5 +333,11 @@ Real-Mac acceptance includes:
 - retrieval of the final signed appcast from `samat.me` and successful Sparkle
   update discovery.
 
-No native-app release is published until the lifecycle branch is selected by
-the real TCC test and all acceptance checks for that branch pass.
+**Where this stands.** The lifecycle branch is selected — the Finder path was
+measured and passed. Covered by tests today: window-server arguments, the
+start-at-login policy for both bundled and unbundled copies, recognising the
+legacy plist as ours, the CLI relink being repeatable and never eating a
+binary, and the notification carrying its session. Covered by real recordings:
+system audio through the application, the stereo archive, the live model.
+Not yet done: the login-item measurement after a real logout, and every
+acceptance check that involves a DMG, notarization or an update.
