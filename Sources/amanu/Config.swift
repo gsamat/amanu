@@ -117,11 +117,20 @@ enum Config {
 
     /// Apple voice processing (acoustic echo cancellation) on the mic, so
     /// speaker playback doesn't bleed into the mic track and get transcribed
-    /// as "me". Default off — the live voice unit ducks all other playback,
-    /// and on headphones there's no echo to cancel anyway. Set true when
-    /// recording meetings through the speakers.
+    /// as "me".
+    ///
+    /// Default on. A meeting held through the speakers puts the far end on the
+    /// mic track too, and every consumer of that track then has to work around
+    /// it — the per-track engine transcribes them twice and needs `EchoFilter`
+    /// to undo it, and speaker attribution has to tell a loud echo from the
+    /// person actually in the room. Cancelling at capture is the only place
+    /// that fixes it for all of them at once.
+    ///
+    /// The costs are real but small: the live voice unit ducks other playback,
+    /// so music during a recording gets quieter, and on headphones it works
+    /// for nothing because there is no echo to cancel. Set false to record raw.
     static func micVoiceProcessing() -> Bool {
-        load()?["mic_voice_processing"] as? Bool ?? false
+        load()?["mic_voice_processing"] as? Bool ?? true
     }
 
     /// Whether the transcript merge drops mic segments that duplicate
