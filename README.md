@@ -1,13 +1,34 @@
 # amanu
 
-A minimal macOS meeting recorder + transcriber. It records your mic and all
-system audio as two separate tracks — on a menu-bar click, or on its own when a
-call starts — then transcribes both, writes a speaker-tagged transcript, and
-summarizes it. On-device by default: nothing leaves the machine unless you opt
-into the cloud engine.
+Meeting recorder for the Mac. It sits there, and afterwards you have the
+recording, the transcript and the summary in a folder.
 
-Named for the feather. Sibling of [parrot](https://github.com/digimata/parrot), same skeleton: single
-Swift binary, menu-bar tray, no app bundle.
+- **Records every meeting by itself.** A call app opens the microphone, or a
+  calendar event starts, and amanu starts — mic and system audio on two
+  separate tracks. No button to remember.
+- **Transcribes by itself.** With a network and an AssemblyAI token it goes to
+  AssemblyAI, which tells apart several people sharing the far-end channel;
+  with neither it runs parakeet locally on the machine. It decides when there
+  is work to do, so a meeting recorded on a train still gets a transcript on
+  the train.
+- **Summarizes by itself.** Topic, key points, decisions, action items, open
+  questions — through Anthropic or OpenAI, whichever you've given it a
+  subscription or a key for, or through ollama with no account at all.
+- **Shows what it's doing.** A Dock icon that turns red while recording with
+  the elapsed time on it, a small ordinary window for status and controls, and
+  the menu bar item — three surfaces, because a menu bar that has run out of
+  room hides the only control of a recorder without telling you.
+- **Everything in one folder per meeting**, under `~/Recordings`: the audio,
+  `transcript.md`, `summary.md`, and the metadata that produced them.
+
+On-device by default: nothing leaves the machine unless you hand it a cloud
+token.
+
+*Amanuensis* — the person who writes down what is said, from Latin *servus a
+manu*, "the slave of the hand". The job is old; only the writing-down is new.
+
+A fork of [digimata/quill](https://github.com/digimata/quill), rewritten well
+past the point of a patch — [what changed and why](FORK.md).
 
 ## Install
 
@@ -236,8 +257,9 @@ retried.
 
 ## Transcription
 
-Built in and automatic, with two engines behind one protocol. Jobs run in a
-serial queue — you can start a new recording while the last one transcribes.
+Built in and automatic, with two engines behind one protocol. Which one runs
+is `transcription.engine`, `auto` by default: cloud when a key and a network
+are both there, local otherwise. Jobs run in a serial queue — you can start a new recording while the last one transcribes.
 Unfinished jobs resume on next launch (the filesystem is the queue: a session
 with `meta.json` but no `transcript.json` is pending). A session that keeps
 failing is eventually retired rather than retried for ever — three attempts, or
@@ -252,7 +274,7 @@ Set `transcription.language` either way. Both engines do better told than
 guessing, and the failure mode of a wrong guess is a transcript that reads as
 fluent nonsense rather than one that's obviously broken.
 
-### parakeet — local, the default
+### parakeet — local
 
 **Parakeet TDT 0.6B v3** via
 [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Core ML port:
@@ -271,9 +293,10 @@ coming back transliterated into Latin.
 
 ### assemblyai — cloud, diarizing
 
-Opt-in with `"engine": "assemblyai"`. Better on Russian than parakeet, and it
-tells apart multiple people sharing one audio channel — a call with three
-others on the far side comes back as three speakers instead of one `them`.
+What `auto` uses when a key is present and the network answers; `"engine":
+"assemblyai"` insists on it. Better on Russian than parakeet, and it tells
+apart multiple people sharing one audio channel — a call with three others on
+the far side comes back as three speakers instead of one `them`.
 
 Diarization needs everyone on one stream, so amanu first mixes the two tracks
 into `mixed.m4a`, laid out on the same shared clock the two-track transcript
@@ -317,7 +340,7 @@ Optional, at `~/.config/amanu/config.json`:
   "recordings_dir": "~/Recordings",
   "transcription": {
     "enabled": true,
-    "engine": "parakeet",
+    "engine": "auto",
     "language": "ru",
     "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
   },
@@ -344,8 +367,10 @@ Optional, at `~/.config/amanu/config.json`:
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
-- `transcription.engine` — `parakeet` (local, default) or `assemblyai` (cloud,
-  diarizing).
+- `transcription.engine` — `auto` (default), `parakeet` (always local) or
+  `assemblyai` (always cloud). `auto` picks assemblyai when there's a key and
+  the API answers, parakeet otherwise, and it asks at the moment there's a
+  session to transcribe rather than at launch.
 - `transcription.model` — parakeet only: `v3` (multilingual, default) or `v2`
   (English-only, marginally higher recall on English). `doctor` warns if you
   pair `v2` with a non-English `language` — v2 doesn't fail on other
@@ -434,7 +459,9 @@ make uninstall  # remove the binary and the LaunchAgent
   system audio capture via a private aggregate device
 - **AVAudioEngine** — mic capture
 - **AVAudioFile** — streaming PCM capture, AAC re-encode once the transcript exists
-- **AVMutableComposition** — offset-aware mixdown for the diarizing engine
+- **AVAudioConverter** — offset-aware mixdown for the diarizing engine, summed
+  by hand rather than exported (`AVAssetExportSession` makes macOS ask for the
+  photo library)
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
 - **NSStatusItem** — the whole UI
