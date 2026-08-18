@@ -28,9 +28,9 @@ past the point of a patch — [what changed and why](FORK.md).
 
 Download the disk image from
 [the latest release](https://github.com/gsamat/amanu/releases/latest), drag
-`Amanu.app` to Applications, and open it. Apple Silicon, macOS 15 or later; the
-image is signed with a Developer ID certificate and carries a stapled
-notarization ticket, so Gatekeeper opens it without argument.
+`Amanu.app` to Applications, and open it. macOS 15 or later, Apple Silicon or
+Intel; the image is signed with a Developer ID certificate and carries a
+stapled notarization ticket, so Gatekeeper opens it without argument.
 
 From a checkout instead:
 
@@ -78,8 +78,16 @@ machine it falls back to ad-hoc and still works — you just get the re-prompts.
 `make SIGN_ID="Developer ID Application: ..."` to pick one explicitly.
 
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension). Apple Silicon recommended for
-transcription speed.
+virtual device, no kernel extension).
+
+**On an Intel Mac** everything records the same way, and transcription is
+AssemblyAI's. The local engines — parakeet for the transcript, Nemotron for the
+live one — are Core ML models compiled for the Neural Engine, which Intel Macs
+do not have; FluidAudio refuses them rather than falling back to a CPU that
+would be slower than the meeting. So the binary is universal, the setup window
+offers the one engine that runs there, and the live-transcript switch is not
+shown at all. Without an AssemblyAI key an Intel Mac records but does not
+transcribe, and `amanu doctor` says so before the meeting rather than after.
 
 **Why an application and not a daemon.** System audio is captured by whichever
 process macOS holds *responsible* for the request. A binary started from a
@@ -317,8 +325,8 @@ fluent nonsense rather than one that's obviously broken.
 
 **Parakeet TDT 0.6B v3** via
 [FluidAudio](https://github.com/FluidInference/FluidAudio)'s Core ML port:
-25 European languages including Russian, roughly 20 seconds per hour of audio
-on Apple Silicon, nothing leaving the machine. Models (~600 MB) download once
+25 European languages including Russian, roughly 20 seconds per hour of audio,
+nothing leaving the machine. Apple Silicon only — see above. Models (~600 MB) download once
 on first transcription; `amanu doctor` tells you whether they're already cached
 so you're never downloading after an important meeting.
 

@@ -79,11 +79,17 @@ enum Config {
     /// Whether a meeting should feed the optional local streaming model while
     /// it is being recorded. This is deliberately opt-in: recording and the
     /// canonical post-meeting transcript do not depend on the extra model.
+    ///
+    /// The streaming model is local-only, so on a Mac without local models the
+    /// answer is no whatever the config says — read here rather than at every
+    /// call site, because a stored `true` from a migrated config is otherwise
+    /// indistinguishable from a switch the person just flipped.
     static func liveTranscriptionEnabled() -> Bool {
         liveTranscriptionEnabled(in: load())
     }
 
     static func liveTranscriptionEnabled(in json: [String: Any]?) -> Bool {
+        guard Platform.supportsLocalModels else { return false }
         let settings = json?["live_transcription"] as? [String: Any]
         return settings?["enabled"] as? Bool ?? false
     }

@@ -147,6 +147,7 @@ actor TranscriptionCoordinator {
             // upload. One retry on the local engine, so a dropped connection
             // costs minutes rather than the transcript.
             guard Config.transcriptionEngine() == "auto",
+                  Platform.supportsLocalModels,
                   engineIsCloud(), Self.looksLikeNetworkTrouble(error)
             else { throw error }
             log(dir, "cloud transcription failed (\(error)) — retrying locally")
@@ -406,30 +407,90 @@ actor TranscriptionCoordinator {
             return fixedEngine
         }
         let configured = Config.transcriptionEngine()
-        let engine: TranscriptionEngine
-        switch configured {
-        case "assemblyai":
-            engine = try AssemblyAIEngine()
-        case "parakeet":
-            engine = ParakeetEngine()
-        case "auto":
-            engine = await Self.bestAvailableEngine()
-        default:
+        if !Self.knownEngines.contains(configured) {
             FileHandle.standardError.write(Data(
                 "warning: unknown transcription engine \"\(configured)\" — choosing automatically\n".utf8
             ))
+        }
+        let hasKey = Config.assemblyAIKey() != nil
+        if configured == "parakeet", !Platform.supportsLocalModels, hasKey {
+            FileHandle.standardError.write(Data(
+                "warning: parakeet needs Apple Silicon — transcribing with assemblyai\n".utf8
+            ))
+        }
+        let engine: TranscriptionEngine
+        switch Self.resolveEngine(
+            configured: configured,
+            hasKey: hasKey,
+            localModels: Platform.supportsLocalModels
+        ) {
+        case .cloud:
+            engine = try AssemblyAIEngine()
+        case .local:
+            engine = ParakeetEngine()
+        case .cloudOrLocal:
             engine = await Self.bestAvailableEngine()
+        case .unavailable:
+            throw EngineUnavailable.noLocalModels
         }
         try await engine.prepare()
         self.engine = engine
         return engine
     }
 
+    private static let knownEngines: Set<String> = ["auto", "assemblyai", "parakeet"]
+
+    /// Which engine the configuration adds up to, before the network is
+    /// consulted. Pure so the whole matrix — including the Intel half of the
+    /// universal binary, which cannot run a local model at all — is testable
+    /// on whichever machine happens to be running the tests.
+    enum EngineChoice: Equatable {
+        /// Cloud, with no local rescue if it turns out to be unreachable.
+        case cloud
+        /// Local, no network involved.
+        case local
+        /// Cloud when it answers, local when it doesn't.
+        case cloudOrLocal
+        /// Neither: an Intel Mac with no API key. Nothing to run.
+        case unavailable
+    }
+
+    static func resolveEngine(
+        configured: String,
+        hasKey: Bool,
+        localModels: Bool
+    ) -> EngineChoice {
+        // An explicit assemblyai keeps failing on a missing key rather than
+        // quietly transcribing locally: the person asked for diarization.
+        if configured == "assemblyai" { return .cloud }
+        // An explicit parakeet on a Mac that cannot run it is the one place
+        // we override a stated preference — the alternative is no transcript.
+        if configured == "parakeet" {
+            if localModels { return .local }
+            return hasKey ? .cloud : .unavailable
+        }
+        guard hasKey else { return localModels ? .local : .unavailable }
+        return localModels ? .cloudOrLocal : .cloud
+    }
+
+    /// No engine this Mac can run. Not permanent — the missing half is an
+    /// API key, and adding one is a thing a person does after reading this.
+    enum EngineUnavailable: TranscriptionFailure, CustomStringConvertible {
+        case noLocalModels
+
+        var isPermanent: Bool { false }
+
+        var description: String {
+            "local transcription needs Apple Silicon, and this Mac has no "
+                + "AssemblyAI key — put one in \(Config.assemblyAIKeyPath.path)"
+                + " (chmod 600) or set ASSEMBLYAI_API_KEY"
+        }
+    }
+
     /// Cloud when it's actually usable, local otherwise. Checked at the moment
     /// there is work rather than at launch, because the answer changes: the
     /// laptop that recorded a meeting on a train is transcribing it on a train.
     private static func bestAvailableEngine() async -> TranscriptionEngine {
-        guard Config.assemblyAIKey() != nil else { return ParakeetEngine() }
         guard await assemblyAIReachable() else {
             FileHandle.standardError.write(Data(
                 "assemblyai unreachable — transcribing locally with parakeet\n".utf8

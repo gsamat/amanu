@@ -106,13 +106,15 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             "Access",
             content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
+        var transcription: [NSView] = [transcriptionCards(), languageRow()]
+        // The live transcript is a local streaming model, so on an Intel Mac
+        // there is nothing behind the switch. Left out rather than shown
+        // switched off: an offer that can never be accepted.
+        if Platform.supportsLocalModels {
+            transcription.append(SetupLayout.box([liveTranscriptionRow()]))
+        }
         form.addArrangedSubview(SetupLayout.section(
-            "Transcription",
-            content: SetupLayout.group([
-                transcriptionCards(),
-                languageRow(),
-                SetupLayout.box([liveTranscriptionRow()]),
-            ])))
+            "Transcription", content: SetupLayout.group(transcription)))
 
         form.addArrangedSubview(SetupLayout.section(
             "Files",
@@ -246,13 +248,18 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let cloud = ChoiceCard(
             id: "assemblyai",
             title: "AssemblyAI",
-            detail: "Tells apart people sharing one channel. Audio leaves the Mac.",
+            detail: Platform.supportsLocalModels
+                ? "Tells apart people sharing one channel. Audio leaves the Mac."
+                : "The engine this Mac can run — the local one needs Apple "
+                    + "Silicon. Audio leaves the Mac.",
             accessories: [
                 assemblyKey, assemblyStatus,
                 link("Get a key", "https://www.assemblyai.com/dashboard/signup"),
             ])
 
-        engineCards.adopt([auto, local, cloud])
+        // One card, not three, on an Intel Mac: the other two are the same
+        // local model under different names, and it cannot run here.
+        engineCards.adopt(Platform.supportsLocalModels ? [auto, local, cloud] : [cloud])
         engineCards.onChange = { [weak self] id in
             Config.update(path: ["transcription", "engine"], value: id == "auto" ? nil : id)
             self?.refresh()
@@ -793,7 +800,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
 
         let config = Config.raw()
-        engineCards.select(Config.transcriptionEngine())
+        // With only the cloud card on screen, a configured "auto" — which
+        // resolves to that engine here anyway — is shown as that card rather
+        // than as nothing selected at all.
+        engineCards.select(
+            Platform.supportsLocalModels ? Config.transcriptionEngine() : "assemblyai")
         if language.stringValue.isEmpty, let stored = Config.transcriptionLanguage() {
             language.stringValue = stored
         }
@@ -816,17 +827,19 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             ? "~" + root.dropFirst(home.count)
             : root
 
-        let version = ParakeetEngine.configuredVersion()
-        let downloaded = AsrModels.modelsExist(
-            at: AsrModels.defaultCacheDirectory(for: version), version: version)
-        parakeetDownload.isHidden = downloaded
-        if downloaded {
-            parakeetStatus.stringValue = "downloaded"
-            parakeetStatus.textColor = .systemGreen
-            parakeetBar.isHidden = true
-        } else if parakeetProgress == nil {
-            parakeetStatus.stringValue = "about 600 MB"
-            parakeetStatus.textColor = .secondaryLabelColor
+        if Platform.supportsLocalModels {
+            let version = ParakeetEngine.configuredVersion()
+            let downloaded = AsrModels.modelsExist(
+                at: AsrModels.defaultCacheDirectory(for: version), version: version)
+            parakeetDownload.isHidden = downloaded
+            if downloaded {
+                parakeetStatus.stringValue = "downloaded"
+                parakeetStatus.textColor = .systemGreen
+                parakeetBar.isHidden = true
+            } else if parakeetProgress == nil {
+                parakeetStatus.stringValue = "about 600 MB"
+                parakeetStatus.textColor = .secondaryLabelColor
+            }
         }
 
         if Config.assemblyAIKey() != nil, assemblyStatus.stringValue.isEmpty {

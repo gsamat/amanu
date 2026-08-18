@@ -121,6 +121,10 @@ final class StatusWindow {
         liveSection.orientation = .vertical
         liveSection.alignment = .leading
         liveSection.spacing = 6
+        // The live transcript runs a local streaming model. On an Intel Mac
+        // there is none, so the checkbox would be an offer that turns itself
+        // back off — hidden instead, and the window stays compact.
+        liveSection.isHidden = !Platform.supportsLocalModels
 
         let openFolder = NSButton(title: "Open recordings folder", target: self,
                                   action: #selector(openFolderClicked))

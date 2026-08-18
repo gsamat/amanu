@@ -55,6 +55,37 @@ enum SettingsSchema {
         let entries: [Entry]
     }
 
+    /// The settings that only exist where a local model can run. On Intel the
+    /// window would otherwise show a live-transcript switch that does nothing
+    /// and a choice of engines with only one real option in it — settings that
+    /// lie are worse than settings that are missing.
+    private static var localModelEntries: [Entry] {
+        guard Platform.supportsLocalModels else {
+            return [
+                Entry(["transcription", "engine"], "Engine",
+                      "assemblyai is the only engine on an Intel Mac; parakeet needs Apple Silicon.",
+                      .choice(["auto", "assemblyai"]), default: "auto"),
+                Entry(["transcription", "language"], "Language",
+                      "Two-letter code. The engine does better told than guessing.",
+                      .text(placeholder: "ru"), default: "unset — assemblyai auto-detects"),
+            ]
+        }
+        return [
+            Entry(["live_transcription", "enabled"], "Show a live transcript",
+                  "Uses an additional local NVIDIA model while a meeting is being recorded.",
+                  .toggle, default: false),
+            Entry(["transcription", "engine"], "Engine",
+                  "auto: assemblyai when there's a key and the network answers, parakeet otherwise.",
+                  .choice(["auto", "assemblyai", "parakeet"]), default: "auto"),
+            Entry(["transcription", "language"], "Language",
+                  "Two-letter code. Both engines do better told than guessing.",
+                  .text(placeholder: "ru"), default: "unset — parakeet guesses, assemblyai auto-detects"),
+            Entry(["transcription", "model"], "Parakeet model",
+                  "v3 covers 25 European languages; v2 is English-only.",
+                  .choice(["v3", "v2"]), default: "v3"),
+        ]
+    }
+
     // A computed property rather than a stored one: the entries carry `Any`
     // defaults for display, which a global constant can't be under strict
     // concurrency checking, and building the list is free.
@@ -111,18 +142,7 @@ enum SettingsSchema {
             Entry(["transcription", "enabled"], "Transcribe recordings",
                   "Off means record only; the on_stop hook still fires.",
                   .toggle, default: true),
-            Entry(["live_transcription", "enabled"], "Show a live transcript",
-                  "Uses an additional local NVIDIA model while a meeting is being recorded.",
-                  .toggle, default: false),
-            Entry(["transcription", "engine"], "Engine",
-                  "auto: assemblyai when there's a key and the network answers, parakeet otherwise.",
-                  .choice(["auto", "assemblyai", "parakeet"]), default: "auto"),
-            Entry(["transcription", "language"], "Language",
-                  "Two-letter code. Both engines do better told than guessing.",
-                  .text(placeholder: "ru"), default: "unset — parakeet guesses, assemblyai auto-detects"),
-            Entry(["transcription", "model"], "Parakeet model",
-                  "v3 covers 25 European languages; v2 is English-only.",
-                  .choice(["v3", "v2"]), default: "v3"),
+        ] + localModelEntries + [
             Entry(["transcript_echo_filter"], "Drop echoed speech",
                   "Removes mic segments duplicating system audio — the far end coming back through the speakers.",
                   .toggle, default: true),

@@ -179,8 +179,26 @@ enum DoctorReport {
         }
         switch Config.transcriptionEngine() {
         case "assemblyai": return checkAssemblyAI()
-        default: return checkParakeet()
+        default:
+            guard Platform.supportsLocalModels else { return checkWithoutLocalModels() }
+            return checkParakeet()
         }
+    }
+
+    /// An Intel Mac, where anything but an explicit assemblyai would like to
+    /// run a local model and none of them can. Report what will actually
+    /// happen — the cloud engine, or nothing at all — because the time to
+    /// learn there is no engine is before the meeting.
+    private static func checkWithoutLocalModels() -> Check {
+        guard Config.assemblyAIKey() != nil else {
+            return Check(
+                name: "transcription",
+                status: .warn("local transcription needs Apple Silicon and there is no AssemblyAI key"),
+                remediation: "printf '%s' YOUR_KEY > \(Config.assemblyAIKeyPath.path)"
+                    + " && chmod 600 \(Config.assemblyAIKeyPath.path)"
+            )
+        }
+        return checkAssemblyAI()
     }
 
     private static func checkParakeet() -> Check {

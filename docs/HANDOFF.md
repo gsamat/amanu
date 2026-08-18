@@ -72,6 +72,17 @@ feed, verified it, downloaded it, installed it and relaunched itself.
   corrected against the window it describes.
 - **The spec matches the code**, and the README no longer promises two things
   the code stopped doing.
+- **The build is universal, and an Intel Mac gets a coherent program rather
+  than a crippled one.** `swift build --arch arm64 --arch x86_64`; the disk
+  image is `-macos-universal` and `make app` refuses to finish with a slice
+  missing. The local models do not cross over — they are Core ML packages for
+  the Neural Engine and FluidAudio refuses them on x86_64 — so `Platform
+  .supportsLocalModels` decides once, per slice, and everything that would
+  reach for a local model asks it: the queue picks AssemblyAI (and says so),
+  `doctor` reports what will actually run, Setup shows one engine card, the
+  live-transcript switch and its setting are not offered, and the status
+  window's live section is hidden. The engine matrix is a pure function with
+  tests for both halves, since the tests only ever run on one of them.
 
 ## Dropped on purpose
 
@@ -102,6 +113,12 @@ Small, and mostly things that need a person rather than a session.
 - **The recordings window's Finish processing** has the gap `amanu process`
   used to have: on a settled session with no transcript it does nothing.
   **Re-transcribe** covers the case, so this is a tidy-up, not a hole.
+- **No Intel Mac has actually run this.** The x86_64 slice was exercised under
+  Rosetta on Apple Silicon — `arch -x86_64 .build/Amanu.app/Contents/MacOS/Amanu
+  doctor` picks the cloud engine, as it should — which covers every branch that
+  reads `Platform.supportsLocalModels` but says nothing about Core Audio process
+  taps on Intel hardware. That part rests on the same reasoning as everything
+  else architecture-agnostic here, and it has not been watched.
 - **Nothing coordinates the CLI with the running app** over a session folder.
   If `amanu process` and the app's own queue reach for the same recording, both
   will transcribe it. The app only scans at launch or on request, so the window
@@ -134,6 +151,11 @@ Small, and mostly things that need a person rather than a session.
 - **Nothing writes to shared key files.** If a feature needs a key, put it in
   `Config.keysDir`.
 - **`swift test` needs `AMANU_NO_NOTIFY=1`**, or the suite posts banners.
+- **The release binary is no longer at `.build/release/amanu`.** Two `--arch`
+  flags move it to `.build/apple/Products/Release/amanu`, and a stale
+  single-architecture binary can still be sitting at the old path — copy that
+  one into the bundle and it is arm64-only again, signed and notarized and
+  broken on exactly the machines this was for.
 
 ## How to work on it
 

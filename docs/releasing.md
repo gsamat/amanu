@@ -71,7 +71,15 @@ the whole design: **nothing is public until stage 8**, so a failure anywhere
 before it costs time and nothing else. Do not "helpfully" reorder them.
 
 1. **Tests.** `AMANU_NO_NOTIFY=1 swift test`. Fix the tests.
-2. **Build and sign.** `make app`. If codesign fails with
+2. **Build and sign.** `make app`. The build is universal — `swift build
+   --arch arm64 --arch x86_64`, which also moves the product to
+   `.build/apple/Products/Release/amanu` — and the target refuses to finish if
+   either slice is missing, because a single-architecture disk image looks
+   perfectly fine until someone on the other kind of Mac opens it. Test the
+   Intel slice on an Apple Silicon Mac with `arch -x86_64
+   .build/Amanu.app/Contents/MacOS/Amanu doctor`: Rosetta runs it, and doctor
+   is where the platform difference shows up.
+   If codesign fails with
    `errSecInternalComponent`, the signing keychain relocked — run
    `~/.local/bin/unlock-signing-keychain`. Do not go looking at certificates:
    `security find-identity` shows the certificate as valid even when the
@@ -167,11 +175,11 @@ binaries to sign, notarize and ship for nothing.
 Verify as a stranger would, from a clean directory:
 
 ```sh
-curl -fsSLO https://github.com/gsamat/amanu/releases/download/vX.Y.Z/amanu-vX.Y.Z-macos-arm64.dmg
-curl -fsSLO https://github.com/gsamat/amanu/releases/download/vX.Y.Z/amanu-vX.Y.Z-macos-arm64.dmg.sha256
-shasum -a 256 -c amanu-vX.Y.Z-macos-arm64.dmg.sha256
-xcrun stapler validate amanu-vX.Y.Z-macos-arm64.dmg
-spctl --assess --type open --context context:primary-signature -v amanu-vX.Y.Z-macos-arm64.dmg
+curl -fsSLO https://github.com/gsamat/amanu/releases/download/vX.Y.Z/amanu-vX.Y.Z-macos-universal.dmg
+curl -fsSLO https://github.com/gsamat/amanu/releases/download/vX.Y.Z/amanu-vX.Y.Z-macos-universal.dmg.sha256
+shasum -a 256 -c amanu-vX.Y.Z-macos-universal.dmg.sha256
+xcrun stapler validate amanu-vX.Y.Z-macos-universal.dmg
+spctl --assess --type open --context context:primary-signature -v amanu-vX.Y.Z-macos-universal.dmg
 ```
 
 Then verify the update itself, which is the only check that exercises the whole

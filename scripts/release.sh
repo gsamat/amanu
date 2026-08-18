@@ -34,7 +34,7 @@ REPO="gsamat/amanu"
 VERSION=$(sed -n 's/^VERSION *?= *//p' Makefile)
 BUILD=$(git rev-list --count HEAD)
 TAG="v$VERSION"
-DMG="dist/amanu-$TAG-macos-arm64.dmg"
+DMG="dist/amanu-$TAG-macos-universal.dmg"
 VOLNAME="amanu $VERSION"
 ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")"
 SPARKLE_KEY="$HOME/.appstoreconnect/amanu-sparkle-ed25519.key"

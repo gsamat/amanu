@@ -18,7 +18,11 @@
 # Override the signing identity if you need to:
 #   make SIGN_ID="Developer ID Application: ..."
 
-BUILT = .build/release/amanu
+# Universal: one binary with an arm64 and an x86_64 slice, so the same release
+# runs on Apple Silicon and on the Intel Macs still taking macOS 15. Two
+# --arch flags move the product out of .build/release into SwiftPM's Apple
+# multi-arch directory, which is why this path is not the obvious one.
+BUILT = .build/apple/Products/Release/amanu
 
 # The application bundle. Assembled by hand rather than by an Xcode project:
 # the package already builds and tests with SwiftPM, and an .app is a
@@ -31,14 +35,18 @@ VERSION   ?= 0.2.0
 BUILD     ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 ICON       = Resources/Amanu.icns
 DIST       = dist
-DMG        = $(DIST)/amanu-v$(VERSION)-macos-arm64.dmg
+DMG        = $(DIST)/amanu-v$(VERSION)-macos-universal.dmg
 
 # Sparkle arrives as a binary framework in SwiftPM's artifact cache. There is
 # no Xcode "Embed Frameworks" phase here, so `make app` copies it in and signs
 # it by hand. Lazily expanded on purpose: the artifact only exists after
 # `swift build` has resolved it, which happens inside the recipe below.
+#
+# The slice named for both architectures is the universal one. Matched exactly
+# rather than by prefix: a single-architecture Sparkle would link and sign
+# fine here and only fail to launch on the Macs this build exists for.
 SPARKLE_FW = $(shell find .build/artifacts/sparkle -type d -name Sparkle.framework \
-	-path '*macos-arm64*' 2>/dev/null | head -1)
+	-path '*macos-arm64_x86_64*' 2>/dev/null | head -1)
 
 # Prefer Developer ID (distributable, long-lived) over Apple Development
 # (fine for a machine-local tool). Falls back to ad-hoc so a clean checkout on
@@ -58,7 +66,7 @@ endif
 all: app
 
 build:
-	swift build -c release
+	swift build -c release --arch arm64 --arch x86_64
 
 # Drawn from the same feather the menu bar uses, so the Dock, the window and
 # the status item are one program rather than three.
@@ -108,7 +116,12 @@ app: build $(ICON)
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
-	@echo "built → $(APP) ($(VERSION) build $(BUILD))"
+	@# A missing slice is invisible until someone on the wrong Mac opens the
+	@# disk image, so fail here instead.
+	@lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q x86_64 \
+		&& lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q arm64 \
+		|| (echo "not universal: $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"; exit 1)
+	@echo "built → $(APP) ($(VERSION) build $(BUILD)) · $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"
 
 # Launch the way a person would: through LaunchServices, so the app is its own
 # responsible process. Running the executable from a terminal instead is the
@@ -121,6 +134,7 @@ identities:
 
 verify:
 	@codesign -dvvv $(APP) 2>&1 | grep -E 'Identifier|Authority|TeamIdentifier|Signature|flags'
+	@lipo -info $(APP)/Contents/MacOS/$(APP_NAME)
 
 # The whole release, fail-closed: tests, bundle, signature, disk image,
 # notarization, a draft GitHub release, the signed appcast, and only then
