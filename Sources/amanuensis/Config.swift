@@ -245,6 +245,7 @@ enum Config {
     struct SummarySettings {
         var enabled = true
         var backend = "auto"
+        var openAIModel = "gpt-5"
         /// Language for the summary itself; the transcript's own language is
         /// whatever was spoken. nil means "same language as the meeting".
         var language: String?
@@ -262,10 +263,34 @@ enum Config {
         if let v = json["language"] as? String, !v.isEmpty { settings.language = v }
         if let v = json["model"] as? String, !v.isEmpty { settings.model = v }
         if let v = json["ollama_model"] as? String, !v.isEmpty { settings.ollamaModel = v }
+        if let v = json["openai_model"] as? String, !v.isEmpty { settings.openAIModel = v }
         if let v = json["api_key_path"] as? String, !v.isEmpty {
             settings.apiKeyPath = URL(fileURLWithPath: (v as NSString).expandingTildeInPath)
         }
         return settings
+    }
+
+    static let openAIDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/openai/token")
+
+    /// OpenAI key, in order: OPENAI_API_KEY, then a token file
+    /// (`summary.openai_api_key_path`, defaulting to ~/.config/openai/token).
+    static func openAIKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        let path = (summaryJSON()?["openai_api_key_path"] as? String)
+            .map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+            ?? openAIDefaultKeyPath
+        guard let contents = try? String(contentsOf: path, encoding: .utf8),
+              !contents.trimmed.isEmpty
+        else { return nil }
+        return contents.trimmed
+    }
+
+    private static func summaryJSON() -> [String: Any]? {
+        load()?["summary"] as? [String: Any]
     }
 
     static let anthropicDefaultKeyPath = FileManager.default.homeDirectoryForCurrentUser

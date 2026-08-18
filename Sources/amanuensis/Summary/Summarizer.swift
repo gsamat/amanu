@@ -2,10 +2,11 @@ import Foundation
 
 /// Turns a finished transcript into `summary.md`.
 ///
-/// Three backends behind one interface, tried in order when `backend` is
-/// `auto`: the Anthropic API if a key is around, then the local `claude` CLI
-/// (which bills to the subscription already signed in on this machine rather
-/// than per token), then ollama for the fully-offline case.
+/// Four backends behind one interface, tried in order when `backend` is
+/// `auto`: whichever cloud key you have put on the machine — Anthropic first,
+/// then OpenAI — then the local `claude` CLI (which bills to the subscription
+/// already signed in here rather than per token), then ollama for the
+/// fully-offline case.
 ///
 /// Nothing here is allowed to fail loudly. A missing summary is an
 /// inconvenience; a transcript lost because summarizing threw is a lost
@@ -178,24 +179,67 @@ enum Summarizer {
     }
 
     private static func available(_ settings: Config.SummarySettings) -> [Backend] {
-        let key = Config.anthropicKey()
+        let anthropicKey = Config.anthropicKey()
+        let openAIKey = Config.openAIKey()
         let cli = claudePath()
 
         switch settings.backend {
         case "anthropic-api":
-            guard let key else { return [] }
-            return [anthropic(key: key, model: settings.model)]
+            guard let anthropicKey else { return [] }
+            return [anthropic(key: anthropicKey, model: settings.model)]
+        case "openai":
+            guard let openAIKey else { return [] }
+            return [openAI(key: openAIKey, model: settings.openAIModel)]
         case "claude-cli":
             guard let cli else { return [] }
             return [claudeCLI(path: cli)]
         case "ollama":
             return [ollama(model: settings.ollamaModel)]
         default:
+            // Whichever key is on the machine, then the subscription CLI, then
+            // the offline model. Every step is a fallback for the one before,
+            // so a summary survives an expired key or a plane.
             var backends: [Backend] = []
-            if let key { backends.append(anthropic(key: key, model: settings.model)) }
+            if let anthropicKey {
+                backends.append(anthropic(key: anthropicKey, model: settings.model))
+            }
+            if let openAIKey { backends.append(openAI(key: openAIKey, model: settings.openAIModel)) }
             if let cli { backends.append(claudeCLI(path: cli)) }
             backends.append(ollama(model: settings.ollamaModel))
             return backends
+        }
+    }
+
+    private static func openAI(key: String, model: String) -> Backend {
+        Backend(name: "openai") { system, prompt in
+            var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 600
+            request.setValue("application/json", forHTTPHeaderField: "content-type")
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
+            request.httpBody = try JSONSerialization.data(withJSONObject: [
+                "model": model,
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user", "content": prompt],
+                ],
+            ])
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                // The API's own message names the problem — a model that
+                // doesn't exist on this account, a spent quota — and it is
+                // worth reading rather than paraphrasing.
+                throw SummaryError.http(
+                    http.statusCode, String(decoding: data.prefix(400), as: UTF8.self))
+            }
+            guard
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let choices = json["choices"] as? [[String: Any]],
+                let message = choices.first?["message"] as? [String: Any],
+                let text = message["content"] as? String
+            else { throw SummaryError.malformedResponse("openai") }
+            return text
         }
     }
 
