@@ -59,7 +59,7 @@ at close. `kill -9` mid-meeting left 99 KB and zero recoverable seconds.
 
 So amanu records uncompressed PCM — about a gigabyte an hour — and re-encodes
 to AAC only once the transcript exists, deleting the PCM after `meta.json`
-already points at the new files. It handles SIGTERM, because logging out,
+already points at the new stereo archive. It handles SIGTERM, because logging out,
 rebooting and `launchctl kickstart -k` all send one and all used to take the
 meeting with them. And a session left behind by a crash is adopted on the next
 launch rather than orphaned.

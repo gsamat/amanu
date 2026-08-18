@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>me.samat.amanu.spike</string>
+    <key>CFBundleName</key>
+    <string>Amanu Spike</string>
+    <key>CFBundleDisplayName</key>
+    <string>Amanu Spike</string>
+    <key>CFBundleExecutable</key>
+    <string>AmanuSpike</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>The amanu spike measures whether a signed application bundle can record audio.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>The amanu spike records five seconds of system audio to check whether a signed application bundle receives real samples or digital silence.</string>
+</dict>
+</plist>

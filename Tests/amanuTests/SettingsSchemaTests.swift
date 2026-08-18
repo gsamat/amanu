@@ -122,8 +122,6 @@ struct SettingsSchemaTests {
             "calendar": true,
             "dock_icon": true,
             "window": true,
-            "compress_tracks": true,
-            "keep_uncompressed": false,
             "user_name": "Samat Galimov",
             "transcription": [
                 "enabled": true,
@@ -136,6 +134,7 @@ struct SettingsSchemaTests {
                     "speech_model": "best",
                 ],
             ],
+            "live_transcription": ["enabled": true],
             "auto_record": [
                 "enabled": true,
                 "mic_activity": true,
@@ -175,6 +174,15 @@ struct SettingsSchemaTests {
         ]
         #expect(SettingsSchema.strayKeys(in: config)
             == ["recordings_directory", "summarize", "transcription.engien"])
+    }
+
+    @Test("Removed audio-format keys stay accepted for old config files")
+    func removedAudioKeysAreNotReportedAsTypos() {
+        let oldConfig: [String: Any] = [
+            "compress_tracks": false,
+            "keep_uncompressed": true,
+        ]
+        #expect(SettingsSchema.strayKeys(in: oldConfig).isEmpty)
     }
 
     /// An inline API key is the one setting with no control, and the reason is

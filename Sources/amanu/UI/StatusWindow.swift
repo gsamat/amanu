@@ -16,6 +16,7 @@ final class StatusWindow {
     var onToggle: (() -> Void)?
     var onTogglePause: (() -> Void)?
     var onToggleAutoRecord: (() -> Void)?
+    var onToggleLive: ((Bool) -> Void)?
     var onOpenFolder: (() -> Void)?
     var onShowRecordings: (() -> Void)?
 
@@ -28,11 +29,27 @@ final class StatusWindow {
     private let autoRecordCheckbox = NSButton(checkboxWithTitle: "Record meetings automatically",
                                               target: nil, action: nil)
     private let decisionLabel = NSTextField(labelWithString: "")
+    private let liveCheckbox = NSButton(
+        checkboxWithTitle: "Live transcript", target: nil, action: nil)
+    private let liveStatus = NSTextField(labelWithString: "")
+    private let liveText = NSTextView()
+    private let liveScroll = NSScrollView()
+    private let liveSection = NSStackView()
+
+    /// The window is deliberately small. It answers one question — am I being
+    /// recorded — and a recorder that needs a big window to say so is a worse
+    /// recorder. The live transcript is the one thing that needs room, so it
+    /// borrows it while it runs and gives it back afterwards.
+    private static let compactSize = NSSize(width: 320, height: 210)
+    private static let expandedHeight: CGFloat = 460
+    private var liveTextVisible = false
+    private var heightBeforeLive: CGFloat?
 
     init() {
         panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 168),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: Self.compactSize.width,
+                                height: Self.compactSize.height),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -46,6 +63,7 @@ final class StatusWindow {
         panel.hidesOnDeactivate = false
         // Closing must hide, not destroy: the Dock icon reopens this window.
         panel.isReleasedWhenClosed = false
+        panel.minSize = Self.compactSize
 
         stateLabel.font = .systemFont(ofSize: 13, weight: .medium)
         transcriptionLabel.font = .systemFont(ofSize: 11)
@@ -73,6 +91,37 @@ final class StatusWindow {
         autoRecordCheckbox.target = self
         autoRecordCheckbox.action = #selector(autoRecordClicked)
 
+        liveCheckbox.target = self
+        liveCheckbox.action = #selector(liveClicked)
+        liveCheckbox.isEnabled = true
+        liveStatus.font = .systemFont(ofSize: 11)
+        liveStatus.textColor = .secondaryLabelColor
+        liveStatus.lineBreakMode = .byTruncatingTail
+
+        liveText.isEditable = false
+        liveText.isSelectable = true
+        liveText.drawsBackground = false
+        liveText.font = .systemFont(ofSize: 12)
+        liveText.textContainerInset = NSSize(width: 8, height: 8)
+        liveText.isVerticallyResizable = true
+        liveText.isHorizontallyResizable = false
+        liveText.autoresizingMask = [.width]
+        liveText.textContainer?.widthTracksTextView = true
+        liveScroll.documentView = liveText
+        liveScroll.hasVerticalScroller = true
+        liveScroll.autohidesScrollers = true
+        liveScroll.drawsBackground = false
+        liveScroll.borderType = .bezelBorder
+        liveScroll.isHidden = true
+
+        let liveHeader = NSStackView(views: [liveCheckbox, NSView(), liveStatus])
+        liveHeader.orientation = .horizontal
+        liveHeader.spacing = 8
+        liveSection.setViews([liveHeader, liveScroll], in: .top)
+        liveSection.orientation = .vertical
+        liveSection.alignment = .leading
+        liveSection.spacing = 6
+
         let openFolder = NSButton(title: "Open recordings folder", target: self,
                                   action: #selector(openFolderClicked))
         openFolder.bezelStyle = .rounded
@@ -92,7 +141,7 @@ final class StatusWindow {
 
         let content = NSStackView(views: [
             header, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel,
-            openFolder, manage,
+            openFolder, manage, liveSection,
         ])
         content.orientation = .vertical
         content.alignment = .leading
@@ -110,10 +159,19 @@ final class StatusWindow {
             decisionLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
             openFolder.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
             manage.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
+            liveSection.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
+            liveScroll.widthAnchor.constraint(equalTo: liveSection.widthAnchor),
+            liveScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 140),
         ])
 
         panel.setFrameAutosaveName("amanu.status")
         if panel.frame.origin == .zero { panel.center() }
+        // The autosaved frame remembers whatever height the window last had —
+        // including the tall one it takes while a live transcript is running.
+        // Idle, it opens compact again; the position is still remembered.
+        if panel.frame.height > Self.compactSize.height {
+            resize(to: Self.compactSize.height)
+        }
         update(state: .idle, elapsed: nil)
     }
 
@@ -170,9 +228,96 @@ final class StatusWindow {
         decisionLabel.isHidden = !enabled || decision == nil
     }
 
+    func updateLive(_ snapshot: LiveTranscriptionCoordinator.Snapshot) {
+        if snapshot.isRecording {
+            liveCheckbox.state = snapshot.isEnabled ? .on : .off
+        }
+        liveStatus.stringValue = switch snapshot.status {
+        case .idle: ""
+        case .paused: "off"
+        case .loading: "loading model…"
+        case .live: "on this Mac"
+        case .modelMissing: "model not downloaded"
+        case .overloaded: "stopped — Mac couldn't keep up"
+        case .error(let message): "stopped — \(message)"
+        }
+
+        let rendered = NSMutableAttributedString()
+        for entry in snapshot.entries {
+            switch entry {
+            case .resumed:
+                rendered.append(NSAttributedString(
+                    string: "\n— live transcript resumed —\n\n",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: 11),
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                    ]))
+            case .speech(let block):
+                rendered.append(NSAttributedString(
+                    string: "\(block.speaker.label)  ",
+                    attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]))
+                rendered.append(NSAttributedString(
+                    string: block.text + "\n\n",
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: 12),
+                        .foregroundColor: block.isProvisional
+                            ? NSColor.secondaryLabelColor : NSColor.labelColor,
+                    ]))
+            }
+        }
+
+        let documentHeight = liveText.layoutManager?.usedRect(
+            for: liveText.textContainer!).height ?? 0
+        let visibleBottom = liveScroll.contentView.bounds.maxY
+        let wasAtBottom = documentHeight - visibleBottom < 24
+        liveText.textStorage?.setAttributedString(rendered)
+        if wasAtBottom { liveText.scrollToEndOfDocument(nil) }
+        // An empty bordered box under a failed or idle live section is just a
+        // hole in the window: show it while there is text, or while text is
+        // on its way.
+        let expecting = snapshot.status == .loading || snapshot.status == .live
+        showLiveText(!snapshot.entries.isEmpty || expecting)
+    }
+
+    /// Grow only on the way in, and only from a compact window: someone who
+    /// has dragged this taller keeps their size, and the height they get back
+    /// when live stops is the one the window had before it expanded.
+    private func showLiveText(_ visible: Bool) {
+        guard visible != liveTextVisible else { return }
+        liveTextVisible = visible
+        liveScroll.isHidden = !visible
+
+        if visible {
+            panel.minSize = NSSize(width: Self.compactSize.width, height: 320)
+            guard panel.frame.height < Self.expandedHeight else { return }
+            heightBeforeLive = panel.frame.height
+            resize(to: Self.expandedHeight)
+        } else {
+            panel.minSize = Self.compactSize
+            guard let restored = heightBeforeLive else { return }
+            heightBeforeLive = nil
+            guard panel.frame.height > restored else { return }
+            resize(to: restored)
+        }
+    }
+
+    /// Keep the title bar where it is: a window that grows downward off the
+    /// screen edge is how a status window ends up half-visible.
+    private func resize(to height: CGFloat) {
+        var frame = panel.frame
+        frame.origin.y += frame.height - height
+        frame.size.height = height
+        panel.setFrame(frame, display: true, animate: panel.isVisible)
+    }
+
+    func updateLivePreference(enabled: Bool) {
+        liveCheckbox.state = enabled ? .on : .off
+    }
+
     @objc private func toggleClicked() { onToggle?() }
     @objc private func pauseClicked() { onTogglePause?() }
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
+    @objc private func liveClicked() { onToggleLive?(liveCheckbox.state == .on) }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
 }

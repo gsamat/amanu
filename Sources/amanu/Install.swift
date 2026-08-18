@@ -25,6 +25,21 @@ struct Install: ParsableCommand {
             throw ExitCode(64)
         }
 
+        // An app registers itself the way every other app does; only the bare
+        // binary still needs a plist of its own.
+        if Runtime.isBundled {
+            if uninstall {
+                try LoginItem.unregister()
+                print("✓ amanu will no longer start at login")
+            } else {
+                let state = try LoginItem.register()
+                print(state == .needsApproval
+                    ? "! registered — allow amanu in System Settings → General → Login Items"
+                    : "✓ amanu will start at login")
+            }
+            return
+        }
+
         if uninstall {
             try removeAgent()
         } else {

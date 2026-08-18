@@ -28,13 +28,25 @@ past the point of a patch — [what changed and why](FORK.md).
 
 ```sh
 cd amanu
-make install                      # build, sign, → ~/.local/bin/amanu
-amanu                              # first run opens Setup
+make app                          # build, sign → .build/Amanu.app
+cp -R .build/Amanu.app /Applications/
+open /Applications/Amanu.app      # first run opens Setup
 ```
 
-No sudo: `~/.local/bin` is yours, and `/usr/local/bin` doesn't exist on a
-stock Mac anyway. `make install PREFIX=/usr/local` if you'd rather (that one
-does need write access).
+amanu is an ordinary macOS application: a Dock icon, a menu bar item, and a
+small status window. Closing the window doesn't stop it — that's the point of
+a recorder — and **Start at login** in Setup registers it the way every other
+app does, through Login Items in System Settings.
+
+The first launch also retires the old installation, if there is one: it stops
+and removes the LaunchAgent this program used to write, and points
+`~/.local/bin/amanu` at the executable inside the bundle so scripts and agents
+keep working. The binary it replaces is moved aside with the date, never
+deleted.
+
+`make install` still exists and still builds the bare binary into
+`~/.local/bin` — useful for a machine that would rather run it as a daemon,
+and the path the LaunchAgent takes.
 
 **Signing isn't cosmetic here.** macOS attributes the microphone and Screen &
 System Audio Recording grants to the binary's code signature, and SwiftPM only
@@ -55,6 +67,15 @@ machine it falls back to ad-hoc and still works — you just get the re-prompts.
 **Requires:** macOS 15+ (Core Audio process taps for system audio — no
 virtual device, no kernel extension). Apple Silicon recommended for
 transcription speed.
+
+**Why an application and not a daemon.** System audio is captured by whichever
+process macOS holds *responsible* for the request. A binary started from a
+terminal is attributed to the terminal, gets no prompt, and records a
+full-length silent file — the failure documented in
+`.issues/rca-002-system-tap-silent-outside-launchagent.md`, which is why amanu
+shipped with a LaunchAgent for a year. A signed application bundle is its own
+responsible process, which `spike/tcc-bundle` measures directly by playing a
+tone into its own tap and counting the samples that come back.
 
 ## How to use
 
@@ -98,8 +119,7 @@ Inside:
 
 | File | Contents |
 |---|---|
-| `mic.m4a` | your side (when **Keep audio** is on) |
-| `system.m4a` | the other side of the call (when **Keep audio** is on) |
+| `audio.m4a` | compact stereo archive when **Keep audio** is on: your mic left, the other side right |
 | `meta.json` | timestamps, duration, per-track offsets, trigger, stop reason, the app, and the calendar event's title, attendees and link |
 | `transcript.json` | canonical transcript — engine provenance + timed, speaker-tagged segments |
 | `transcript.md` | the same transcript rendered for reading, with names where they're known |
@@ -110,17 +130,18 @@ Inside:
 | `mixed.m4a` | temporary mix for a diarizing engine; removed after transcription |
 | `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
 
-Two tracks on purpose: speech models do better on clean single-source audio,
-and mic-vs-system is free two-party diarization — `me` vs `them` with no
-speaker-identification model.
+Two tracks while recording on purpose: speech models do better on clean
+single-source audio, and mic-vs-system is free two-party diarization — `me` vs
+`them` with no speaker-identification model. A retained `audio.m4a` preserves
+that separation in its left and right channels.
 
 While the meeting runs, those two tracks are **uncompressed PCM** in `.caf`,
 about a gigabyte an hour between them. Once `transcript.json` has been written,
 the audio is deleted by default; naming and summaries read the transcript and
 do not need it. A failed transcription always keeps the recording so it can be
-tried again. Turn on `keep_audio` to retain successful recordings; then they
-are re-encoded to `.m4a` (about 12× smaller) by default. `compress_tracks:
-false` keeps PCM, and `keep_uncompressed: true` keeps PCM beside the AAC copy.
+tried again. Turn on `keep_audio` to retain successful recordings; the two PCM
+tracks are then aligned and encoded as one stereo AAC `audio.m4a`, with the
+microphone on the left and system audio on the right.
 
 The format is not an aesthetic choice — see [If amanu dies
 mid-meeting](#if-amanu-dies-mid-meeting).
@@ -322,13 +343,16 @@ a crash re-renders from that file instead of re-uploading and re-paying.
 AssemblyAI's servers. `amanu doctor` says so out loud when the engine is
 selected.
 
-The key is read from `~/.config/assemblyai/token` (chmod 600), or
+The key is read from `~/.config/amanu/keys/assemblyai` (chmod 600) — amanu's
+own drawer, mode 0700, so no other tool that keeps a key on this machine can
+overwrite it. A key already sitting in the shared `~/.config/assemblyai/token`
+is read as a fallback, so nobody has to paste theirs twice. Or
 `ASSEMBLYAI_API_KEY`, or `transcription.assemblyai.api_key`:
 
 ```sh
-mkdir -p ~/.config/assemblyai
-printf '%s' YOUR_KEY > ~/.config/assemblyai/token
-chmod 600 ~/.config/assemblyai/token
+mkdir -p ~/.config/amanu/keys
+printf '%s' YOUR_KEY > ~/.config/amanu/keys/assemblyai
+chmod 600 ~/.config/amanu/keys/assemblyai
 ```
 
 To transcribe a session again — with the other engine, or because the first
@@ -376,7 +400,7 @@ walks this chain, using the first that answers:
    so it doesn't spend a minute starting every server you've configured for a
    one-shot prompt.
 2. **The Anthropic API** — `ANTHROPIC_API_KEY`, or a key in
-   `~/.config/anthropic/token`.
+   `~/.config/amanu/keys/anthropic` (or the shared `~/.config/anthropic/token`).
 3. **The `codex` CLI**, then **the OpenAI API** — same idea on the other side.
 4. **ollama** — fully offline, `summary.ollama_model` (default `qwen3:8b`).
 
@@ -447,7 +471,7 @@ Optional, at `~/.config/amanu/config.json`:
     "enabled": true,
     "engine": "auto",
     "language": "ru",
-    "assemblyai": { "api_key_path": "~/.config/assemblyai/token" }
+    "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
   },
   "auto_record": {
     "enabled": true,
@@ -519,12 +543,9 @@ Optional, at `~/.config/amanu/config.json`:
 - `window` — open the status window at launch (default on).
 - `keep_audio` — keep audio after a successful transcript (default off). Audio
   is always kept when transcription fails. Turning this on is what makes
-  **Re-transcribe** available for completed sessions.
-- `compress_tracks` — re-encode the PCM tracks to AAC once the transcript
-  exists (default on). Only applies when `keep_audio` is on; `false` leaves
-  every retained session as PCM, about a gigabyte an hour.
-- `keep_uncompressed` — keep the PCM alongside the compressed tracks rather
-  than deleting it (default off; only applies when `keep_audio` is on).
+  **Re-transcribe** available for completed sessions. Retained audio is one
+  compact stereo `audio.m4a`: microphone on the left, system audio on the
+  right.
 - `summary.*` — `enabled`, `backend` (`auto`, `claude-cli`, `anthropic-api`,
   `codex-cli`, `openai-api`, `ollama`, or `none` to skip summarizing without
   turning off the rest), `language` (unset means the language of the meeting),
@@ -543,6 +564,7 @@ Optional, at `~/.config/amanu/config.json`:
 amanu                        # run the menu-bar daemon (^C to quit)
 amanu run --out <dir>        # custom recordings root (default ~/Recordings)
 amanu setup                  # reopen first-run setup in the running daemon
+amanu record start|stop|toggle  # record on purpose, in the running daemon
 amanu doctor                 # check permissions, recordings folder, models/keys
 amanu sessions               # what's recorded and what's still owed on it
 amanu sessions --pending     # only the sessions with work outstanding
@@ -550,6 +572,12 @@ amanu process <folder>       # finish one session: names, summary, or both
 amanu install --launch-at-login
 amanu install --uninstall
 ```
+
+`amanu record` never records anything itself: it rings the running daemon and
+exits. That is not politeness, it's the only thing that works — a recorder
+started from a terminal is attributed to the terminal, and its system-audio
+track is digital silence (below). With nothing running, the command says so
+instead of quietly becoming a second, deaf recorder.
 
 `--launch-at-login` points the agent at the binary you ran it from, so install
 first, then register. `amanu process` takes a path rather than a session name,

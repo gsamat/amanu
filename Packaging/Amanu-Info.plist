@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>me.samat.amanu</string>
+    <key>CFBundleName</key>
+    <string>Amanu</string>
+    <key>CFBundleDisplayName</key>
+    <string>Amanu</string>
+    <key>CFBundleExecutable</key>
+    <string>Amanu</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleIconFile</key>
+    <string>Amanu</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__SHORT_VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__BUILD_VERSION__</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>15.0</string>
+    <!-- A Dock icon and a menu bar item, not an accessory: the app switches
+         to .accessory at runtime when someone turns the Dock icon off. -->
+    <key>LSUIElement</key>
+    <false/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticTermination</key>
+    <false/>
+    <key>NSSupportsSuddenTermination</key>
+    <false/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>amanu records your microphone during meetings so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>amanu records system audio (the other side of your meetings) so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>amanu reads your calendar to name recordings after the meeting and, if you enable it, to start recording when a scheduled call begins. Calendar data never leaves the machine.</string>
+</dict>
+</plist>

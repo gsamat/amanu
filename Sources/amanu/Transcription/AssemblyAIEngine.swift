@@ -29,7 +29,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
         var description: String {
             switch self {
             case .noAPIKey:
-                return "no AssemblyAI API key — put one in \(Config.assemblyAIDefaultKeyPath.path)"
+                return "no AssemblyAI API key — put one in \(Config.assemblyAIKeyPath.path)"
                     + " (chmod 600), set ASSEMBLYAI_API_KEY, or add"
                     + " transcription.assemblyai.api_key to the config"
             case .http(let what, let code, let body):

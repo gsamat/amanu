@@ -9,6 +9,7 @@ struct Amanu: ParsableCommand {
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
         subcommands: [
             Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self,
+            Record.self,
         ],
         defaultSubcommand: Run.self
     )
@@ -31,6 +32,29 @@ struct Run: ParsableCommand {
 
     @MainActor
     private func runMain() throws {
+        // Someone already recording is the answer to "start amanu": show them
+        // its window rather than starting a second recorder beside it.
+        if SingleInstance.handOverToRunningCopy() {
+            FileHandle.standardError.write(Data("amanu is already running\n".utf8))
+            return
+        }
+
+        // Retiring the LaunchAgent that starts the old bare binary. Runs
+        // before anything can record, and does nothing at all on a machine
+        // that never had one.
+        let migration = LegacyMigration.run()
+        if migration.stoppedAgent || migration.removedPlist || migration.linkedCLI {
+            FileHandle.standardError.write(Data(
+                ("migrated from the standalone binary:"
+                    + (migration.stoppedAgent ? " stopped the LaunchAgent," : "")
+                    + (migration.removedPlist ? " removed its plist," : "")
+                    + (migration.linkedCLI ? " pointed ~/.local/bin/amanu at the app," : "")
+                    + " done\n").utf8))
+        }
+        for note in migration.notes {
+            FileHandle.standardError.write(Data("migration: \(note)\n".utf8))
+        }
+
         let root = Config.resolveRoot(cliOverride: out)
 
         // launchd starts us in `/`, and every process we spawn inherits that.
@@ -241,6 +265,7 @@ final class AppController {
         return setup
     }()
     private let transcription = TranscriptionCoordinator()
+    private let liveTranscription = LiveTranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
     private var session: RecordingSession?
@@ -248,6 +273,16 @@ final class AppController {
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
+    private var recordRequestObserver: NSObjectProtocol?
+    private var activateObserver: NSObjectProtocol?
+    /// App Nap throttles timers, network and IPC for an app nobody is looking
+    /// at — which is amanu's normal condition and exactly when it must not be
+    /// slow. A recorder that answers a request three seconds late has already
+    /// missed the beginning of the meeting.
+    private var awake: NSObjectProtocol?
+    /// Held only while recording: the Mac may sleep between meetings, but not
+    /// in the middle of one.
+    private var recordingActivity: NSObjectProtocol?
     private var automaticFeaturesStarted = false
 
     init(root: URL) {
@@ -274,8 +309,10 @@ final class AppController {
         window.onToggle = { [weak self] in self?.toggle() }
         window.onTogglePause = { [weak self] in self?.togglePause() }
         window.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
+        window.onToggleLive = { [weak self] enabled in self?.toggleLive(enabled) }
         window.onOpenFolder = { [weak self] in self?.openFolder() }
         window.onShowRecordings = { [weak self] in self?.showRecordings() }
+        window.updateLivePreference(enabled: Config.liveTranscriptionEnabled())
         if Config.showWindowAtLaunch(), !SetupState.isPending { window.show() }
 
         autoRecord.currentSession = { [weak self] in self?.session }
@@ -300,7 +337,23 @@ final class AppController {
             MainActor.assumeIsolated { self?.tick() }
         }
 
+        Notifications.install { [weak self] folder in
+            if let folder {
+                NSWorkspace.shared.open(folder)
+            } else {
+                self?.showWindow()
+            }
+        }
+
+        awake = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .suddenTerminationDisabled, .automaticTerminationDisabled],
+            reason: "amanu watches for meetings and answers its command line")
+
         setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
+        activateObserver = SingleInstance.observe { [weak self] in self?.showWindow() }
+        recordRequestObserver = RecordRequest.observe { [weak self] action in
+            self?.perform(action)
+        }
         if SetupState.isPending {
             showSetup()
         } else {
@@ -364,6 +417,18 @@ final class AppController {
         stopSession(reason: "app-quit")
     }
 
+    /// What `amanu record` asks for. Asking to start what is already running,
+    /// or to stop what isn't, is not an error — it is the state the caller
+    /// wanted, and scripts should be able to say it twice.
+    private func perform(_ action: RecordRequest.Action) {
+        switch action {
+        case .start where session == nil: toggle()
+        case .stop where session != nil: toggle()
+        case .toggle: toggle()
+        case .start, .stop: break
+        }
+    }
+
     private func toggle() {
         if session == nil {
             autoRecord.noteManualStart()
@@ -392,6 +457,20 @@ final class AppController {
         window.updateAutoRecord(enabled: autoRecord.enabled, decision: decision)
     }
 
+    private func toggleLive(_ enabled: Bool) {
+        Config.update(
+            path: ["live_transcription", "enabled"], value: enabled ? true : nil)
+        guard let session else { return }
+
+        // Close the old epoch synchronously. Any partial result already in
+        // flight is rejected by the coordinator's epoch check.
+        session.installLiveAudioSinks(mic: nil, system: nil)
+        let language = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        Task { [liveTranscription] in
+            await liveTranscription.setEnabled(enabled, language: language)
+        }
+    }
+
     /// What we can tell about a meeting being started by hand: whichever call
     /// app is already holding the microphone, plus the calendar's view of now.
     private func currentContext() -> MeetingContext {
@@ -418,7 +497,8 @@ final class AppController {
             if trigger != .manual {
                 notifyUser(
                     title: "amanu — recording started",
-                    body: context.folderSuffix ?? newSession.dir.lastPathComponent
+                    body: context.folderSuffix ?? newSession.dir.lastPathComponent,
+                    opening: newSession.dir
                 )
             }
         } catch {
@@ -427,11 +507,43 @@ final class AppController {
             return
         }
 
+        recordingActivity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiated, .idleSystemSleepDisabled],
+            reason: "amanu is recording a meeting")
+
+        guard let newSession = session else { return }
+        let liveEnabled = Config.liveTranscriptionEnabled()
+        let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        Task { [weak self, liveTranscription] in
+            await liveTranscription.beginRecording(
+                enabled: liveEnabled,
+                language: liveLanguage,
+                update: { [weak self] snapshot in
+                    Task { @MainActor in self?.showLive(snapshot) }
+                },
+                // The sinks arrive when Nemotron starts consuming, which is
+                // several seconds after the recording began. Only the session
+                // that asked for them may have them.
+                attach: { [weak self] sinks in
+                    Task { @MainActor in
+                        guard let self, self.session === newSession else { return }
+                        newSession.installLiveAudioSinks(
+                            mic: sinks?.mic, system: sinks?.system)
+                    }
+                }
+            )
+        }
+
         present(.recording, elapsed: "0:00")
     }
 
     private func stopSession(reason: String = "manual") {
+        if let recordingActivity {
+            ProcessInfo.processInfo.endActivity(recordingActivity)
+            self.recordingActivity = nil
+        }
         guard let session else { return }
+        session.installLiveAudioSinks(mic: nil, system: nil)
         session.stop(reason: reason)
         let duration = Date().timeIntervalSince(session.startedAt)
         FileHandle.standardError.write(Data(
@@ -457,11 +569,18 @@ final class AppController {
                     + "is under the \(Int(minimum))s minimum for an automatic recording\n").utf8
             ))
             session.discard()
+            Task { [liveTranscription] in await liveTranscription.finishRecording() }
             return
         }
 
         let dir = session.dir
-        Task { [transcription] in await transcription.enqueue(dir) }
+        Task { [liveTranscription, transcription] in
+            // Drop the large streaming model before Parakeet begins its final,
+            // canonical pass so the two heavyweight ASR pipelines don't
+            // compete for memory or the Neural Engine.
+            await liveTranscription.finishRecording()
+            await transcription.enqueue(dir)
+        }
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {
@@ -476,6 +595,18 @@ final class AppController {
         }
         menuBar.updateTranscription(text)
         window.updateTranscription(text)
+    }
+
+    private func showLive(_ snapshot: LiveTranscriptionCoordinator.Snapshot) {
+        window.updateLive(snapshot)
+        switch snapshot.status {
+        case .overloaded, .error:
+            // The coordinator has closed its queues; detach here as well so
+            // the real-time recorders stop making now-unused buffer copies.
+            session?.installLiveAudioSinks(mic: nil, system: nil)
+        case .idle, .paused, .loading, .live, .modelMissing:
+            break
+        }
     }
 
     /// Bring the status window up — from the menu, or a second launch of an

@@ -38,6 +38,43 @@ struct SetupTests {
         #expect(!SetupPermissions.needsSystemAudioTest(.heard))
     }
 
+    @Test("A heard tone is believed for a month, and then measured again")
+    @MainActor
+    func systemAudioMemory() {
+        let heard = Date(timeIntervalSince1970: 1_000_000)
+        let week = heard.addingTimeInterval(7 * 24 * 60 * 60)
+        let quarter = heard.addingTimeInterval(90 * 24 * 60 * 60)
+
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: heard, now: week) == .heard)
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: heard, now: quarter) == nil)
+        #expect(SetupPermissions.rememberedSystemAudio(heardAt: nil, now: week) == nil)
+        // A clock that went backwards is not evidence of anything.
+        #expect(SetupPermissions.rememberedSystemAudio(
+            heardAt: quarter, now: heard) == nil)
+    }
+
+    @Test("The remembered tone survives marking setup complete, and vice versa")
+    func systemAudioMemoryRoundTrip() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let state = dir.appendingPathComponent("setup.json")
+
+        let heard = Date(timeIntervalSince1970: 1_700_000_000)
+        SetupState.rememberSystemAudioHeard(now: heard, at: state)
+        SetupState.markCompleted(at: state)
+
+        #expect(SetupState.systemAudioHeardAt(at: state) == heard)
+        #expect(SetupState.isPending(at: state) == false)
+
+        // `amanu setup` resets the window's own state; a measurement of the
+        // machine is not part of that.
+        SetupState.reset(at: state)
+        #expect(SetupState.isPending(at: state))
+        #expect(SetupState.systemAudioHeardAt(at: state) == heard)
+    }
+
     @Test("First-run setup bypasses a denied microphone, not a broken recordings folder")
     func doctorRepairBoundary() {
         let microphone = Check(name: "microphone", status: .fail("denied"), remediation: nil)
@@ -69,6 +106,125 @@ struct SetupTests {
             .filter { !$0.isHidden }
             .compactMap { ($0 as? NSTextField)?.stringValue }
         #expect(labels.contains("answers · 1.0"))
+    }
+
+    /// Catches the border looking clickable while only the small radio title
+    /// actually responds.
+    @Test("Clicking the body of a choice card selects it")
+    @MainActor
+    func choiceCardBodySelects() throws {
+        let card = ChoiceCard(id: "tool", title: "Tool", detail: "A backend")
+        var selected: String?
+        card.onSelect = { selected = $0 }
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: NSPoint(x: 150, y: 50),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1))
+
+        card.mouseDown(with: event)
+
+        #expect(selected == "tool")
+    }
+
+    /// Static labels must behave as part of the card, while controls placed
+    /// inside it keep receiving their own clicks.
+    /// The regression this catches made every card except the leftmost one
+    /// inert: `hitTest` is asked in the superview's coordinates, and a test
+    /// against `bounds` answers "not mine" for anything not at the origin.
+    @Test("A card away from the origin of its row still takes the click")
+    @MainActor
+    func choiceCardAwayFromOriginIsHit() throws {
+        let first = ChoiceCard(id: "first", title: "First", detail: "A backend")
+        let second = ChoiceCard(id: "second", title: "Second", detail: "Another")
+        let row = NSStackView(views: [first, second])
+        row.orientation = .horizontal
+        row.distribution = .fillEqually
+        row.spacing = 12
+        row.frame = NSRect(x: 0, y: 0, width: 400, height: 120)
+        row.layoutSubtreeIfNeeded()
+
+        #expect(second.frame.minX > 0, "the second card should not be at the origin")
+        let insideSecond = NSPoint(x: second.frame.midX, y: second.frame.midY)
+        #expect(row.hitTest(insideSecond) != nil)
+        #expect(second.hitTest(insideSecond) != nil)
+        // And the first card must not claim a point that belongs to its neighbour.
+        #expect(first.hitTest(insideSecond) == nil)
+    }
+
+    @Test("Choice-card labels route clicks to the whole card")
+    @MainActor
+    func choiceCardLabelsArePartOfHitArea() throws {
+        let accessory = NSButton(title: "Install", target: nil, action: nil)
+        let card = ChoiceCard(
+            id: "tool", title: "Tool", detail: "A backend", accessories: [accessory])
+        card.frame = NSRect(x: 0, y: 0, width: 220, height: 120)
+        card.layoutSubtreeIfNeeded()
+
+        let detail = try #require(card.allDescendants.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "A backend" })
+        let pointOnDetail = card.convert(
+            NSPoint(x: detail.bounds.midX, y: detail.bounds.midY), from: detail)
+        let pointOnAccessory = card.convert(
+            NSPoint(x: accessory.bounds.midX, y: accessory.bounds.midY), from: accessory)
+
+        #expect(card.hitTest(pointOnDetail) === card)
+        #expect(card.hitTest(pointOnAccessory) === accessory)
+    }
+
+    @Test("The Keep Audio label is the checkbox's clickable title")
+    @MainActor
+    func keepAudioUsesTitledCheckbox() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let checkbox = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSButton }
+            .first { $0.title == "Keep the audio after transcribing" })
+
+        checkbox.target = nil
+        checkbox.action = nil
+        checkbox.state = .off
+        checkbox.performClick(nil)
+
+        #expect(checkbox.state == .on)
+    }
+
+    @Test("The Summaries switch sits to the left of its heading")
+    @MainActor
+    func summariesSwitchIsFirst() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let heading = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Summaries" })
+        let header = try #require(heading.superview as? NSStackView)
+
+        #expect(header.arrangedSubviews.first is NSSwitch)
+    }
+
+    @Test("Ollama is a full summary card with the official install link")
+    @MainActor
+    func ollamaIsInstallableChoiceCard() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let ollama = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "ollama" })
+        // The visible label carries a link arrow; the destination is what
+        // this test is actually about.
+        let install = try #require(ollama.allDescendants
+            .compactMap { $0 as? NSButton }
+            .first { $0.title.hasPrefix("Install Ollama") })
+
+        #expect(install.identifier?.rawValue == "https://ollama.com/download/mac")
     }
 
     @Test("The Claude card keeps the automatic fallback chain")

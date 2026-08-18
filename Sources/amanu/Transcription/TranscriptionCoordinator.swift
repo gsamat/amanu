@@ -109,7 +109,10 @@ actor TranscriptionCoordinator {
                     try await engine?.prepare()
                     try await transcribe(dir)
                 }
-                notifyUser(title: "amanu — transcript ready", body: dir.lastPathComponent)
+                notifyUser(
+                    title: "amanu — transcript ready",
+                    body: dir.lastPathComponent,
+                    opening: dir)
                 runHook(for: dir)
             } catch {
                 log(dir, "transcription failed: \(error)")
@@ -166,14 +169,16 @@ actor TranscriptionCoordinator {
                 : "giving up after \(attempts) attempts")
             notifyUser(
                 title: "amanu — transcription gave up",
-                body: "\(dir.lastPathComponent) — audio kept, see transcribe.log"
+                body: "\(dir.lastPathComponent) — audio kept, see transcribe.log",
+                opening: dir
             )
             TrackCompressor.compress(sessionDir: dir)
         } else {
             SessionState.update(dir, with: fields)
             notifyUser(
                 title: "amanu — transcription failed",
-                body: "\(dir.lastPathComponent) — see transcribe.log"
+                body: "\(dir.lastPathComponent) — see transcribe.log",
+                opening: dir
             )
         }
     }
@@ -219,7 +224,8 @@ actor TranscriptionCoordinator {
 
         // The audio was recorded uncompressed so it would survive a crash, and
         // that only had to hold until the transcript existed. It does now, so
-        // the tracks are compressed — or deleted, if `keep_audio` is off.
+        // the tracks become one stereo archive — or are deleted, if
+        // `keep_audio` is off.
         //
         // Before naming and summarizing rather than after, because both of
         // those want a language model and can sit for hours waiting for one,
@@ -244,21 +250,44 @@ actor TranscriptionCoordinator {
     ) async throws -> [Transcript.Segment] {
         var merged: [Transcript.Segment] = []
         for track in meta.tracks {
-            let audio = dir.appendingPathComponent(track.file)
-            guard FileManager.default.fileExists(atPath: audio.path) else {
+            let storedAudio = dir.appendingPathComponent(track.file)
+            guard FileManager.default.fileExists(atPath: storedAudio.path) else {
                 log(dir, "skipping missing track \(track.file)")
                 continue
             }
-            log(dir, "transcribing \(track.file) (\(engine.name))")
+
+            var audio = storedAudio
+            var temporary: URL?
+            if let channel = track.channel {
+                let extracted = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("amanu-\(UUID().uuidString)-channel-\(channel).m4a")
+                do {
+                    try await Task.detached(priority: .utility) {
+                        try AudioChannelExtractor.extract(
+                            channel: channel, from: storedAudio, to: extracted)
+                    }.value
+                    audio = extracted
+                    temporary = extracted
+                } catch {
+                    try? FileManager.default.removeItem(at: extracted)
+                    log(dir, "skipping \(track.speaker) channel in \(track.file): \(error)")
+                    continue
+                }
+            }
+
+            log(dir, "transcribing \(track.file)\(track.channel.map { " channel \($0)" } ?? "") "
+                + "(\(engine.name))")
             // One bad track (empty, truncated) shouldn't cost us the other's
             // transcript — log it and keep going.
             let segments: [TranscriptSegment]
             do {
                 segments = try await engine.transcribe(audio)
             } catch {
+                if let temporary { try? FileManager.default.removeItem(at: temporary) }
                 log(dir, "skipping \(track.file): \(error)")
                 continue
             }
+            if let temporary { try? FileManager.default.removeItem(at: temporary) }
             let offset = TimeInterval(track.offsetMs) / 1000
             merged += segments.map {
                 Transcript.Segment(
@@ -281,8 +310,12 @@ actor TranscriptionCoordinator {
         meta: SessionMeta,
         engine: TranscriptionEngine
     ) async throws -> [Transcript.Segment] {
-        let mixed = dir.appendingPathComponent(Self.mixedFile)
-        if !FileManager.default.fileExists(atPath: mixed.path) {
+        let sharedArchive = meta.tracks.count == 2
+            && meta.tracks.allSatisfy { $0.file == meta.tracks[0].file && $0.channel != nil }
+        let mixed = sharedArchive
+            ? dir.appendingPathComponent(meta.tracks[0].file)
+            : dir.appendingPathComponent(Self.mixedFile)
+        if !sharedArchive && !FileManager.default.fileExists(atPath: mixed.path) {
             log(dir, "mixing tracks → \(Self.mixedFile)")
             try await AudioMixer.mix(
                 meta.tracks.map {
@@ -412,6 +445,7 @@ private struct SessionMeta {
         let file: String
         let speaker: String
         let offsetMs: Int
+        let channel: Int?
     }
 
     let tracks: [Track]
@@ -448,12 +482,21 @@ private struct SessionMeta {
         // Sessions recorded before offsets were captured default to 0 —
         // tracks start within tens of milliseconds of each other anyway.
         let offsets = json["start_offset_ms"] as? [String: Int] ?? [:]
+        let channels = json["audio_channels"] as? [String: Int] ?? [:]
         var tracks: [Track] = []
         if let mic = files["mic"] {
-            tracks.append(Track(file: mic, speaker: "me", offsetMs: offsets["mic"] ?? 0))
+            tracks.append(Track(
+                file: mic,
+                speaker: "me",
+                offsetMs: offsets["mic"] ?? 0,
+                channel: channels["mic"]))
         }
         if let system = files["system"] {
-            tracks.append(Track(file: system, speaker: "them", offsetMs: offsets["system"] ?? 0))
+            tracks.append(Track(
+                file: system,
+                speaker: "them",
+                offsetMs: offsets["system"] ?? 0,
+                channel: channels["system"]))
         }
         let calendar = json["calendar"] as? [String: Any]
         return SessionMeta(

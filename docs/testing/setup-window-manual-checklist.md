@@ -49,12 +49,32 @@ belongs in the middle of a recording.
 - Close Setup with the red window button once and confirm this behaves like
   **Later**: the window closes and the daemon continues running.
 
+## Layout
+
+- Confirm the section headings — Access, Transcription, Files, Summaries — are
+  the small grey labels, each sitting close to its own group and well clear of
+  the group above.
+- Confirm exactly one Access row is tinted amber: the one the primary button
+  is about to act on. A granted row is a single line with its state beside the
+  title and no explanation underneath.
+
+## Files
+
+- Confirm the recordings folder row shows the current path in a monospaced
+  font, and that **Choose…** writes the new path into `config.json` as
+  `recordings_dir` (with `~` when the folder is under the home directory).
+- Confirm a folder chosen inside Documents or Desktop still records: make a
+  short test recording afterwards and check the files land there.
+
 ## Transcription
 
 - Confirm **Whichever works** is selected by default.
+- Click the title, description, and empty space inside each transcription card;
+  confirm the whole outlined rectangle selects the card. Confirm **Download**,
+  key fields, and links still perform their own actions instead.
 - Confirm the Parakeet card says either **downloaded** or approximately 600 MB.
-  If the model is absent, start Download and verify that the byte progress
-  changes without freezing the window.
+  If the model is absent, start Download and verify that the progress bar and
+  the megabyte count both advance without freezing the window.
 - Confirm the AssemblyAI card always shows **Get a key** and the link opens the
   signup page.
 - If an AssemblyAI key is available, paste it and verify **key works**. Do not
@@ -65,8 +85,13 @@ belongs in the middle of a recording.
 
 ## Summaries
 
+- Confirm the Summaries switch is on the left, matching the Start recording
+  row, and that clicking it disables or enables every backend choice.
 - Confirm the Claude Code card is selected for the default `auto` fallback
   chain and shows a visible `answers · <version>` status when Claude runs.
+- Click the title, description, and empty space inside each summary card;
+  confirm the entire outlined rectangle selects it without swallowing clicks
+  on install links, key fields, or the provider selector.
 - Confirm Codex is detected from either PATH or the copy bundled in
   ChatGPT.app, and its version status is visible.
 - Confirm **Install it** is visible only for a CLI that is missing.
@@ -79,12 +104,17 @@ belongs in the middle of a recording.
   stat -f '%Sp %N' ~/.config/anthropic/token ~/.config/openai/token
   ```
 
-- Confirm the Ollama row reports whether it is running and names up to two
-  installed models.
+- Confirm Ollama is the slim row under the three cards — still selectable,
+  still reporting whether it is installed and running, and naming up to two
+  installed models. When Ollama is absent, confirm **Install Ollama** opens
+  `https://ollama.com/download/mac`; when present, confirm the link is hidden.
 - Turn Summaries off and confirm all backend choices become disabled; turn it
   back on afterwards.
 
 ## Audio retention
+
+- Click both the checkbox square and the words **Keep the audio after
+  transcribing**; confirm either target toggles the same checkbox.
 
 1. Leave **Keep the audio after transcribing** off. Make a short manual test
    recording with both microphone speech and Mac playback, then stop it.
@@ -94,7 +124,14 @@ belongs in the middle of a recording.
    - `meta.json` contains `"audio_discarded": true`;
    - **Re-transcribe** is disabled for that session.
 3. Turn **Keep audio** on and make another short recording. After transcription,
-   confirm mic/system `.m4a` files remain and **Re-transcribe** is enabled.
+   confirm:
+   - one `audio.m4a` remains and the source `.caf` files are gone;
+   - the M4A is materially smaller than the source PCM size reported in
+     `transcribe.log`;
+   - your microphone is audible only in the left channel and Mac playback only
+     in the right channel;
+   - **Re-transcribe** is enabled and successfully produces a new transcript
+     from the archived channels.
 4. Optional failure-path check: temporarily select AssemblyAI without a usable
    key, record a few seconds, and confirm a failed transcript keeps the source
    audio. Restore the engine to **Whichever works** immediately afterwards.

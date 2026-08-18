@@ -100,13 +100,7 @@ enum SettingsSchema {
                   "For meetings played through speakers, so the far end isn't recorded onto your track as well. Ducks other playback while active; pointless on headphones.",
                   .toggle, default: true),
             Entry(["keep_audio"], "Keep the audio after transcribing",
-                  "Off, a session keeps its transcript and its summary — about a gigabyte an hour lighter, and nothing left to transcribe again if the result is wrong. A recording that never got a transcript is kept either way.",
-                  .toggle, default: false),
-            Entry(["compress_tracks"], "Compress tracks after transcribing",
-                  "Recording is uncompressed so it survives a crash. Only applies when the audio is kept.",
-                  .toggle, default: true),
-            Entry(["keep_uncompressed"], "Keep the uncompressed audio",
-                  "Keeps the original PCM alongside the compressed tracks. Only applies when the audio is kept.",
+                  "Saves one stereo M4A: your mic on the left, the other side on the right. A recording that never got a transcript is kept either way.",
                   .toggle, default: false),
             Entry(["recordings_dir"], "Recordings folder",
                   "Where sessions land.",
@@ -117,6 +111,9 @@ enum SettingsSchema {
             Entry(["transcription", "enabled"], "Transcribe recordings",
                   "Off means record only; the on_stop hook still fires.",
                   .toggle, default: true),
+            Entry(["live_transcription", "enabled"], "Show a live transcript",
+                  "Uses an additional local NVIDIA model while a meeting is being recorded.",
+                  .toggle, default: false),
             Entry(["transcription", "engine"], "Engine",
                   "auto: assemblyai when there's a key and the network answers, parakeet otherwise.",
                   .choice(["auto", "assemblyai", "parakeet"]), default: "auto"),
@@ -131,8 +128,8 @@ enum SettingsSchema {
                   .toggle, default: true),
             Entry(["transcription", "assemblyai", "api_key_path"], "AssemblyAI key file",
                   "Where the cloud engine's key is read from. ASSEMBLYAI_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/assemblyai/token"),
-                  default: "~/.config/assemblyai/token"),
+                  .text(placeholder: "~/.config/amanu/keys/assemblyai"),
+                  default: "~/.config/amanu/keys/assemblyai"),
             Entry(["transcription", "assemblyai", "speech_model"], "AssemblyAI speech model",
                   "Empty sends nothing and lets the API pick its own default.",
                   .text(placeholder: "best"), default: "the API's own default"),
@@ -160,12 +157,12 @@ enum SettingsSchema {
                   .text(placeholder: "ru"), default: "the language of the meeting"),
             Entry(["summary", "api_key_path"], "Anthropic key file",
                   "Where the Anthropic key is read from. ANTHROPIC_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/anthropic/token"),
-                  default: "~/.config/anthropic/token"),
+                  .text(placeholder: "~/.config/amanu/keys/anthropic"),
+                  default: "~/.config/amanu/keys/anthropic"),
             Entry(["summary", "openai_api_key_path"], "OpenAI key file",
                   "Where the OpenAI key is read from. OPENAI_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/openai/token"),
-                  default: "~/.config/openai/token"),
+                  .text(placeholder: "~/.config/amanu/keys/openai"),
+                  default: "~/.config/amanu/keys/openai"),
         ]),
 
         Section(title: "Calendar and naming", entries: [
@@ -270,11 +267,18 @@ enum SettingsSchema {
     /// reported as one it ignores.
     static let unrenderedKeys = ["transcription.assemblyai.api_key"]
 
+    /// Older releases exposed these choices. Retained audio now always becomes
+    /// one compact stereo M4A, but accepting the keys keeps an old config from
+    /// being reported as misspelled until its owner next edits the file.
+    static let deprecatedKeys = ["compress_tracks", "keep_uncompressed"]
+
     /// Every key the program understands, as `a.b` strings — used to spot
     /// settings in a config file that nothing reads (a typo, or a key from an
     /// older version).
     static var knownKeys: [String] {
-        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") } + unrenderedKeys
+        sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") }
+            + unrenderedKeys
+            + deprecatedKeys
     }
 
     /// Keys present in a config file that nothing reads.

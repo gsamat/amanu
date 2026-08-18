@@ -30,27 +30,39 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let launchRow = AccessRow(
         title: "Start at login",
         detail: "System audio is only ever granted to the copy launchd starts.",
-        action: "Install")
+        action: "Install",
+        grantedNote: "installed")
     private let micRow = AccessRow(
         title: "Microphone",
         detail: "Your side of the call.",
-        action: "Allow")
+        action: "Allow",
+        grantedNote: "allowed")
     private let audioRow = AccessRow(
         title: "System audio",
-        detail: "Everyone else's side. Without it they are recorded as silence.",
-        action: "Allow and test")
+        detail: "",
+        action: "Allow and test",
+        grantedNote: "heard the tone")
     private let calendarRow = AccessRow(
         title: "Calendar",
-        detail: "Optional. Names the folder and the speakers from the invitees.",
-        action: "Allow")
+        detail: "Names the folder and the speakers from the invitees.",
+        action: "Allow",
+        grantedNote: "allowed",
+        optional: true)
 
     private let engineCards = ChoiceGroup()
     private let language = NSTextField()
-    private let keepAudio = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+    private let keepAudio = NSButton(
+        checkboxWithTitle: "Keep the audio after transcribing", target: nil, action: nil)
+    private let liveTranscription = NSSwitch()
+    private let liveStatus = NSTextField(labelWithString: "")
+    private let liveModelStore = LiveTranscriptionModelStore()
+    private var liveDownloadTask: Task<Void, Never>?
+    private var liveDownloading = false
     private let assemblyKey = NSSecureTextField()
     private let assemblyStatus = NSTextField(labelWithString: "")
     private let parakeetStatus = NSTextField(labelWithString: "")
     private let parakeetDownload = NSButton(title: "Download", target: nil, action: nil)
+    private let parakeetBar = NSProgressIndicator()
     private var parakeetProgress: Timer?
 
     private let summariesOn = NSSwitch()
@@ -62,6 +74,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private lazy var summaryKeyLink = link(
         "Get a key", "https://console.anthropic.com/settings/keys")
 
+    private let recordingsPath = NSTextField(labelWithString: "")
     private let autoRecord = NSSwitch()
 
     private let footerNote = NSTextField(labelWithString: "")
@@ -69,7 +82,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     override init() {
         panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -79,33 +92,44 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         panel.title = "amanu setup"
         panel.isReleasedWhenClosed = false
         panel.delegate = self
-        panel.minSize = NSSize(width: 600, height: 420)
+        panel.minSize = NSSize(width: 640, height: 460)
 
         let form = NSStackView()
         form.orientation = .vertical
         form.alignment = .leading
-        form.spacing = 10
-        form.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
+        form.spacing = SetupLayout.sectionGap
+        form.edgeInsets = NSEdgeInsets(
+            top: 22, left: SetupLayout.gutter, bottom: 22, right: SetupLayout.gutter)
 
-        form.addArrangedSubview(header("Access"))
-        form.addArrangedSubview(box([launchRow, micRow, audioRow, calendarRow]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Access",
+            content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(header("Transcription"))
-        form.addArrangedSubview(transcriptionCards())
-        form.addArrangedSubview(languageRow())
-        form.addArrangedSubview(box([keepAudioRow()]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Transcription",
+            content: SetupLayout.group([
+                transcriptionCards(),
+                languageRow(),
+                SetupLayout.box([liveTranscriptionRow()]),
+            ])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(summariesHeader())
-        form.addArrangedSubview(summaryChoices())
-        form.addArrangedSubview(box([ollamaRow()]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Files",
+            content: SetupLayout.box([folderRow(), keepAudioRow()])))
 
-        form.setCustomSpacing(22, after: form.arrangedSubviews.last!)
-        form.addArrangedSubview(box([autoRecordRow()]))
+        form.addArrangedSubview(SetupLayout.section(
+            "Summaries",
+            leading: summariesOn,
+            content: summaryChoices()))
+
+        // No heading of its own: one switch is not a section, and it belongs
+        // at the end because it is the thing that makes all of the above run
+        // without anyone opening this window again.
+        form.addArrangedSubview(SetupLayout.box([autoRecordRow()]))
 
         for view in form.arrangedSubviews {
-            view.widthAnchor.constraint(equalTo: form.widthAnchor, constant: -40).isActive = true
+            view.widthAnchor.constraint(
+                equalTo: form.widthAnchor, constant: -2 * SetupLayout.gutter).isActive = true
         }
 
         let scroll = NSScrollView()
@@ -121,7 +145,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             form.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
         ])
 
-        footerNote.font = .systemFont(ofSize: 11)
+        footerNote.font = .systemFont(ofSize: 12)
         footerNote.textColor = .secondaryLabelColor
         footerNote.lineBreakMode = .byTruncatingTail
 
@@ -134,21 +158,28 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         let footer = NSStackView(views: [footerNote, later, primary])
         footer.orientation = .horizontal
-        footer.spacing = 10
+        footer.spacing = 12
         footer.translatesAutoresizingMaskIntoConstraints = false
         footerNote.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
+        let divider = SetupLayout.hairline()
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
         let content = NSView()
         content.addSubview(scroll)
+        content.addSubview(divider)
         content.addSubview(footer)
         NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: scroll.bottomAnchor),
             scroll.topAnchor.constraint(equalTo: content.topAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            footer.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 12),
-            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
+            footer.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 16),
+            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -18),
         ])
         panel.contentView = content
         panel.center()
@@ -175,47 +206,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     // MARK: - building
 
-    private func header(_ title: String) -> NSView {
-        let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 13, weight: .semibold)
-        return label
-    }
-
-    /// Rows in a bordered container, hairlines between them — the shape macOS
-    /// uses everywhere for a list of settings.
-    private func box(_ rows: [NSView]) -> NSView {
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 0
-        stack.wantsLayer = true
-        stack.layer?.borderWidth = 1
-        stack.layer?.borderColor = NSColor.separatorColor.cgColor
-        stack.layer?.cornerRadius = 6
-
-        for (index, row) in rows.enumerated() {
-            if index > 0 { stack.addArrangedSubview(hairline()) }
-            stack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-        return stack
-    }
-
-    private func hairline() -> NSView {
-        let line = NSView()
-        line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.cgColor
-        line.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        return line
-    }
-
     private func transcriptionCards() -> NSView {
         let auto = ChoiceCard(
             id: "auto",
             title: "Whichever works",
             detail: "AssemblyAI when there's a key and a network, parakeet otherwise.")
 
-        parakeetStatus.font = .systemFont(ofSize: 11)
+        parakeetStatus.font = SetupLayout.statusFont
         parakeetStatus.textColor = .secondaryLabelColor
         parakeetStatus.lineBreakMode = .byWordWrapping
         parakeetStatus.maximumNumberOfLines = 2
@@ -223,16 +220,25 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         parakeetDownload.controlSize = .small
         parakeetDownload.target = self
         parakeetDownload.action = #selector(downloadParakeetClicked)
+        // FluidAudio reports no progress, so the bar is the cache directory
+        // growing towards the model's known size. Approximate, and better
+        // than a spinner that could mean anything.
+        parakeetBar.style = .bar
+        parakeetBar.isIndeterminate = false
+        parakeetBar.controlSize = .small
+        parakeetBar.minValue = 0
+        parakeetBar.maxValue = 600
+        parakeetBar.isHidden = true
         let local = ChoiceCard(
             id: "parakeet",
             title: "On this Mac",
             detail: "parakeet. Nothing leaves the machine.",
-            accessories: [parakeetStatus, parakeetDownload])
+            accessories: [parakeetBar, parakeetStatus, parakeetDownload])
 
         assemblyKey.placeholderString = "paste key"
-        assemblyKey.font = .systemFont(ofSize: 11)
+        assemblyKey.font = SetupLayout.detailFont
         assemblyKey.delegate = self
-        assemblyStatus.font = .systemFont(ofSize: 11)
+        assemblyStatus.font = SetupLayout.statusFont
         assemblyStatus.textColor = .secondaryLabelColor
         assemblyStatus.lineBreakMode = .byWordWrapping
         assemblyStatus.maximumNumberOfLines = 2
@@ -240,45 +246,92 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             id: "assemblyai",
             title: "AssemblyAI",
             detail: "Tells apart people sharing one channel. Audio leaves the Mac.",
-            accessories: [assemblyKey, assemblyStatus, link("Get a key", "https://www.assemblyai.com/dashboard/signup")])
+            accessories: [
+                assemblyKey, assemblyStatus,
+                link("Get a key", "https://www.assemblyai.com/dashboard/signup"),
+            ])
 
         engineCards.adopt([auto, local, cloud])
         engineCards.onChange = { [weak self] id in
             Config.update(path: ["transcription", "engine"], value: id == "auto" ? nil : id)
             self?.refresh()
         }
-        return row(engineCards.cards)
+        return SetupLayout.cards(engineCards.cards)
     }
 
     private func languageRow() -> NSView {
         let label = NSTextField(labelWithString: "Meetings are mostly in")
+        label.font = .systemFont(ofSize: 13)
+        label.textColor = .secondaryLabelColor
         language.placeholderString = Self.systemLanguage ?? "ru"
         language.delegate = self
         language.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [label, language])
+        let stack = NSStackView(views: [label, language, NSView()])
         stack.orientation = .horizontal
+        stack.alignment = .centerY
         stack.spacing = 10
         return stack
+    }
+
+    private func liveTranscriptionRow() -> NSView {
+        liveTranscription.target = self
+        liveTranscription.action = #selector(liveTranscriptionToggled)
+        liveStatus.font = SetupLayout.statusFont
+        liveStatus.textColor = .secondaryLabelColor
+        liveStatus.lineBreakMode = .byTruncatingTail
+
+        return SetupLayout.row(
+            leading: liveTranscription,
+            title: SetupLayout.title("I want a live transcript during meetings"),
+            detail: SetupLayout.detail(
+                "A 600 MB NVIDIA model downloads once. Nothing leaves this Mac, "
+                    + "and the final transcript is still parakeet's.",
+                lines: 2, width: 520),
+            trailing: [liveStatus])
+    }
+
+    /// Where the recordings live, and the one thing worth saying about the
+    /// default: it is outside Documents, Desktop and Downloads, so macOS never
+    /// has to ask a background recorder for permission to write there.
+    private func folderRow() -> NSView {
+        recordingsPath.font = SetupLayout.monoFont
+        recordingsPath.lineBreakMode = .byTruncatingMiddle
+
+        return SetupLayout.row(
+            symbol: "folder",
+            title: recordingsPath,
+            detail: SetupLayout.detail(
+                "Outside Documents and Desktop, so macOS never has to ask.", lines: 1),
+            trailing: [SetupLayout.actionButton(
+                "Choose…", target: self, action: #selector(chooseFolder))])
+    }
+
+    @objc private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = Config.resolveRoot(cliOverride: nil)
+        panel.prompt = "Use folder"
+        guard panel.runModal() == .OK, let chosen = panel.url else { return }
+
+        // Store it the way a person would write it: a path under the home
+        // directory stays readable, and stays right if the account is renamed.
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = chosen.path.hasPrefix(home)
+            ? "~" + chosen.path.dropFirst(home.count)
+            : chosen.path
+        Config.update(path: ["recordings_dir"], value: String(path))
+        refresh()
     }
 
     private func keepAudioRow() -> NSView {
         keepAudio.target = self
         keepAudio.action = #selector(keepAudioChanged)
-        return settingRow(
-            control: keepAudio,
-            title: "Keep the audio after transcribing",
-            detail: "Off, a session keeps its transcript and its summary — about a gigabyte "
-                + "an hour lighter, and nothing left to transcribe again if the result is wrong.")
-    }
-
-    private func summariesHeader() -> NSView {
-        summariesOn.target = self
-        summariesOn.action = #selector(summariesToggled)
-        let stack = NSStackView(views: [header("Summaries"), NSView(), summariesOn])
-        stack.orientation = .horizontal
-        stack.spacing = 10
-        return stack
+        keepAudio.font = SetupLayout.titleFont
+        return SetupLayout.row(title: keepAudio)
     }
 
     private func summaryChoices() -> NSView {
@@ -297,9 +350,9 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         keyProvider.target = self
         keyProvider.action = #selector(keyProviderChanged)
         summaryKey.placeholderString = "sk-ant-…"
-        summaryKey.font = .systemFont(ofSize: 11)
+        summaryKey.font = SetupLayout.detailFont
         summaryKey.delegate = self
-        summaryKeyStatus.font = .systemFont(ofSize: 11)
+        summaryKeyStatus.font = SetupLayout.statusFont
         summaryKeyStatus.textColor = .secondaryLabelColor
         summaryKeyStatus.lineBreakMode = .byWordWrapping
         summaryKeyStatus.maximumNumberOfLines = 2
@@ -309,83 +362,50 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             detail: "Billed per meeting, needs no CLI.",
             accessories: [keyProvider, summaryKey, summaryKeyStatus, summaryKeyLink])
 
-        summaryCards.adopt([claude, codex, key])
+        // Ollama is a fallback, not a fourth peer: a whole card beside the
+        // three real choices reads as a recommendation, and its summaries are
+        // the weakest of the four. One slim row keeps it choosable and says so.
+        let ollama = ChoiceCard(
+            id: "ollama",
+            title: "Ollama",
+            detail: "No account, no network. Weaker summaries.",
+            accessories: [link("Install Ollama", "https://ollama.com/download/mac")],
+            compact: true)
+
+        summaryCards.adopt([claude, codex, key, ollama])
         summaryCards.onChange = { [weak self] id in
             guard let self else { return }
             Config.update(path: ["summary", "backend"], value: SetupSelection.summaryBackend(
                 choice: id, keyBackend: self.selectedKeyBackend))
             self.refresh()
         }
-        return row(summaryCards.cards)
-    }
-
-    private func ollamaRow() -> NSView {
-        let radio = NSButton(radioButtonWithTitle: "", target: self, action: #selector(ollamaChosen))
-        let title = NSTextField(labelWithString: "ollama")
-        let detail = NSTextField(labelWithString: "— no account, no network, weaker summaries")
-        detail.textColor = .secondaryLabelColor
-        ollamaState.font = .systemFont(ofSize: 11)
-        ollamaState.textColor = .secondaryLabelColor
-        ollamaRadio = radio
-
-        let stack = NSStackView(views: [radio, title, detail, NSView(), ollamaState])
-        stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
-        return stack
+        return SetupLayout.group(
+            [SetupLayout.cards([claude, codex, key]), ollama],
+            spacing: SetupLayout.cardGap)
     }
 
     private func autoRecordRow() -> NSView {
         autoRecord.target = self
         autoRecord.action = #selector(autoRecordToggled)
-        return settingRow(
-            control: autoRecord,
-            title: "Start recording by itself when a call app takes the mic",
-            detail: "And stop when it lets go. Recordings shorter than a minute are thrown away.")
-    }
-
-    /// A switch on the left, a title and a line of explanation beside it.
-    private func settingRow(control: NSView, title: String, detail: String) -> NSView {
-        let titleLabel = NSTextField(labelWithString: title)
-        let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = .systemFont(ofSize: 11)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.maximumNumberOfLines = 3
-        detailLabel.preferredMaxLayoutWidth = 520
-
-        let text = NSStackView(views: [titleLabel, detailLabel])
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 2
-
-        let stack = NSStackView(views: [control, text])
-        stack.orientation = .horizontal
-        stack.alignment = .top
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        return stack
-    }
-
-    private func row(_ views: [NSView]) -> NSView {
-        let stack = NSStackView(views: views)
-        stack.orientation = .horizontal
-        stack.distribution = .fillEqually
-        stack.alignment = .top
-        stack.spacing = 10
-        return stack
+        return SetupLayout.row(
+            leading: autoRecord,
+            title: SetupLayout.title("Start recording automatically when a call app takes the mic"),
+            detail: SetupLayout.detail(
+                "And stop when it lets go. Recordings shorter than a minute are thrown away.",
+                lines: 2, width: 520))
     }
 
     private func link(_ title: String, _ url: String) -> NSButton {
-        let button = NSButton(title: title, target: self, action: #selector(linkClicked(_:)))
-        button.bezelStyle = .inline
-        button.controlSize = .small
-        button.identifier = NSUserInterfaceItemIdentifier(url)
-        return button
+        SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
     }
 
-    private let ollamaState = NSTextField(labelWithString: "")
-    private var ollamaRadio: NSButton?
+    /// "18 Aug" — enough to tell this week from last spring, and short enough
+    /// to sit beside a row title.
+    private static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("d MMM")
+        return formatter
+    }()
 
     private static var systemLanguage: String? {
         Locale.current.language.languageCode?.identifier
@@ -409,6 +429,53 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         Config.update(path: ["keep_audio"], value: keepAudio.state == .on ? true : nil)
     }
 
+    @objc private func liveTranscriptionToggled() {
+        let enabled = liveTranscription.state == .on
+        Config.update(path: ["live_transcription", "enabled"], value: enabled ? true : nil)
+        if enabled {
+            commitLanguage()
+            downloadLiveModel()
+        } else {
+            liveDownloadTask?.cancel()
+            liveDownloadTask = nil
+            liveDownloading = false
+            refresh()
+        }
+    }
+
+    private func downloadLiveModel() {
+        guard !liveDownloading else { return }
+        let prompt = LiveTranscriptionLanguage.prompt(for:
+            language.stringValue.isEmpty ? Config.transcriptionLanguage() : language.stringValue)
+        if liveModelStore.isReady(language: prompt) {
+            liveStatus.stringValue = "downloaded"
+            refresh()
+            return
+        }
+        liveDownloading = true
+        liveStatus.stringValue = "preparing download…"
+        refresh()
+        liveDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await liveModelStore.download(language: prompt) { [weak self] fraction in
+                    Task { @MainActor in
+                        self?.liveStatus.stringValue = "downloading — \(Int(fraction * 100))% of about 600 MB"
+                    }
+                }
+                liveStatus.stringValue = liveModelStore.isReady(language: prompt)
+                    ? "downloaded" : "download incomplete — turn off and on to retry"
+            } catch is CancellationError {
+                liveStatus.stringValue = "download paused"
+            } catch {
+                liveStatus.stringValue = "download failed: \(error.localizedDescription)"
+            }
+            liveDownloading = false
+            liveDownloadTask = nil
+            refresh()
+        }
+    }
+
     @objc private func autoRecordToggled() {
         Config.update(
             path: ["auto_record", "enabled"], value: autoRecord.state == .on ? nil : false)
@@ -416,11 +483,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     @objc private func summariesToggled() {
         Config.update(path: ["summary", "enabled"], value: summariesOn.state == .on ? nil : false)
-        refresh()
-    }
-
-    @objc private func ollamaChosen() {
-        Config.update(path: ["summary", "backend"], value: "ollama")
         refresh()
     }
 
@@ -447,6 +509,18 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func installAgent() {
         if isRecording?() == true {
             report(launchRow, "not while a recording is running — stop it and try again")
+            return
+        }
+        // An app registers itself with macOS the way every other app does.
+        // Only the bare binary still needs a LaunchAgent of its own.
+        if Runtime.isBundled {
+            do {
+                let state = try LoginItem.register()
+                if state == .needsApproval { LoginItem.openSettings() }
+            } catch {
+                report(launchRow, "couldn't register at login: \(error.localizedDescription)")
+            }
+            refresh()
             return
         }
         do {
@@ -484,6 +558,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         audioRow.working("playing a tone…")
         let result = await SetupPermissions.testSystemAudio()
         systemAudio = result
+        if result == .heard { SetupState.rememberSystemAudioHeard() }
         switch result {
         case .heard:
             break
@@ -493,7 +568,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         refresh()
     }
 
-    private var systemAudio: SetupPermissions.SystemAudioResult?
+    /// Seeded from the last tone that was heard, because macOS will not tell
+    /// us and a working Mac should not be asked to prove itself every time.
+    private lazy var systemAudio: SetupPermissions.SystemAudioResult? =
+        SetupPermissions.rememberedSystemAudio(heardAt: SetupState.systemAudioHeardAt())
 
     @objc private func downloadParakeetClicked() {
         parakeetDownload.isEnabled = false
@@ -507,6 +585,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             }
             parakeetProgress?.invalidate()
             parakeetProgress = nil
+            parakeetBar.isHidden = true
             parakeetDownload.isEnabled = true
             refresh()
         }
@@ -518,23 +597,26 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private func watchParakeetSize() {
         parakeetProgress?.invalidate()
         let cache = AsrModels.defaultCacheDirectory(for: ParakeetEngine.configuredVersion())
+        parakeetBar.isHidden = false
+        parakeetBar.doubleValue = 0
         parakeetProgress = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 let mb = Self.megabytes(of: cache)
-                self?.parakeetStatus.stringValue = "downloading — \(mb) of about 600 MB"
+                self?.parakeetBar.doubleValue = Double(mb)
+                self?.parakeetStatus.stringValue = "\(mb) of about 600 MB"
             }
         }
     }
 
-    private static func megabytes(of dir: URL) -> String {
+    private static func megabytes(of dir: URL) -> Int {
         guard let walker = FileManager.default.enumerator(
             at: dir, includingPropertiesForKeys: [.fileSizeKey]
-        ) else { return "0 MB" }
+        ) else { return 0 }
         var total = 0
         for case let url as URL in walker {
             total += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         }
-        return "\(total / 1_048_576) MB"
+        return total / 1_048_576
     }
 
     @objc private func laterClicked() {
@@ -578,20 +660,30 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         Config.update(path: ["transcription", "language"], value: code.isEmpty ? nil : code)
     }
 
+    /// Check first, write second.
+    ///
+    /// The other order costs someone their working key: two characters typed
+    /// into the field by accident used to replace a good key on disk, and the
+    /// only sign was every later meeting failing to transcribe with HTTP 401.
+    /// A key that isn't accepted never reaches the file.
     private func saveAssemblyKey() async {
         let key = assemblyKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
+        assemblyStatus.stringValue = "checking…"
+        guard await Self.assemblyKeyWorks(key) else {
+            assemblyStatus.stringValue = Config.assemblyAIKey() == nil
+                ? "that key was refused"
+                : "that key was refused — the saved one is untouched"
+            return
+        }
         do {
-            try Self.writeSecret(key, to: Config.assemblyAIDefaultKeyPath)
+            try Self.writeSecret(key, to: Config.assemblyAIKeyPath)
         } catch {
             assemblyStatus.stringValue = "couldn't save the key: \(error)"
             return
         }
         assemblyKey.stringValue = ""
-        assemblyStatus.stringValue = "checking…"
-        assemblyStatus.stringValue = await Self.assemblyKeyWorks(key)
-            ? "key works"
-            : "that key was refused"
+        assemblyStatus.stringValue = "key works"
         refresh()
     }
 
@@ -601,8 +693,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let backend = selectedKeyBackend
         let provider: SummaryKeyProbe.Provider = backend == "anthropic-api" ? .anthropic : .openAI
         let path = backend == "anthropic-api"
-            ? Config.anthropicDefaultKeyPath
-            : Config.openAIDefaultKeyPath
+            ? Config.anthropicKeyPath
+            : Config.openAIKeyPath
+        summaryKeyStatus.stringValue = "checking…"
+        guard await SummaryKeyProbe.works(provider: provider, key: key) else {
+            summaryKeyStatus.stringValue = "that key was refused — nothing was overwritten"
+            return
+        }
         do {
             try Self.writeSecret(key, to: path)
         } catch {
@@ -610,19 +707,20 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             return
         }
         summaryKey.stringValue = ""
-        summaryKeyStatus.stringValue = "checking…"
-        summaryKeyStatus.stringValue = await SummaryKeyProbe.works(provider: provider, key: key)
-            ? "key works"
-            : "that key was refused"
+        summaryKeyStatus.stringValue = "key works"
         Config.update(path: ["summary", "backend"], value: backend)
         refresh()
     }
 
     /// A key is a secret: it goes to a file only its owner can read, never
-    /// into the config file — which the settings window shows on screen.
+    /// into the config file — which the settings window shows on screen. The
+    /// directory is amanu's own and mode 0700, so a key pasted here can't be
+    /// overwritten by some other tool that keeps its secrets in the same place.
     private static func writeSecret(_ value: String, to path: URL) throws {
         try FileManager.default.createDirectory(
-            at: path.deletingLastPathComponent(), withIntermediateDirectories: true
+            at: path.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
         try Data(value.utf8).write(to: path, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
@@ -648,6 +746,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         // binaries it finds, which is seconds, not milliseconds.
         let claude = await Task.detached { Tooling.probe("claude") }.value
         let codex = await Task.detached { Tooling.probe("codex") }.value
+        let ollama = await Task.detached { Tooling.probe("ollama") }.value
         let models = await Tooling.ollamaModels()
 
         summaryCards.card("claude-cli")?.status = Self.describe(claude)
@@ -655,9 +754,10 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         summaryCards.card("claude-cli")?.showLink(claude == nil)
         summaryCards.card("codex-cli")?.showLink(codex == nil)
 
-        ollamaState.stringValue = models.map {
+        summaryCards.card("ollama")?.status = models.map {
             $0.isEmpty ? "running, no models" : "running · \($0.prefix(2).joined(separator: ", "))"
-        } ?? "not running"
+        } ?? (ollama == nil ? "not here" : "installed, not running")
+        summaryCards.card("ollama")?.showLink(ollama == nil)
         refresh()
     }
 
@@ -674,16 +774,37 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// Redraw everything from the machine and the config file. Cheap: no
     /// subprocesses, no network — those write into fields this only reads.
     private func refresh() {
-        launchRow.update(
-            SetupPermissions.needsLaunchAgentHandoff ? .notAsked : .granted,
-            detail: SetupPermissions.launchAgentInstalled && !SetupPermissions.runningUnderLaunchd
-                ? "Installed, but this copy isn't the one launchd started."
-                : nil)
+        if Runtime.isBundled {
+            switch LoginItem.status() {
+            case .enabled:
+                launchRow.update(.granted, note: "on")
+            case .needsApproval:
+                launchRow.update(
+                    .denied,
+                    detail: "macOS wants this allowed in Login Items.",
+                    action: "Open Settings")
+            case .notRegistered, .unavailable:
+                launchRow.update(.notAsked, detail: "So a meeting is never missed.")
+            }
+        } else {
+            launchRow.update(
+                SetupPermissions.needsLaunchAgentHandoff ? .notAsked : .granted,
+                detail: SetupPermissions.launchAgentInstalled
+                    && !SetupPermissions.runningUnderLaunchd
+                    ? "Installed, but this copy isn't the one launchd started."
+                    : nil)
+        }
         micRow.update(SetupPermissions.microphone())
         calendarRow.update(SetupPermissions.calendar())
 
         switch systemAudio {
-        case .heard: audioRow.update(.granted, detail: "Played a tone and heard it back.")
+        case .heard:
+            audioRow.update(
+                .granted,
+                note: SetupState.systemAudioHeardAt().map {
+                    "heard the tone · \(Self.day.string(from: $0))"
+                } ?? "heard the tone",
+                action: "Test again")
         case .silent: audioRow.update(.denied, detail: "Recorded silence. Check the grant, or turn the volume up, and test again.")
         case .refused(let why): audioRow.update(.denied, detail: why)
         case nil: audioRow.update(.notAsked)
@@ -696,12 +817,35 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
         keepAudio.state = Config.keepAudio() ? .on : .off
 
+        liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
+        let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        if liveModelStore.isReady(language: livePrompt) {
+            liveStatus.stringValue = "downloaded"
+            liveStatus.textColor = .systemGreen
+        } else if !liveDownloading, Config.liveTranscriptionEnabled(), liveStatus.stringValue.isEmpty {
+            liveStatus.stringValue = "about 600 MB — downloads when switched on"
+        } else if !Config.liveTranscriptionEnabled() {
+            liveStatus.stringValue = "optional"
+        }
+
+        let root = Config.resolveRoot(cliOverride: nil).path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        recordingsPath.stringValue = root.hasPrefix(home)
+            ? "~" + root.dropFirst(home.count)
+            : root
+
         let version = ParakeetEngine.configuredVersion()
         let downloaded = AsrModels.modelsExist(
             at: AsrModels.defaultCacheDirectory(for: version), version: version)
         parakeetDownload.isHidden = downloaded
-        if downloaded { parakeetStatus.stringValue = "downloaded" }
-        else if parakeetProgress == nil { parakeetStatus.stringValue = "about 600 MB" }
+        if downloaded {
+            parakeetStatus.stringValue = "downloaded"
+            parakeetStatus.textColor = .systemGreen
+            parakeetBar.isHidden = true
+        } else if parakeetProgress == nil {
+            parakeetStatus.stringValue = "about 600 MB"
+            parakeetStatus.textColor = .secondaryLabelColor
+        }
 
         if Config.assemblyAIKey() != nil, assemblyStatus.stringValue.isEmpty {
             assemblyStatus.stringValue = "key found"
@@ -713,21 +857,38 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         summaryCards.select(SetupSelection.summaryChoice(backend: summary.backend))
         if backendIsKey { keyProvider.selectedSegment = summary.backend == "openai-api" ? 1 : 0 }
         keyProviderChanged()
-        ollamaRadio?.state = summary.backend == "ollama" ? .on : .off
         for card in summaryCards.cards { card.isEnabled = summary.enabled }
-        ollamaRadio?.isEnabled = summary.enabled
 
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
         autoRecord.state = autoRecordOn ? .on : .off
 
+        highlightNextGrant()
         updateFooter()
+    }
+
+    /// Tint the row the primary button is about to act on — and only that
+    /// one. The order below is the same one `nextAction` walks, because the
+    /// highlight is meant to point at the button, not compete with it.
+    private func highlightNextGrant() {
+        let rows = [launchRow, micRow, audioRow, calendarRow]
+        let pending: AccessRow?
+        if SetupPermissions.needsStartAtLogin {
+            pending = launchRow
+        } else if SetupPermissions.microphone() != .granted {
+            pending = micRow
+        } else if SetupPermissions.needsSystemAudioTest(systemAudio) || systemAudio == .silent {
+            pending = audioRow
+        } else {
+            pending = nil
+        }
+        for row in rows { row.setAttention(row === pending) }
     }
 
     /// What the primary button will do, or nil when the window has nothing
     /// left to offer. The order is the order things must happen in: the agent
     /// first, because a grant given to the wrong process is worse than none.
     private var nextAction: (() -> Void)? {
-        if SetupPermissions.needsLaunchAgentHandoff {
+        if SetupPermissions.needsStartAtLogin {
             return { [weak self] in self?.installAgent() }
         }
         if SetupPermissions.microphone() == .notAsked {
@@ -736,14 +897,24 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsSystemAudioTest(systemAudio) {
             return { [weak self] in Task { await self?.testSystemAudio() } }
         }
+        if Config.liveTranscriptionEnabled() {
+            let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+            if !liveModelStore.isReady(language: prompt), !liveDownloading {
+                return { [weak self] in self?.downloadLiveModel() }
+            }
+        }
         return nil
     }
 
     private func updateFooter() {
         var outstanding: [String] = []
-        if SetupPermissions.needsLaunchAgentHandoff { outstanding.append("start at login") }
+        if SetupPermissions.needsStartAtLogin { outstanding.append("start at login") }
         if SetupPermissions.microphone() != .granted { outstanding.append("microphone") }
         if systemAudio != .heard { outstanding.append("system audio") }
+        if Config.liveTranscriptionEnabled() {
+            let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+            if !liveModelStore.isReady(language: prompt) { outstanding.append("live model") }
+        }
 
         footerNote.stringValue = outstanding.isEmpty
             ? "Everything amanu needs is granted."
@@ -752,13 +923,21 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 : "Left: \(outstanding.joined(separator: ", "))")
 
         primary.title = {
-            if SetupPermissions.needsLaunchAgentHandoff {
+            if SetupPermissions.needsStartAtLogin {
+                if Runtime.isBundled {
+                    return LoginItem.status() == .needsApproval
+                        ? "Open Login Items"
+                        : "Start at login"
+                }
                 return SetupPermissions.launchAgentInstalled ? "Restart" : "Install"
             }
             if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }
             if SetupPermissions.needsSystemAudioTest(systemAudio) { return "Allow and test" }
+            if liveDownloading { return "Downloading live model…" }
+            if outstanding.contains("live model") { return "Download live model" }
             return "Done"
         }()
+        primary.isEnabled = !liveDownloading
     }
 
     private func report(_ row: AccessRow, _ message: String) {
@@ -776,22 +955,35 @@ private final class AccessRow: NSView {
 
     private let mark = NSImageView()
     private let title: NSTextField
+    private let note = NSTextField(labelWithString: "")
     private let detail: NSTextField
     private let button: NSButton
     private let defaultDetail: String
+    private let defaultAction: String
+    private let grantedNote: String
+    private let isOptional: Bool
 
-    init(title: String, detail: String, action: String) {
+    init(title: String, detail: String, action: String,
+         grantedNote: String = "granted", optional: Bool = false) {
         self.title = NSTextField(labelWithString: title)
         self.detail = NSTextField(labelWithString: detail)
         self.defaultDetail = detail
+        self.defaultAction = action
+        self.grantedNote = grantedNote
+        self.isOptional = optional
         button = NSButton(title: action, target: nil, action: nil)
         super.init(frame: .zero)
 
-        self.detail.font = .systemFont(ofSize: 11)
+        self.title.font = SetupLayout.titleFont
+        note.font = SetupLayout.detailFont
+        note.textColor = .tertiaryLabelColor
+        wantsLayer = true
+
+        self.detail.font = SetupLayout.detailFont
         self.detail.textColor = .secondaryLabelColor
         self.detail.lineBreakMode = .byWordWrapping
         self.detail.maximumNumberOfLines = 3
-        self.detail.preferredMaxLayoutWidth = 420
+        self.detail.preferredMaxLayoutWidth = 460
 
         button.bezelStyle = .rounded
         button.controlSize = .small
@@ -800,7 +992,12 @@ private final class AccessRow: NSView {
 
         mark.widthAnchor.constraint(equalToConstant: 18).isActive = true
 
-        let text = NSStackView(views: [self.title, self.detail])
+        let heading = NSStackView(views: [self.title, note])
+        heading.orientation = .horizontal
+        heading.alignment = .firstBaseline
+        heading.spacing = 6
+
+        let text = NSStackView(views: [heading, self.detail])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
@@ -809,7 +1006,7 @@ private final class AccessRow: NSView {
         stack.orientation = .horizontal
         stack.alignment = .top
         stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 9, left: 10, bottom: 9, right: 10)
+        stack.edgeInsets = SetupLayout.rowInsets
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -831,19 +1028,59 @@ private final class AccessRow: NSView {
         detail.stringValue = message
     }
 
-    func update(_ state: SetupPermissions.State, detail override: String? = nil) {
+    /// The one row the person is being asked to act on right now is tinted.
+    /// macOS shows one TCC dialog at a time, so more than one highlighted row
+    /// would be pointing at work that cannot be done yet.
+    func setAttention(_ on: Bool) {
+        layer?.backgroundColor = on
+            ? NSColor.systemOrange.withAlphaComponent(0.12).cgColor
+            : NSColor.clear.cgColor
+        title.textColor = on ? .systemOrange : .labelColor
+        detail.textColor = on ? .systemOrange : .secondaryLabelColor
+        if on {
+            mark.image = NSImage(
+                systemSymbolName: "exclamationmark.circle",
+                accessibilityDescription: "needs your attention")
+            mark.contentTintColor = .systemOrange
+        }
+    }
+
+    /// `action` keeps a button on a granted row — for the one permission
+    /// macOS will not report, where "granted" is a measurement someone may
+    /// reasonably want to take again.
+    func update(
+        _ state: SetupPermissions.State,
+        detail override: String? = nil,
+        note noteOverride: String? = nil,
+        action actionTitle: String? = nil
+    ) {
         button.isEnabled = true
+        button.title = actionTitle ?? defaultAction
         detail.stringValue = override ?? defaultDetail
+
+        // A granted permission is one line: the title and how it stands. The
+        // reasoning underneath is there to talk someone into granting it, and
+        // it has nothing left to say once they have.
+        let settled = state == .granted && override == nil
+        detail.isHidden = settled || detail.stringValue.isEmpty
+        note.stringValue = noteOverride ?? {
+            switch state {
+            case .granted: return grantedNote
+            case .notAsked, .unknown: return isOptional ? "optional" : ""
+            case .denied: return ""
+            }
+        }()
+        note.isHidden = note.stringValue.isEmpty
 
         switch state {
         case .granted:
             mark.image = NSImage(
-                systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "granted")
+                systemSymbolName: "checkmark.circle", accessibilityDescription: "granted")
             mark.contentTintColor = .systemGreen
-            button.isHidden = true
+            button.isHidden = actionTitle == nil
         case .denied:
             mark.image = NSImage(
-                systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "denied")
+                systemSymbolName: "exclamationmark.circle", accessibilityDescription: "denied")
             mark.contentTintColor = .systemOrange
             button.isHidden = false
             button.title = "Open Settings"
@@ -864,52 +1101,69 @@ final class ChoiceCard: NSView {
     let id: String
     var onSelect: ((String) -> Void)?
 
-    private let radio: NSButton
+    private let radio = NSImageView()
+    private let titleLabel: NSTextField
     private let statusLabel = NSTextField(labelWithString: "")
     private var linkButton: NSButton?
+    private var selected = false
 
     var status: String {
         get { statusLabel.stringValue }
         set {
             statusLabel.stringValue = newValue
             statusLabel.isHidden = newValue.isEmpty
+            // "answers", "downloaded", "key works" are the states worth
+            // seeing across the window; everything else is a note.
+            let good = ["answers", "downloaded", "key works", "running"]
+            statusLabel.textColor = good.contains(where: newValue.hasPrefix)
+                ? .systemGreen
+                : .secondaryLabelColor
         }
     }
 
     var isEnabled: Bool = true {
-        didSet {
-            radio.isEnabled = isEnabled
-            alphaValue = isEnabled ? 1 : 0.45
-        }
+        didSet { alphaValue = isEnabled ? 1 : 0.45 }
     }
 
     var isSelected: Bool {
-        get { radio.state == .on }
+        get { selected }
         set {
-            radio.state = newValue ? .on : .off
+            selected = newValue
+            radio.image = NSImage(
+                systemSymbolName: newValue ? "largecircle.fill.circle" : "circle",
+                accessibilityDescription: newValue ? "chosen" : "not chosen")
+            radio.contentTintColor = newValue ? .controlAccentColor : .tertiaryLabelColor
             layer?.borderColor = newValue
                 ? NSColor.controlAccentColor.cgColor
-                : NSColor.separatorColor.cgColor
-            layer?.borderWidth = newValue ? 2 : 1
+                : NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+            layer?.borderWidth = newValue ? 1.5 : 1
         }
     }
 
-    init(id: String, title: String, detail: String, accessories: [NSView] = []) {
+    init(id: String, title: String, detail: String, accessories: [NSView] = [],
+         compact: Bool = false) {
         self.id = id
-        radio = NSButton(radioButtonWithTitle: title, target: nil, action: nil)
+        titleLabel = NSTextField(labelWithString: title)
         super.init(frame: .zero)
 
-        radio.target = self
-        radio.action = #selector(chose)
+        titleLabel.font = SetupLayout.titleFont
+        radio.symbolConfiguration = .init(pointSize: 15, weight: .regular)
+        radio.widthAnchor.constraint(equalToConstant: 17).isActive = true
+        isSelected = false
+
+        let heading = NSStackView(views: [radio, titleLabel])
+        heading.orientation = .horizontal
+        heading.alignment = .firstBaseline
+        heading.spacing = 7
 
         let detailLabel = NSTextField(labelWithString: detail)
-        detailLabel.font = .systemFont(ofSize: 11)
+        detailLabel.font = SetupLayout.detailFont
         detailLabel.textColor = .secondaryLabelColor
-        detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.maximumNumberOfLines = 4
-        detailLabel.preferredMaxLayoutWidth = 170
+        detailLabel.lineBreakMode = compact ? .byTruncatingTail : .byWordWrapping
+        detailLabel.maximumNumberOfLines = compact ? 1 : 4
+        detailLabel.preferredMaxLayoutWidth = 190
 
-        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.font = SetupLayout.statusFont
         statusLabel.textColor = .secondaryLabelColor
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.isHidden = true
@@ -917,15 +1171,17 @@ final class ChoiceCard: NSView {
         linkButton = accessories.compactMap { $0 as? NSButton }.last { $0.bezelStyle == .inline }
 
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = SetupLayout.corner
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.separatorColor.cgColor
 
-        let stack = NSStackView(views: [radio, detailLabel, statusLabel] + accessories)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        let stack = compact
+            ? NSStackView(views: [heading, detailLabel, NSView(), statusLabel] + accessories)
+            : NSStackView(views: [heading, detailLabel, statusLabel] + accessories)
+        stack.orientation = compact ? .horizontal : .vertical
+        stack.alignment = compact ? .centerY : .leading
+        stack.spacing = compact ? 8 : 7
+        stack.edgeInsets = compact ? SetupLayout.rowInsets : SetupLayout.cardInsets
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -934,6 +1190,7 @@ final class ChoiceCard: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
+        guard !compact else { return }
         for accessory in accessories where accessory is NSTextField || accessory is NSSegmentedControl {
             accessory.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         }
@@ -944,7 +1201,35 @@ final class ChoiceCard: NSView {
     /// The install link only belongs on a card for something that isn't here.
     func showLink(_ show: Bool) { linkButton?.isHidden = !show }
 
-    @objc private func chose() { onSelect?(id) }
+    /// `hitTest` is asked in the *superview's* coordinates, so the test has to
+    /// be against `frame`. Against `bounds` it silently answers "not mine" for
+    /// every card that isn't at the origin of its row — which is how a row of
+    /// three cards ends up with only the leftmost one responding to a click.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard !isHidden, frame.contains(point) else { return nil }
+        guard let hit = super.hitTest(point) else { return self }
+        if hit === self || containsInteractiveControl(hit) { return hit }
+        return self
+    }
+
+    private func containsInteractiveControl(_ hit: NSView) -> Bool {
+        var view: NSView? = hit
+        while let current = view, current !== self {
+            if current is NSButton || current is NSSegmentedControl {
+                return true
+            }
+            if let field = current as? NSTextField, field.isEditable {
+                return true
+            }
+            view = current.superview
+        }
+        return false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        onSelect?(id)
+    }
 }
 
 /// A set of cards where exactly one is chosen. AppKit only groups radio

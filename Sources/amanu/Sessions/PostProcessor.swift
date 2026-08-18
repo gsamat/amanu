@@ -15,6 +15,21 @@ import Foundation
 /// Making them the same path is what fixes the older bug where a summary
 /// skipped offline was dropped for ever — nothing ever went back for it.
 enum PostProcessor {
+    /// Which optional post-processing steps this invocation should consider.
+    /// Production reads it from Config; tests can name the policy they are
+    /// exercising without borrowing the machine owner's current preferences.
+    struct Policy: Equatable {
+        var names: Bool
+        var summary: Bool
+
+        static var configured: Policy {
+            let summary = Config.summary()
+            return Policy(
+                names: Config.speakerNames().enabled,
+                summary: summary.enabled && summary.backend != "none")
+        }
+    }
+
     /// Steps outstanding for one session, in the order they must run.
     struct Work: Equatable {
         var names = false
@@ -27,7 +42,7 @@ enum PostProcessor {
     /// A step is outstanding when its artifact is missing and its state isn't
     /// `failed` — a session that will never summarize must stop being offered,
     /// or every sweep picks it up again for ever.
-    static func outstanding(_ dir: URL) -> Work {
+    static func outstanding(_ dir: URL, policy: Policy = .configured) -> Work {
         let fm = FileManager.default
         func exists(_ name: String) -> Bool {
             fm.fileExists(atPath: dir.appendingPathComponent(name).path)
@@ -40,11 +55,10 @@ enum PostProcessor {
         guard exists("transcript.json") else { return Work() }
 
         var work = Work()
-        work.names = Config.speakerNames().enabled
+        work.names = policy.names
             && !exists(SpeakerNames.file)
             && !gaveUp(SessionState.Key.speakersStatus)
-        work.summary = Config.summary().enabled
-            && Config.summary().backend != "none"
+        work.summary = policy.summary
             && !exists("summary.md")
             && !gaveUp(SessionState.Key.summaryStatus)
         return work

@@ -7,8 +7,10 @@
 # of dead amanu entries in System Settings). Signing with a real identity gives
 # the binary a stable designated requirement, and the grants survive rebuilds.
 #
-#   make            build + sign
+#   make            build + sign the bare binary
 #   make install    also copy to $(PREFIX)/bin
+#   make app        assemble and sign Amanu.app
+#   make run-app    assemble, sign, and launch it through LaunchServices
 #   make uninstall  remove the binary and the LaunchAgent
 #   make identities list available signing identities
 #
@@ -19,6 +21,17 @@ PREFIX  ?= $(HOME)/.local
 BINDIR   = $(PREFIX)/bin
 BUILT    = .build/release/amanu
 INSTALLED = $(BINDIR)/amanu
+
+# The application bundle. Assembled by hand rather than by an Xcode project:
+# the package already builds and tests with SwiftPM, and an .app is a
+# directory with a plist in it — a second build system to maintain buys
+# nothing here.
+APP        = .build/Amanu.app
+APP_NAME   = Amanu
+VERSION   ?= 0.2.0
+# A build number that only ever goes up, and says which commit it was.
+BUILD     ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
+ICON       = Resources/Amanu.icns
 
 # Prefer Developer ID (distributable, long-lived) over Apple Development
 # (fine for a machine-local tool). Falls back to ad-hoc so a clean checkout on
@@ -33,7 +46,7 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build sign install uninstall identities verify clean
+.PHONY: all build sign install app icon run-app uninstall identities verify clean
 
 all: sign
 
@@ -79,6 +92,48 @@ install: sign
 	@echo "installed → $(INSTALLED)"
 	@command -v amanu >/dev/null 2>&1 \
 		|| echo "note: $(BINDIR) is not on your PATH"
+
+# Assemble the bundle, then sign it as one thing. The hardened runtime and
+# the entitlements are what notarization will ask for later; the identifier is
+# pinned so this app and the bare binary it grew out of are the same program
+# as far as TCC is concerned.
+# Drawn from the same feather the menu bar uses, so the Dock, the window and
+# the status item are one program rather than three.
+icon:
+	@swift scripts/make-icon.swift $(ICON)
+
+$(ICON):
+	@swift scripts/make-icon.swift $(ICON)
+
+app: build $(ICON)
+	@rm -rf $(APP)
+	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
+	@cp $(BUILT) $(APP)/Contents/MacOS/$(APP_NAME)
+	@sed -e 's/__SHORT_VERSION__/$(VERSION)/' -e 's/__BUILD_VERSION__/$(BUILD)/' \
+		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
+	@printf 'APPL????' > $(APP)/Contents/PkgInfo
+	@cp $(ICON) $(APP)/Contents/Resources/Amanu.icns
+	@[ -x $(HOME)/.local/bin/unlock-signing-keychain ] \
+		&& $(HOME)/.local/bin/unlock-signing-keychain >/dev/null 2>&1 || true
+	@echo "signing app as: $(SIGN_ID)"
+	@codesign --force --sign "$(SIGN_ID)" \
+		--identifier me.samat.amanu \
+		--options runtime \
+		--entitlements Packaging/Amanu.entitlements \
+		--timestamp $(APP) 2>/dev/null \
+	|| codesign --force --sign "$(SIGN_ID)" \
+		--identifier me.samat.amanu \
+		--options runtime \
+		--entitlements Packaging/Amanu.entitlements \
+		--timestamp=none $(APP)
+	@codesign --verify --strict --verbose=2 $(APP)
+	@echo "built → $(APP) ($(VERSION) build $(BUILD))"
+
+# Launch the way a person would: through LaunchServices, so the app is its own
+# responsible process. Running the executable from a terminal instead is the
+# one thing that reliably breaks system-audio capture (.issues/rca-002).
+run-app: app
+	@open $(APP)
 
 uninstall:
 	-@$(INSTALLED) install --uninstall 2>/dev/null || true

@@ -8,6 +8,8 @@ import Testing
 /// session wrote about its own failures — so these tests are mostly about the
 /// difference between "hasn't happened yet" and "will never happen".
 struct SessionInventoryTests {
+    private static let allPostProcessing = PostProcessor.Policy(names: true, summary: true)
+
     /// A finished session on disk, with whatever extras a test asks for.
     private static func session(
         transcript: Bool = true,
@@ -69,10 +71,11 @@ struct SessionInventoryTests {
         let dir = try Self.session()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let item = try #require(SessionInventory.item(for: dir))
+        let item = try #require(SessionInventory.item(for: dir, policy: Self.allPostProcessing))
         #expect(item.speakers == .pending)
         #expect(item.summary == .pending)
-        #expect(PostProcessor.outstanding(dir) == .init(names: true, summary: true))
+        #expect(PostProcessor.outstanding(dir, policy: Self.allPostProcessing)
+            == .init(names: true, summary: true))
     }
 
     /// The distinction the whole deferral mechanism exists for: deferred work
@@ -92,11 +95,14 @@ struct SessionInventoryTests {
             try? FileManager.default.removeItem(at: failed)
         }
 
-        #expect(SessionInventory.item(for: deferred)?.speakers == .deferred)
-        #expect(PostProcessor.outstanding(deferred) == .init(names: true, summary: true))
+        #expect(SessionInventory.item(for: deferred, policy: Self.allPostProcessing)?.speakers
+            == .deferred)
+        #expect(PostProcessor.outstanding(deferred, policy: Self.allPostProcessing)
+            == .init(names: true, summary: true))
 
-        #expect(SessionInventory.item(for: failed)?.isOutstanding == false)
-        #expect(PostProcessor.outstanding(failed).isEmpty)
+        #expect(SessionInventory.item(for: failed, policy: Self.allPostProcessing)?.isOutstanding
+            == false)
+        #expect(PostProcessor.outstanding(failed, policy: Self.allPostProcessing).isEmpty)
     }
 
     @Test("A retired session shows why, and is owed nothing until re-queued")

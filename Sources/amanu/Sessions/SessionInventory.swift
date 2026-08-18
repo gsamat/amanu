@@ -102,6 +102,10 @@ enum SessionInventory {
     }
 
     static func item(for dir: URL) -> Item? {
+        item(for: dir, policy: .configured)
+    }
+
+    static func item(for dir: URL, policy: PostProcessor.Policy) -> Item? {
         guard let meta = SessionState.read(dir) else { return nil }
         let fm = FileManager.default
         func exists(_ name: String) -> Bool {
@@ -142,14 +146,14 @@ enum SessionInventory {
                 dir: dir,
                 artifact: exists(SpeakerNames.file),
                 statusKey: SessionState.Key.speakersStatus,
-                enabled: Config.speakerNames().enabled,
+                enabled: policy.names,
                 blocked: transcriptStep != .done
             ),
             summary: step(
                 dir: dir,
                 artifact: exists("summary.md"),
                 statusKey: SessionState.Key.summaryStatus,
-                enabled: Config.summary().enabled && Config.summary().backend != "none",
+                enabled: policy.summary,
                 blocked: transcriptStep != .done
             ),
             namedSpeakers: counts,
