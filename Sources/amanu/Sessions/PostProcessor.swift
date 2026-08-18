@@ -134,6 +134,92 @@ enum PostProcessor {
         return finished
     }
 
+    // MARK: - transcribing again
+
+    /// Why a session cannot be transcribed from what is still in its folder,
+    /// or nil when it can.
+    ///
+    /// Both surfaces that offer the work ask this one question — the
+    /// recordings window to decide whether its button does anything, `amanu
+    /// process` to print a sentence instead of shrugging — so the two can't
+    /// reach different conclusions about the same folder.
+    enum Obstacle: Equatable, CustomStringConvertible {
+        case unreadable
+        /// Transcribed once, then the audio was thrown away on purpose.
+        case audioDiscarded
+        /// Gone some other way: moved, or cleaned out with the Finder.
+        case audioGone
+
+        var description: String {
+            switch self {
+            case .unreadable:
+                return "its meta.json can't be read"
+            case .audioDiscarded:
+                return "its audio was discarded after transcribing — keep_audio is off, "
+                    + "so the transcript is all there is"
+            case .audioGone:
+                return "the recording is no longer in the folder"
+            }
+        }
+    }
+
+    /// `meta` is the session's own account of itself, passed in by callers
+    /// that have already read it; whether the audio survives is asked of the
+    /// disk, because `files` stays true after the files are gone.
+    static func obstacleToTranscribing(_ dir: URL, meta: [String: Any]? = nil) -> Obstacle? {
+        guard let meta = meta ?? SessionState.read(dir) else { return .unreadable }
+        let files = (meta["files"] as? [String: String]).map { Array($0.values) } ?? []
+        let survives = files.contains {
+            FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path)
+        }
+        if survives { return nil }
+        return meta["audio_discarded"] as? Bool == true ? .audioDiscarded : .audioGone
+    }
+
+    /// What `amanu process` should do with a session, decided before anything
+    /// is printed or run.
+    ///
+    /// Separate from the command because this is the part with opinions in it:
+    /// a session missing its transcript is transcribed from the audio it still
+    /// has, one that was retired is left alone until somebody says `--again`,
+    /// and one that can't be transcribed at all is refused in words rather
+    /// than by doing nothing and reporting success.
+    enum Plan: Equatable {
+        /// Transcribe from the audio, first clearing what an earlier run left
+        /// behind when there is anything to clear.
+        case transcribe(clearingFirst: Bool)
+        /// The transcript is there; only names and a summary can still be owed.
+        case finish
+        /// Nothing can be done, and this is what to say about it.
+        case refuse(String)
+    }
+
+    static func plan(
+        for item: SessionInventory.Item,
+        again: Bool = false,
+        transcriptionEnabled: Bool = Config.transcriptionEnabled()
+    ) -> Plan {
+        if item.transcript == .done, !again { return .finish }
+
+        guard transcriptionEnabled else {
+            return .refuse(
+                "Transcription is off in the config, so there is nothing to transcribe with — "
+                + "set transcription.enabled back to true.")
+        }
+        if let obstacle = obstacleToTranscribing(item.dir) {
+            return .refuse("This session can't be transcribed: \(obstacle).")
+        }
+        // A retired session gave up for a reason it recorded, and some of
+        // those reasons cost money to rediscover. Say what happened and let
+        // the person decide, rather than deciding for them.
+        if case .failed(let why) = item.transcript, !again {
+            return .refuse(
+                "This session was retired without a transcript: \(why)\n"
+                + "Transcribe it from its audio anyway with `amanu process --again`.")
+        }
+        return .transcribe(clearingFirst: again)
+    }
+
     /// Offer a session to the transcription queue again.
     ///
     /// Clears the marks that retired it and removes the derived files, so the

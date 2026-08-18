@@ -162,13 +162,10 @@ enum SessionInventory {
         )
     }
 
-    /// Asked of the disk, not of meta.json: `files` records what was recorded,
-    /// and stays true after the files are gone.
+    /// The same question the re-transcribe button and `amanu process` ask,
+    /// with the reason dropped: here it is only ever "is there audio".
     private static func audioSurvives(_ dir: URL, meta: [String: Any]) -> Bool {
-        guard let files = meta["files"] as? [String: String] else { return false }
-        return files.values.contains {
-            FileManager.default.fileExists(atPath: dir.appendingPathComponent($0).path)
-        }
+        PostProcessor.obstacleToTranscribing(dir, meta: meta) == nil
     }
 
     /// One step's state, from its artifact and the session's own note about it.
