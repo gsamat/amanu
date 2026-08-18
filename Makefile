@@ -52,6 +52,14 @@ build:
 # notarizing for distribution, and it would gate the mic behind an extra
 # entitlement for no local benefit.
 sign: build
+	@# The Developer ID key lives in its own keychain, which is locked after a
+	@# reboot. Unlocking here rather than relying on a login item means a
+	@# release build works on a machine that just booted — and the failure it
+	@# prevents is a confusing one: codesign returns errSecInternalComponent
+	@# while find-identity still lists the certificate, because that reads the
+	@# certificate and never touches the private key.
+	@[ -x $(HOME)/.local/bin/unlock-signing-keychain ] \
+		&& $(HOME)/.local/bin/unlock-signing-keychain >/dev/null 2>&1 || true
 	@echo "signing as: $(SIGN_ID)"
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
