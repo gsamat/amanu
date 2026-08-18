@@ -194,10 +194,11 @@ name typed in that field is marked `manual`, and no later run overwrites it.
 
 Four buttons, on the selected session:
 
-- **Finish processing** — do whatever is still outstanding: a missing
-  transcript, the names, the summary. The same work as `amanu process` and as
-  `amanu process <folder>` from a terminal — which works wherever the folder
-  has been moved to.
+- **Finish processing** — do whatever is still outstanding on a session that
+  never finished: the names, the summary. The same work as `amanu process` and
+  as `amanu process <folder>` from a terminal — which works wherever the folder
+  has been moved to. A session that has settled into `audio.m4a` with no
+  transcript is **Re-transcribe**'s job, not this one.
 - **Re-transcribe** — throw the transcript, its names and the summary away and
   make them again from the audio, which is kept either way. It asks first, and
   says that. `amanu process --again <folder>` is the same thing from a
@@ -430,10 +431,9 @@ retried.
 Naming and summarizing both need a model, which a laptop on a train hasn't
 got. Neither fails: the session is marked `deferred` and picked up later — at
 the next launch, when the network comes back, from **Finish processing** in
-the recordings list, or from the `Finish processing.command` script written
-into every session folder. That script passes its own location, so a folder
-moved out of `~/Recordings` still finishes, and it holds no logic of its own,
-so it can't go stale.
+the recordings list, or from `amanu process <folder>` in a terminal. That
+command takes the folder's location, so a session moved out of `~/Recordings`
+still finishes.
 
 An answer that came back malformed is marked `failed` instead and not retried;
 delete the key from `meta.json` to offer it again.
