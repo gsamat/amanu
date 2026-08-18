@@ -736,6 +736,12 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     // MARK: - reading the machine
 
     private func detectTools() async {
+        // The window is reopened for exactly one reason: something about the
+        // machine changed. Usually it is the **Install it** link having been
+        // followed — so the cached "not here" from the last look is the one
+        // answer guaranteed to be wrong now.
+        Tooling.forget()
+
         // Off the main actor: `Tooling` may start a login shell and run the
         // binaries it finds, which is seconds, not milliseconds.
         let claude = await Task.detached { Tooling.probe("claude") }.value

@@ -93,8 +93,8 @@ struct SettingsSchemaTests {
     }
 
     /// The schema is the only list of settings there is — the window renders
-    /// it and the documentation is generated from it — so a duplicated path
-    /// means two controls quietly fighting over one key.
+    /// it and the README is written against it — so a duplicated path means
+    /// two controls quietly fighting over one key.
     @Test("Every setting has a distinct path")
     func pathsAreUnique() {
         let keys = SettingsSchema.knownKeys
@@ -158,6 +158,20 @@ struct SettingsSchemaTests {
                 "api_key_path": "~/.config/anthropic/token",
                 "openai_api_key_path": "~/.config/openai/token",
             ],
+        ]
+        #expect(SettingsSchema.strayKeys(in: config).isEmpty,
+                "reported as unread: \(SettingsSchema.strayKeys(in: config))")
+    }
+
+    /// The settings window on an Intel Mac renders neither of these — there is
+    /// no local model behind them — but the config file may well carry them,
+    /// and telling somebody their working setting is ignored is the one
+    /// direction this list must never fail in.
+    @Test("Settings only shown on Apple Silicon are still known keys")
+    func localModelKeysAreNeverStray() {
+        let config: [String: Any] = [
+            "live_transcription": ["enabled": true],
+            "transcription": ["model": "v3"],
         ]
         #expect(SettingsSchema.strayKeys(in: config).isEmpty,
                 "reported as unread: \(SettingsSchema.strayKeys(in: config))")
@@ -266,6 +280,76 @@ struct SettingsWindowTests {
             guard let field = control as? NSTextField else { continue }
             #expect(!(field.placeholderString ?? "").isEmpty,
                     "\(entry.path) has no placeholder")
+        }
+    }
+}
+
+/// The README is the third place a setting has to appear, and the only one no
+/// compiler checks.
+///
+/// `SettingsSchema` says of itself that nothing is secret: a setting that
+/// exists but appears in no window and no README is a setting nobody will
+/// find. The window half is enforced — `SettingsWindowTests` renders the
+/// schema and counts the controls. The README half was enforced by a comment
+/// claiming the documentation was generated from the schema, which it never
+/// was: `README.md` is written by hand, and a setting added to the schema
+/// today reaches the window automatically and the README only if somebody
+/// remembers. This is that somebody.
+@Suite("Every setting is documented")
+struct SettingsDocumentationTests {
+    /// The repository root, found from this file rather than from the working
+    /// directory, which `swift test` does not promise anything about.
+    static var readme: String {
+        get throws {
+            let root = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()  // amanuTests
+                .deletingLastPathComponent()  // Tests
+                .deletingLastPathComponent()  // repository root
+            return try String(
+                contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
+        }
+    }
+
+    /// A key counts as documented when the README names it — either in full
+    /// (`auto_record.start_delay_seconds`) or as a leaf under a group the
+    /// README documents wholesale (`summary.*` covering `openai_model`). The
+    /// second form is how the README actually reads, and demanding the first
+    /// would fail on prose that is already correct.
+    @Test("Every setting in the schema is named in the README")
+    func everySettingIsInTheReadme() throws {
+        let readme = try Self.readme
+        var undocumented: [String] = []
+
+        for entry in SettingsSchema.sections.flatMap({ $0.entries }) {
+            let path = entry.path.joined(separator: ".")
+            if readme.contains(path) { continue }
+
+            let group = entry.path.dropLast().joined(separator: ".")
+            let leaf = entry.path[entry.path.count - 1]
+            if !group.isEmpty, readme.contains("`\(group).*`"), readme.contains(leaf) {
+                continue
+            }
+            undocumented.append(path)
+        }
+
+        #expect(undocumented.isEmpty, "not in README.md: \(undocumented.joined(separator: ", "))")
+    }
+
+    /// And the other direction, for the keys that carry a secret. A key file
+    /// path documented in the README that `Config` does not read sends someone
+    /// to put their AssemblyAI token somewhere nothing looks — and the symptom
+    /// is a meeting that failed to transcribe hours later.
+    @Test("The key-file settings the README advertises are settings amanu reads")
+    func keyPathsAreReal() throws {
+        let readme = try Self.readme
+        let advertised = [
+            "transcription.assemblyai.api_key_path",
+            "summary.api_key_path",
+            "summary.openai_api_key_path",
+        ]
+        for key in advertised {
+            #expect(readme.contains(key.components(separatedBy: ".").last!))
+            #expect(SettingsSchema.knownKeys.contains(key), "\(key) is not a known setting")
         }
     }
 }

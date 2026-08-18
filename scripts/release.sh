@@ -72,7 +72,7 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 step "1/8  tests"
-AMANU_NO_NOTIFY=1 swift test 2>&1 | tail -3
+swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
 make app

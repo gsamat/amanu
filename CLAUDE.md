@@ -10,7 +10,7 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 - `docs/releasing.md` — how to cut a release. **Read it in full before running
   `make release`.** Publishing is one command, and the failures are all in the
   parts that are not.
-- `docs/superpowers/specs/2026-08-18-native-macos-app-design.md` — the design,
+- `docs/specs/2026-08-18-native-macos-app-design.md` — the design,
   including the places the code deliberately went its own way.
 
 ## Working on it
@@ -18,11 +18,8 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 ```sh
 make app                                 # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/    # replace the installed copy
-AMANU_NO_NOTIFY=1 swift test             # 135 tests
+swift test                               # 138 tests
 ```
-
-`AMANU_NO_NOTIFY=1` is not optional: without it the suite posts real
-notification banners at the person running it.
 
 Quit the running app before replacing `/Applications/Amanu.app` — deleting a
 bundle does not stop the process using it, and the survivor answers the

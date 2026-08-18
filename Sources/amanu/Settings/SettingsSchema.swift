@@ -4,10 +4,11 @@ import Foundation
 /// what it does, what it defaults to, and whether changing it takes effect now
 /// or at the next launch.
 ///
-/// One list, two readers — the settings window renders it, and the config file
-/// documentation is generated from it. The point is that nothing is secret: a
-/// setting that exists but appears in no window and no README is a setting
-/// nobody will ever find.
+/// One list, two readers — the settings window renders it, and the README's
+/// config reference is written against it. The point is that nothing is
+/// secret: a setting that exists but appears in no window and no README is a
+/// setting nobody will ever find. The window follows automatically; the README
+/// is prose, so `SettingsDocumentationTests` is what keeps it honest.
 enum SettingsSchema {
     enum Kind {
         case toggle
@@ -292,11 +293,22 @@ enum SettingsSchema {
     /// being reported as misspelled until its owner next edits the file.
     static let deprecatedKeys = ["compress_tracks", "keep_uncompressed"]
 
+    /// The settings above that this slice does not render, because there is no
+    /// local model behind them. They stay *known*: a config carrying them on
+    /// an Intel Mac is not misspelled, and reporting a working setting as
+    /// unread is the one direction `strayKeys` must never fail in.
+    static var unrenderedLocalModelKeys: [String] {
+        Platform.supportsLocalModels
+            ? []
+            : ["live_transcription.enabled", "transcription.model"]
+    }
+
     /// Every key the program understands, as `a.b` strings — used to spot
     /// settings in a config file that nothing reads (a typo, or a key from an
     /// older version).
     static var knownKeys: [String] {
         sections.flatMap { $0.entries }.map { $0.path.joined(separator: ".") }
+            + unrenderedLocalModelKeys
             + unrenderedKeys
             + deprecatedKeys
     }

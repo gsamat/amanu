@@ -61,6 +61,18 @@ struct NativeAppTests {
             .filter { $0.hasPrefix("amanu.legacy-") }.count == 1)
     }
 
+    /// The suite used to be run as `AMANU_NO_NOTIFY=1 swift test`, because a
+    /// bare binary posted its banners through `osascript` and the test run
+    /// sprayed them across the screen. Posting moved inside the bundle, and
+    /// the bundle check made the env var redundant — but redundant is not the
+    /// same as pinned, and the thing being relied on now is a property of the
+    /// test binary rather than a flag anyone can see. So ask it out loud.
+    @Test("A bare build has no bundle to post banners under, and stays quiet")
+    func testsPostNothing() {
+        #expect(!Runtime.isBundled)
+        #expect(!Notifications.usesNotificationCenter)
+    }
+
     @Test("A banner carries the recording it is about")
     func notificationCarriesItsSession() {
         let folder = URL(fileURLWithPath: "/Users/x/Recordings/2026.08.18-2300 Standup")

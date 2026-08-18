@@ -36,7 +36,6 @@ enum Notifications {
 
     @MainActor
     static func post(title: String, body: String, opening session: URL?) {
-        guard ProcessInfo.processInfo.environment["AMANU_NO_NOTIFY"] == nil else { return }
         guard usesNotificationCenter else { return }
 
         let content = UNMutableNotificationContent()
@@ -99,7 +98,6 @@ enum Notifications {
 
 /// Best-effort user-visible notification.
 func notifyUser(title: String, body: String, opening session: URL? = nil) {
-    guard ProcessInfo.processInfo.environment["AMANU_NO_NOTIFY"] == nil else { return }
     Task { @MainActor in
         Notifications.post(title: title, body: body, opening: session)
     }

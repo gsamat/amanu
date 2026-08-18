@@ -1,6 +1,5 @@
 import AVFoundation
 import AppKit
-import CoreAudio
 import EventKit
 import Foundation
 

@@ -2,7 +2,7 @@
 
 Written for whoever ships the next one — most likely an agent, working alone,
 at night, with nobody to ask. It is the runbook, not the design; the design is
-in `docs/superpowers/specs/2026-08-18-native-macos-app-design.md`, and the
+in `docs/specs/2026-08-18-native-macos-app-design.md`, and the
 mechanism is `scripts/release.sh`, which is commented.
 
 Read the whole page before starting. Half of it is about failures, and the
@@ -70,7 +70,7 @@ The script runs eight stages and stops at the first failure. That ordering is
 the whole design: **nothing is public until stage 8**, so a failure anywhere
 before it costs time and nothing else. Do not "helpfully" reorder them.
 
-1. **Tests.** `AMANU_NO_NOTIFY=1 swift test`. Fix the tests.
+1. **Tests.** `swift test`. Fix the tests.
 2. **Build and sign.** `make app`. The build is universal — `swift build
    --arch arm64 --arch x86_64`, which also moves the product to
    `.build/apple/Products/Release/amanu` — and the target refuses to finish if

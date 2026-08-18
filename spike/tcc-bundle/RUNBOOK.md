@@ -5,7 +5,7 @@
 `.issues/rca-002` proved two things about the *bare binary*: run from a shell it
 gets correctly clocked, digitally silent tap buffers, and run by `launchd` it
 captures. It never tested a signed **application bundle**. The native-app design
-(`docs/superpowers/specs/2026-08-18-native-macos-app-design.md`, "Architecture
+(`docs/specs/2026-08-18-native-macos-app-design.md`, "Architecture
 decision gate") cannot proceed until someone measures two launches:
 
 1. `AmanuSpike.app` started from **Finder / LaunchServices**.

@@ -58,16 +58,6 @@ enum Tooling {
         }
     }
 
-    /// Where to send someone who hasn't got it.
-    static func downloadPage(for name: String) -> String? {
-        switch name {
-        case "claude": return "https://claude.com/product/claude-code"
-        case "codex": return "https://developers.openai.com/codex/cli/"
-        case "ollama": return "https://ollama.com/download"
-        default: return nil
-        }
-    }
-
     // MARK: - looking
 
     /// The path to a tool, or nil. Cheap after the first call.

@@ -77,17 +77,36 @@ No hash in there, so grants survive rebuilds. With no certificate on the
 machine it falls back to ad-hoc and still works — you just get the re-prompts.
 `make SIGN_ID="Developer ID Application: ..."` to pick one explicitly.
 
-**Requires:** macOS 15+ (Core Audio process taps for system audio — no
-virtual device, no kernel extension).
+**Requires:** macOS 15 or later, on Apple Silicon or Intel — the disk image is
+universal. The macOS floor is Core Audio process taps, which is how system
+audio is captured with no virtual device and no kernel extension.
+
+Any Apple Silicon Mac records — two file writers cost nothing. Local
+transcription runs on the Neural Engine *after* the meeting, so a slower
+machine only means a file nobody is waiting for arrives later: roughly 20
+seconds per hour of audio on an M5, a minute or two on an M1. The models want
+about 1.1 GB on disk (461 MB for parakeet, 633 MB for one language of the live
+model), plus the recordings themselves.
+
+The live transcript is the only part with a real-time deadline, and the only
+part that asks for more than a base machine: it holds around 1.5 GB resident
+and runs two streams at once, microphone and system audio. On 8 GB, with a
+call and a browser also running, expect it to give up and say `cannot keep up`
+— which costs the preview and nothing else, because the recording and the
+final transcript are on a separate path. It is off until you turn it on. All
+of this was measured on an M5 and reasoned about for everything smaller;
+nobody has run amanu on an M1.
 
 **On an Intel Mac** everything records the same way, and transcription is
-AssemblyAI's. The local engines — parakeet for the transcript, Nemotron for the
-live one — are Core ML models compiled for the Neural Engine, which Intel Macs
-do not have; FluidAudio refuses them rather than falling back to a CPU that
-would be slower than the meeting. So the binary is universal, the setup window
-offers the one engine that runs there, and the live-transcript switch is not
-shown at all. Without an AssemblyAI key an Intel Mac records but does not
-transcribe, and `amanu doctor` says so before the meeting rather than after.
+AssemblyAI's. The local models do not run there at all: parakeet and the live
+model are Core ML packages compiled for the Neural Engine, and FluidAudio
+refuses them on x86_64 rather than falling back to a CPU that would be slower
+than the meeting. So the setup window offers the one engine that runs there,
+the live-transcript switch is not shown, and an Intel Mac with no AssemblyAI
+key records but does not transcribe — which `amanu doctor` says before the
+meeting rather than after. Nobody has run amanu on an Intel Mac either: the
+architecture split is tested, the system-audio tap on that hardware is
+reasoned about.
 
 **Why an application and not a daemon.** System audio is captured by whichever
 process macOS holds *responsible* for the request. A binary started from a
@@ -383,6 +402,30 @@ result was poor — use **Re-transcribe** in the recordings list, or delete its
 `transcript.json` by hand and restart amanu; either way it comes back through
 the queue.
 
+### live — while the meeting is still going
+
+Off by default, and separate from everything above: `live_transcription.enabled`
+turns on a running transcript in the status window while a meeting is being
+recorded. It is a **preview, not a transcript**. The text is held in memory,
+never written into the session folder, and never used as a fallback — the
+canonical `transcript.json` is still produced by the pass after the recording
+stops, by whichever engine `transcription.engine` chose.
+
+It needs a second local model: NVIDIA's streaming multilingual ASR, another
+~600 MB, again via FluidAudio's Core ML port. Nothing leaves the Mac. The
+download is explicit — Setup or Settings asks for it, and a recording never
+starts one on its own, because a 600 MB download beginning as a meeting begins
+is the wrong thing to do to a person's laptop and their bandwidth.
+
+Mic and system audio stream through the model as two independent decoders
+sharing one loaded bundle, so the live text is labelled `You` and `Them`
+without any diarization. The checkbox works mid-recording: turning it on
+starts from that instant rather than catching up from the audio already on
+disk, turning it off freezes what is on screen, and turning it on again draws
+a *live transcript resumed* line. If the machine cannot keep up the live
+transcript stops and says so — the recording and the final transcript are
+unaffected, which is the point of keeping the preview disposable.
+
 ## Speaker names
 
 A transcript comes out of the recognizer saying `me` and `them A`. Before the
@@ -533,6 +576,10 @@ Optional, at `~/.config/amanu/config.json`:
   the key itself. `ASSEMBLYAI_API_KEY` wins over both.
 - `transcription.assemblyai.speech_model` — override AssemblyAI's default
   model. Unset sends nothing and lets the API pick.
+- `live_transcription.enabled` — the running preview in the status window
+  while a meeting records (default off). Needs a second local model, which
+  Setup downloads on request and a recording never fetches on its own. The
+  live text is never saved and never becomes the transcript.
 - `transcript_echo_filter` — drop mic segments that duplicate overlapping
   system speech at merge time (default on). The text-level guard for sessions
   recorded raw through speakers, where the far end lands on both tracks and

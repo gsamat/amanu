@@ -72,6 +72,24 @@ feed, verified it, downloaded it, installed it and relaunched itself.
   corrected against the window it describes.
 - **The spec matches the code**, and the README no longer promises two things
   the code stopped doing.
+- **A tidying pass** over dead code, documentation and tests. Most of it was
+  small — two unused imports, two functions nothing called, a deprecation
+  warning, four design docs left in a tool's directory — but three items were
+  not:
+  - **`Tooling.forget()` had no caller.** Tool detection caches for the life
+    of the process, and reopening Setup re-ran detection against the cache, so
+    the machine where somebody followed the **Install it** link and came back
+    was told "not here" for as long as the app kept running. The function
+    existed for exactly this and was never wired up; `detectTools()` calls it
+    now.
+  - **Live transcription was in no README.** A whole shipped feature, with a
+    switch in the window and a setting in the schema, documented nowhere a
+    user would look.
+  - **The "generated documentation" was never generated.** `SettingsSchema`
+    claimed in three places that the config reference was generated from it.
+    The README is hand-written, and the gap above is what that buys.
+    `SettingsDocumentationTests` now fails when a setting is missing from the
+    README, which is how the live-transcription gap was found.
 - **The build is universal, and an Intel Mac gets a coherent program rather
   than a crippled one.** `swift build --arch arm64 --arch x86_64`; the disk
   image is `-macos-universal` and `make app` refuses to finish with a slice
@@ -103,8 +121,10 @@ Small, and mostly things that need a person rather than a session.
 - **The parts of the checklist marked *by hand*** in
   `docs/testing/setup-window-manual-checklist.md`: a recording with real
   microphone speech and real Mac playback with the two channels checked by ear,
-  a permission denied and re-granted, the **Install it** link seen in the state
-  where a CLI is missing, and a recordings folder moved into Documents.
+  a permission denied and re-granted, and a recordings folder moved into
+  Documents. The **Install it** path is worth walking end to end now rather
+  than only looking at: install a CLI amanu cannot see, reopen Setup, and the
+  row should change — that is the fix above, and nothing automated covers it.
 - **The system-audio tone after the update.** The Setup row still reads *heard
   the tone · Aug 19* from before the Sparkle work. The microphone grant
   demonstrably survived the update and system audio uses the same mechanism,
@@ -150,7 +170,9 @@ Small, and mostly things that need a person rather than a session.
   publish there. Every `gh` call names `--repo` now.
 - **Nothing writes to shared key files.** If a feature needs a key, put it in
   `Config.keysDir`.
-- **`swift test` needs `AMANU_NO_NOTIFY=1`**, or the suite posts banners.
+- **Banners need a bundle.** `UNUserNotificationCenter` has nothing to post
+  under in a bare build, so `swift test` and `swift run` are silent by
+  construction. There is no env var to remember; `NotificationsTests` pins it.
 - **The release binary is no longer at `.build/release/amanu`.** Two `--arch`
   flags move it to `.build/apple/Products/Release/amanu`, and a stale
   single-architecture binary can still be sitting at the old path — copy that
@@ -162,7 +184,7 @@ Small, and mostly things that need a person rather than a session.
 ```sh
 make app                                 # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/    # replace the installed copy
-AMANU_NO_NOTIFY=1 swift test             # 135 tests
+swift test                               # 138 tests
 make release-dry                         # the whole release except publishing
 make release                             # and publishing
 ```
