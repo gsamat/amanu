@@ -278,6 +278,36 @@ struct SetupTests {
         #expect(row.frame.height - placed.maxY == SetupLayout.rowInsets.top)
     }
 
+    /// Ollama is the one row in the window that `ChoiceCard` builds itself,
+    /// and it had the same complaint as the wrapping rows in a milder form: a
+    /// stack whose height nobody stated came out two points short of its own
+    /// insets, and `.centerY` split the shortfall between top and bottom. It
+    /// gets the same answer as every other row rather than a second one.
+    @Test("The compact card is a row, and keeps a row's insets")
+    @MainActor
+    func compactCardKeepsRowInsets() throws {
+        let card = ChoiceCard(
+            id: "ollama", title: "Ollama", detail: "No account, no network.",
+            accessories: [], compact: true)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 690, height: 100))
+        host.addSubview(card)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            card.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            card.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            card.topAnchor.constraint(equalTo: host.topAnchor),
+        ])
+        host.layoutSubtreeIfNeeded()
+
+        let stack = try #require(card.subviews.compactMap { $0 as? NSStackView }.first)
+        let heading = try #require(stack.arrangedSubviews.first)
+        let placed = card.convert(heading.bounds, from: heading)
+
+        #expect(card.frame.height >= SetupLayout.rowHeight)
+        #expect(placed.minY >= SetupLayout.rowInsets.bottom)
+        #expect(card.frame.height - placed.maxY >= SetupLayout.rowInsets.top)
+    }
+
     @Test("A chosen card reports bad news as a problem, an unchosen one as a note")
     @MainActor
     func chosenCardColoursItsBadNews() throws {
