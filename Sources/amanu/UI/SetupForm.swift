@@ -36,6 +36,37 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// redraws its other tab.
     var onStateChange: (() -> Void)?
 
+    /// What the config says about transcription, and how to change it.
+    ///
+    /// The pair is one seam rather than two because the transcription
+    /// switches only work as a loop: a click writes the choice and then
+    /// redraws the switches from what it wrote. Replacing only the writing
+    /// would leave a test watching the form redraw from the config file of
+    /// whoever is running the suite — which is also the reason the bug this
+    /// pair exists to keep out shipped in the first place.
+    var storedTranscription: @MainActor () -> TranscriptionChoice = {
+        TranscriptionChoice.read(
+            engine: Config.transcriptionEngine(),
+            cloudProvider: Config.transcriptionCloudProvider(),
+            enabled: Config.transcriptionEnabled(),
+            localModels: Platform.supportsLocalModels)
+    }
+    var write: @MainActor ([String], Any?) -> Void = { Config.update(path: $0, value: $1) }
+
+    /// Whether the local model is on this Mac, and how to put it there. Also
+    /// a seam, for the same reason and one more: the click that has to be
+    /// got right is the one made with no model on the disk, and it starts a
+    /// download — which a test has to be able to answer without pulling 460
+    /// megabytes over the network.
+    var parakeetIsHere: @MainActor () -> Bool = {
+        let version = ParakeetEngine.configuredVersion()
+        return AsrModels.modelsExist(
+            at: AsrModels.defaultCacheDirectory(for: version), version: version)
+    }
+    var fetchParakeet: @MainActor () async throws -> Void = {
+        _ = try await AsrModels.downloadAndLoad(version: ParakeetEngine.configuredVersion())
+    }
+
     /// The form itself, for a host to put in a scroll view.
     let view = FlippedStackView()
 
@@ -612,9 +643,23 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// The switch is the download button: there is nothing to decide between
     /// "I want this" and "fetch the model", so asking twice is a step for its
     /// own sake.
+    ///
+    /// The choice is written before the download starts, and that order is
+    /// the whole of it. Starting the download first redraws the form — so
+    /// the footer says what is happening from the first second — and the
+    /// redraw puts the switch back where the config still has it, which is
+    /// off; the write that followed then read the switch and saved the
+    /// arrangement the click was trying to leave. Written first, the redraw
+    /// reads a config that already says local, so the download's own redraw
+    /// has nothing left to undo.
+    ///
+    /// It also means a download that fails or is abandoned leaves the choice
+    /// on disk, which is what makes the footer go on offering it: the button
+    /// asks whether the local model is wanted and missing, and a choice that
+    /// was never written is not wanted.
     @objc private func localToggled() {
-        if localSwitch.state == .on { downloadParakeetIfNeeded() }
         commitTranscription()
+        if localSwitch.state == .on { downloadParakeetIfNeeded() }
     }
 
     private func commitTranscription() {
@@ -623,7 +668,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             local: localSwitch.state == .on && Platform.supportsLocalModels,
             provider: provider)
         for update in choice.updates {
-            Config.update(path: update.path, value: update.value)
+            write(update.path, update.value)
         }
         refresh()
     }
@@ -787,9 +832,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         SetupPermissions.rememberedSystemAudio(heardAt: SetupState.systemAudioHeardAt())
 
     private func downloadParakeetIfNeeded() {
-        let version = ParakeetEngine.configuredVersion()
-        let cache = AsrModels.defaultCacheDirectory(for: version)
-        guard !AsrModels.modelsExist(at: cache, version: version) else { return }
+        guard !parakeetIsHere() else { return }
         guard parakeetProgress == nil else { return }
         watchParakeetSize()
         // So the footer button says what is happening from the first second,
@@ -797,7 +840,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         refresh()
         Task {
             do {
-                _ = try await AsrModels.downloadAndLoad(version: version)
+                try await fetchParakeet()
             } catch {
                 parakeetStatus.stringValue =
                     localised("download failed: ", "не удалось скачать: ") + "\(error)"
@@ -1058,18 +1101,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// window stops asking.
     private var parakeetIsDownloaded: Bool {
         guard Platform.supportsLocalModels else { return true }
-        let version = ParakeetEngine.configuredVersion()
-        return AsrModels.modelsExist(
-            at: AsrModels.defaultCacheDirectory(for: version), version: version)
+        return parakeetIsHere()
     }
 
     /// The two switches as the config file has them.
     private var transcriptionChoice: TranscriptionChoice {
-        TranscriptionChoice.read(
-            engine: Config.transcriptionEngine(),
-            cloudProvider: Config.transcriptionCloudProvider(),
-            enabled: Config.transcriptionEnabled(),
-            localModels: Platform.supportsLocalModels)
+        storedTranscription()
     }
 
     /// Asked for, and not here. **On this Mac** is the whole question: both
@@ -1242,9 +1279,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             parakeetBar.isHidden = true
         } else {
             let version = ParakeetEngine.configuredVersion()
-            let downloaded = AsrModels.modelsExist(
-                at: AsrModels.defaultCacheDirectory(for: version), version: version)
-            if downloaded {
+            if parakeetIsHere() {
                 parakeetStatus.stringValue = Self.downloaded(
                     modelStorage.parakeet(version: version))
                 parakeetStatus.textColor = .systemGreen

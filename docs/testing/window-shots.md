@@ -91,6 +91,17 @@ Two runs on different days differ for reasons that are not the code. When
 comparing across commits, compare runs taken close together, and check
 `tree.txt` before concluding that a layout moved.
 
+**A download in progress is not among the states it can take.** The local
+model's row grows a progress bar and swaps its size for a running count while
+parakeet is being fetched, and that is a layout worth a picture — but the tool
+cannot pose it. The windows own their form privately, so nothing here can reach
+the switch's seams to say "no model, and this is how to pretend to fetch it";
+the bar would read zero anyway, because it is the cache directory's size and a
+pretended download writes no bytes; and by the rule above, the switch that
+started it comes out looking off whatever it is set to. Seeing that row mid-
+download means turning the switch on in the real window with no model on the
+Mac, which is also the only way to see it at all.
+
 Which is why no picture from this tool belongs in the repository as a
 reference to compare against: it would be a picture of one machine on one day,
 and it would disagree with the next machine for reasons nobody could act on.

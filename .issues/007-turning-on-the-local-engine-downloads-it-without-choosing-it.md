@@ -1,7 +1,7 @@
 ---
 title: "Turning on the local engine downloads the model without choosing the engine"
 date: 2026-08-20
-status: open
+status: done
 affects: "the transcription section of the setup form"
 ---
 
@@ -45,3 +45,36 @@ every transcript fails with HTTP 401 is worse than one that refuses. Whether
 the local switch should refuse the same way or write the choice and let the
 download catch up is a decision, not an oversight to patch. What it does now is
 neither: it accepts the click, does the expensive half, and drops the cheap one.
+
+## What was done
+
+Fixed on 20 August 2026, and the answer to the question at the end of this note
+is the first of the two: write the choice, let the download catch up.
+
+The bug turned out to be ordering, not a missing write. `localToggled` did call
+`commitTranscription()` — but only after `downloadParakeetIfNeeded()`, whose own
+`refresh()` redraws the switch from the config, putting it back off; the write
+that followed then read the switch and saved the arrangement the click was
+trying to leave. That also explains both observed details: a second toggle works
+because the download is already in flight and the early return skips the
+redraw, and a model already on disk skips it too. Swapping the two statements is
+the whole fix, and it makes the local switch agree with the live-transcript
+switch next to it, which has always written before downloading and has never had
+this bug.
+
+Refusing until the model arrived was the other candidate and was rejected. The
+cloud switch refuses because a key cannot be obtained by waiting; a model can,
+and this program downloads it unattended, including at transcription time. More
+to the point, "chosen but not yet here" is a state the rest of the code already
+models and repairs — `parakeetIsWantedAndMissing`, the footer's *One thing left*,
+the delete-model alert's promise that it comes back at the next meeting — and all
+of that machinery only works because the choice is on disk. Refusing would have
+made the one honest state unrepresentable and stranded the intent in a variable
+that dies with the window.
+
+Four tests, and the seams to make them possible: the form's reads and writes of
+the transcription section, and its two parakeet calls, are now injected closures
+in the style of `isRecording`. That was the missing half — the ordering shipped
+because a click that writes to the config file of whoever runs the suite cannot
+be tested. The regression test fails without the reorder, with exactly the
+symptoms measured here.
