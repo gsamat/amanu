@@ -71,6 +71,39 @@ struct TranscriptionChoice: Equatable {
         local && !downloaded
     }
 
+    /// The service's name as a person would write it.
+    static func displayName(_ provider: String) -> String {
+        provider == "openai" ? "OpenAI" : "AssemblyAI"
+    }
+
+    /// Whether a provider asked for earlier is still waiting for a key.
+    ///
+    /// It stops waiting the moment one exists, and the key can arrive from
+    /// anywhere: the other window showing this same form, a shell, a file put
+    /// back. A question already answered elsewhere should stop being asked —
+    /// otherwise the window keeps a key field open, and a card marked chosen,
+    /// for a service that is fully set up.
+    static func stillPending(_ pending: String?, hasKey: (String) -> Bool) -> String? {
+        guard let pending, !hasKey(pending) else { return nil }
+        return pending
+    }
+
+    /// What the line beside the key field says, or nil when nothing is being
+    /// asked for. The sentence depends on what the key would *do*: start the
+    /// cloud, or move it from the provider already running.
+    static func keyPrompt(pending: String?, inForce: String, cloudOn: Bool) -> String? {
+        guard let pending else { return nil }
+        if pending == inForce || !cloudOn { return "paste a key to switch this on" }
+        return "paste a key to move to \(displayName(pending))"
+    }
+
+    /// Whether the cloud row itself should say a key is missing. Only when the
+    /// missing key is what holds the switch down — a cloud already running
+    /// through the other provider is not waiting for anything.
+    static func rowNeedsKey(pending: String?, cloudOn: Bool) -> Bool {
+        pending != nil && !cloudOn
+    }
+
     /// What to write, as paths into the config with nil meaning "remove it".
     /// Defaults are removed rather than written out: a config file that only
     /// contains what was actually chosen is one a person can read.
