@@ -267,9 +267,18 @@ checking by hand is only the seam between them.
   `keep_audio`, or `transcription.cloud` — switch back, and confirm the Setup
   tab already agrees. It is redrawn on every write rather than when reopened.
 - Change the same setting on the Setup tab and confirm `config.json` says so.
-- With Settings and Setup both open, change something in one and confirm the
-  other agrees once it is brought forward: they are separate forms over one
-  file, and coming back on screen is what re-reads it.
+- **Open Settings and Setup side by side**, so both are visible at once, and
+  change the same setting in each in turn: the cloud provider, **Keep the
+  audio**, the meeting language, **On this Mac**. Confirm the other window
+  follows *immediately*, without being clicked or brought forward. This is the
+  one that used to fail — the file was written correctly and the window nobody
+  had touched kept the old answer until it was reopened.
+- With both open, turn the live transcript on in one and confirm the status
+  window's own live switch follows too, and the other form with it.
+- Automated tests cover the listening half of this — every open form redraws
+  when told the file changed. That a write *announces* itself is only checked
+  here, because writing the config file of whoever runs the suite is not
+  something the tests may do.
 - Confirm the Setup tab has no **Later** or **Done**: those belong to the
   first run, and setup is marked completed by that window, not by this one.
 

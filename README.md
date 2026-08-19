@@ -548,6 +548,10 @@ in the menu opens the same form with a wizard around it: a footer naming what
 is still outstanding, and one button that does the next thing that has to
 happen.
 
+Both windows can be open at once, and either can be typed into: every window
+showing a setting reads the file again when anything writes it, so the one you
+are not typing in never shows the old answer.
+
 **Advanced** is everything setup doesn't ask, which is most of the settings:
 every entry amanu has, with a line saying what it does. An untouched field
 shows its default in grey as the placeholder — the value itself where there is

@@ -449,6 +449,53 @@ struct SetupTests {
         #expect(cards.contains { $0.id == "claude-cli" })
     }
 
+    /// Setup is a window and also the first tab of Settings, and nothing
+    /// stops both being open: the menu opens either, `amanu setup` rings the
+    /// doorbell for the window, and the first run opens it by itself.
+    ///
+    /// Whichever one is used, the other has to agree. It did not: the file
+    /// was written correctly and the window nobody had touched kept the old
+    /// answer until it was closed and reopened — which reads as the change
+    /// not having been saved, and is the reason to look at the file to find
+    /// out what a program thinks.
+    ///
+    /// This is the listening half. That a write announces itself is not
+    /// tested here, because `Config.update` writes to the config file of
+    /// whoever is running the suite; the manual checklist covers the two
+    /// halves together.
+    @Test("A config change redraws every open copy of the form")
+    @MainActor
+    func everyOpenFormRedrawsOnAChange() throws {
+        let setup = SetupWindow()
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime((setup, settings)) {} }
+
+        let panels = [
+            try #require(NSApp.windows.last { $0.title == "amanu setup" }),
+            try #require(NSApp.windows.last { $0.title == "amanu settings" }),
+        ]
+        // One switch, in two windows: the settings copy is on its Setup tab,
+        // which is the tab a person lands on.
+        let switches = try panels.map { panel in
+            let label = try #require(panel.contentView?.allDescendants
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == "Keep the audio after transcribing" })
+            let row = try #require(label.superview?.superview as? NSStackView)
+            return try #require(row.arrangedSubviews.compactMap { $0 as? NSSwitch }.first)
+        }
+
+        // Both are made to lie, by hand: setting the state fires no action,
+        // so nothing is written and the config file is only read here.
+        let stored: NSControl.StateValue = Config.keepAudio() ? .on : .off
+        for toggle in switches { toggle.state = stored == .on ? .off : .on }
+
+        NotificationCenter.default.post(name: Config.didChange, object: nil)
+
+        for (panel, toggle) in zip(panels, switches) {
+            #expect(toggle.state == stored, "\(panel.title) kept the stale answer")
+        }
+    }
+
     @Test("The Claude card keeps the automatic fallback chain")
     func summaryChoiceMapping() {
         #expect(SetupSelection.summaryBackend(

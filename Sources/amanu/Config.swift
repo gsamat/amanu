@@ -480,6 +480,19 @@ enum Config {
     /// only contains what you changed keeps reading as a list of your
     /// decisions, and a default that improves later reaches you instead of
     /// being frozen into your file the first time you opened a window.
+    /// Posted after the config file has been written, so that anything on
+    /// screen showing a setting can read it again.
+    ///
+    /// Several surfaces render the same keys — the setup window, both tabs of
+    /// the settings window, the status window's live-transcript switch — and
+    /// nothing stops two of them being open at once. Without this the one
+    /// nobody typed into keeps yesterday's answer until it is reopened, which
+    /// looks exactly like the change not having been saved.
+    ///
+    /// It carries nothing: a listener redraws from the file, which is the
+    /// only account of the settings any of them trusts anyway.
+    static let didChange = Notification.Name("amanu.config.didChange")
+
     @discardableResult
     static func update(path: [String], value: Any?) -> Bool {
         guard let first = path.first else { return false }
@@ -492,7 +505,9 @@ enum Config {
             nested = updated(nested, path: Array(path.dropFirst()), value: value)
             if nested.isEmpty { json.removeValue(forKey: first) } else { json[first] = nested }
         }
-        return write(json)
+        guard write(json) else { return false }
+        NotificationCenter.default.post(name: didChange, object: nil)
+        return true
     }
 
     private static func updated(
