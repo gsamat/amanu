@@ -39,6 +39,37 @@ struct Run: ParsableCommand {
             return
         }
 
+        // A copy started from a shell is not its own responsible process, so
+        // everything it asks macOS for is billed to the terminal: the grants
+        // land on Ghostty or Terminal, Amanu.app never appears in the
+        // permission lists, and the setup window reads the terminal's answers
+        // back as if they were its own — green rows for grants this program
+        // does not have (.issues/rca-002, and measured again with a signed
+        // bundle on 19 August 2026). The README's `amanu setup` is exactly
+        // that shell, on exactly the machine where nothing is granted yet.
+        //
+        // So the command opens the app and steps aside. What it was asked to
+        // do still happens: `amanu setup` has already marked setup pending,
+        // and the copy LaunchServices starts opens the window itself.
+        if Runtime.shouldHandOffToBundle(bundle: Runtime.appBundle), let bundle = Runtime.appBundle {
+            // Rebuilt from this command's own options rather than forwarded
+            // from the command line: `amanu setup` reaches here through
+            // `Run.parse([])`, and passing "setup" on would send the new copy
+            // looking for a running app that is itself.
+            let forwarded = ["run"] + (out.map { ["--out", $0] } ?? [])
+            if Runtime.handOffToBundle(bundle, arguments: forwarded) {
+                FileHandle.standardError.write(Data(
+                    "opened Amanu.app — permissions belong to the app, not to this terminal\n".utf8))
+                return
+            }
+            // Carrying on is better than refusing to start, but the grants
+            // this copy collects are the terminal's and someone should know.
+            let warning = "warning: could not open Amanu.app; running here instead, and macOS "
+                + "will attribute any permission granted now to this terminal rather than "
+                + "to amanu\n"
+            FileHandle.standardError.write(Data(warning.utf8))
+        }
+
         // Keep the command line pointing at this bundle, so agents and
         // scripts reach the same signed program the app runs.
         if case .success(true) = AgentCLI.install() {
