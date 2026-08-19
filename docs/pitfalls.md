@@ -36,6 +36,24 @@ The corollary is the good news: the designated requirement is the identity and
 not the hash, so grants survive ordinary rebuilds and survive a Sparkle
 update — measured, not assumed.
 
+## The hardened runtime closes every resource it is not told about
+
+The entitlement in `Packaging/Amanu.entitlements` is not only about the
+microphone. Under the hardened runtime, EventKit is closed the same way — and
+it fails silently: without
+`com.apple.security.personal-information.calendars`, `requestFullAccessToEvents`
+returns false at once, with no error, no system prompt and no entry in the TCC
+database, so the setup window's Calendar button looks like a button that does
+nothing. Measured on 19 August 2026 with two otherwise identical signed
+bundles. Anything else amanu learns to ask for needs its entitlement added here
+as well as its usage string in `Packaging/Amanu-Info.plist`; the plist alone
+buys nothing.
+
+The same day taught the sequel: once the prompt is answered, EventKit keeps
+reporting `notDetermined` from `authorizationStatus` for the rest of the
+process's life, while tccd has already recorded the grant. Believe the answer
+the request itself returns, not a status read afterwards.
+
 ## Nested code is signed innermost first
 
 `codesign` seals what it finds. Sparkle's framework signed *after* the app that
