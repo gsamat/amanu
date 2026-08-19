@@ -32,6 +32,7 @@ final class StatusWindow {
     private let liveCheckbox = NSButton(
         checkboxWithTitle: "Live transcript", target: nil, action: nil)
     private let liveStatus = NSTextField(labelWithString: "")
+    private let liveReveal = NSButton(title: "Show transcript", target: nil, action: nil)
     private let liveText = NSTextView()
     private let liveScroll = NSScrollView()
     private let liveSection = NSStackView()
@@ -44,6 +45,7 @@ final class StatusWindow {
     private static let expandedHeight: CGFloat = 460
     private var liveTextVisible = false
     private var heightBeforeLive: CGFloat?
+    private var liveRevealedAfterStop = false
 
     init() {
         panel = NSWindow(
@@ -98,6 +100,15 @@ final class StatusWindow {
         liveStatus.textColor = .secondaryLabelColor
         liveStatus.lineBreakMode = .byTruncatingTail
 
+        // The way back to a transcript the end of the recording folded away.
+        // It sits where the status line does: a recording that has stopped
+        // has no status to report, so the row has the space free.
+        liveReveal.isBordered = false
+        liveReveal.target = self
+        liveReveal.action = #selector(liveRevealClicked)
+        liveReveal.isHidden = true
+        setRevealTitle("Show transcript")
+
         liveText.isEditable = false
         liveText.isSelectable = true
         liveText.drawsBackground = false
@@ -114,7 +125,7 @@ final class StatusWindow {
         liveScroll.borderType = .bezelBorder
         liveScroll.isHidden = true
 
-        let liveHeader = NSStackView(views: [liveCheckbox, NSView(), liveStatus])
+        let liveHeader = NSStackView(views: [liveCheckbox, NSView(), liveStatus, liveReveal])
         liveHeader.orientation = .horizontal
         liveHeader.spacing = 8
         liveSection.setViews([liveHeader, liveScroll], in: .top)
@@ -276,11 +287,36 @@ final class StatusWindow {
         let wasAtBottom = documentHeight - visibleBottom < 24
         liveText.textStorage?.setAttributedString(rendered)
         if wasAtBottom { liveText.scrollToEndOfDocument(nil) }
-        // An empty bordered box under a failed or idle live section is just a
-        // hole in the window: show it while there is text, or while text is
-        // on its way.
+        if snapshot.isRecording { liveRevealedAfterStop = false }
+        let visibility = Self.liveTextVisibility(
+            for: snapshot, revealed: liveRevealedAfterStop)
+        showLiveText(visibility.showsTranscript)
+        liveReveal.isHidden = !visibility.showsRevealLink
+    }
+
+    struct LiveTextVisibility: Equatable, Sendable {
+        var showsTranscript: Bool
+        var showsRevealLink: Bool
+    }
+
+    /// An empty bordered box under a failed or idle live section is just a
+    /// hole in the window: while recording, show it once there is text or
+    /// text is on its way. The end of the recording folds it away again — the
+    /// meeting is over, and a status window has no reason to stay tall for a
+    /// transcript nobody is reading any more — but the text is still there
+    /// behind a link until the next recording clears it.
+    nonisolated static func liveTextVisibility(
+        for snapshot: LiveTranscriptionCoordinator.Snapshot,
+        revealed: Bool
+    ) -> LiveTextVisibility {
+        let hasText = !snapshot.entries.isEmpty
         let expecting = snapshot.status == .loading || snapshot.status == .live
-        showLiveText(!snapshot.entries.isEmpty || expecting)
+        guard !snapshot.isRecording else {
+            return LiveTextVisibility(
+                showsTranscript: hasText || expecting, showsRevealLink: false)
+        }
+        return LiveTextVisibility(
+            showsTranscript: hasText && revealed, showsRevealLink: hasText)
     }
 
     /// Grow only on the way in, and only from a compact window: someone who
@@ -290,6 +326,7 @@ final class StatusWindow {
         guard visible != liveTextVisible else { return }
         liveTextVisible = visible
         liveScroll.isHidden = !visible
+        setRevealTitle(visible ? "Hide" : "Show transcript")
 
         if visible {
             panel.minSize = NSSize(width: Self.compactSize.width, height: 320)
@@ -314,6 +351,15 @@ final class StatusWindow {
         panel.setFrame(frame, display: true, animate: panel.isVisible)
     }
 
+    private func setRevealTitle(_ title: String) {
+        liveReveal.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.linkColor,
+            ])
+    }
+
     func updateLivePreference(enabled: Bool) {
         liveCheckbox.state = enabled ? .on : .off
     }
@@ -322,6 +368,10 @@ final class StatusWindow {
     @objc private func pauseClicked() { onTogglePause?() }
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
     @objc private func liveClicked() { onToggleLive?(liveCheckbox.state == .on) }
+    @objc private func liveRevealClicked() {
+        liveRevealedAfterStop.toggle()
+        showLiveText(liveRevealedAfterStop)
+    }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
 }
