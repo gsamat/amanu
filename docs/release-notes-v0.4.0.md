@@ -59,7 +59,7 @@ naming one no longer forces the engine to hear it.
   that starts the application itself never worked, which is to say it never
   worked on a fresh install, the one place the README sends people. Fixing it
   turned up something worse: run from a terminal, the application asked the
-  system about the *terminal's* permissions and believed the answers. The
+  system about the terminal's permissions and believed the answers. The
   setup window would show a green tick for a permission amanu did not have,
   and its system-audio test would pass on the terminal's grant and remember
   that for a month. A command run from a shell now opens the application
