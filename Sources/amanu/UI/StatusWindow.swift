@@ -111,9 +111,9 @@ final class StatusWindow {
         liveReveal.target = self
         liveReveal.action = #selector(liveRevealClicked)
         liveReveal.isHidden = true
-        // Named so the suite that walks this window for sentences left in
-        // the other language can find the one control whose words are not in
-        // its `title` to begin with.
+        // Named so the suite that walks this window can click it. Finding it
+        // by the words on it would be finding it by the very thing under
+        // test — translate them and the click silently stops happening.
         liveReveal.identifier = NSUserInterfaceItemIdentifier("live-reveal")
         setRevealTitle(showing: false)
 
