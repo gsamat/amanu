@@ -1,7 +1,7 @@
 ---
 title: "System audio records digital silence unless quill runs as a LaunchAgent"
 date: 2026-08-01
-status: open
+status: done
 affects: "system audio capture and far-end speaker attribution"
 ---
 
@@ -208,3 +208,43 @@ uses a working system-audio grant.
 - `.issues/rca-001-voice-processing-silent-mic.md` — same failure shape on the
   mic track, and the liveness check added there is the model for the fix
   proposed here.
+
+## What settled it, a year of decisions later
+
+Closed on 20 August 2026. Every premise this note rests on has since stopped
+being true, and the one recommendation it makes about `doctor` turns out to be
+wrong.
+
+There is no bare binary any more. `make app` assembles a real `Amanu.app` with a
+real `Contents/Info.plist` (`Makefile:79-86`, `Packaging/Amanu-Info.plist`), and
+`Package.swift` no longer embeds a plist through linker flags at all — defect 1
+above no longer exists to be load-bearing or not. The bundle is signed with the
+Developer ID under a stable `me.samat.amanu`, which is what TCC now attributes
+the tap to, and `docs/pitfalls.md` carries the successor constraint.
+
+The LaunchAgent is gone with it. `spike/tcc-bundle` measured the bundle
+capturing through LaunchServices at 100% non-zero samples, peak −12 dB, which is
+the measurement that let the design drop launchd entirely
+(`docs/specs/2026-08-18-native-macos-app-design.md`, "the Finder path therefore
+passes"). `amanu install` registers an `SMAppService` login item and refuses
+outright for a copy that is not in a bundle.
+
+The documentation complaints were both acted on: the README no longer offers a
+terminal launch as an equivalent option, it names **System Audio Recording
+Only** rather than Screen Recording, and `amanu setup` hands off to the bundle
+through LaunchServices rather than letting a terminal-launched copy record
+deaf.
+
+**The `doctor` fix proposed above is wrong, and was measured to be wrong.** A
+process launched by launchd has `PPID` 1, but so does a double-forked process
+that still carries the terminal's grant — `Sources/amanu/Runtime.swift` records
+the measurement. The discriminator that works is `XPC_SERVICE_NAME` beginning
+with `application.`. Anyone reaching for the `PPID` test from this note should
+read that comment instead.
+
+What did get built is the check this note asked for, in a better place than it
+proposed: `SetupPermissions.testSystemAudio()` starts a real tap, plays a 440 Hz
+tone through the default output, and reports `heard`, `silent` or `refused` —
+the setup window shows it in red with a retry. The parts of the risk that
+survive are narrower than this note and are written down separately in
+`010-a-silent-system-track-is-only-caught-at-setup.md`.
