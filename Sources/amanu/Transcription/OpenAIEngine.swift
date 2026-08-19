@@ -58,7 +58,11 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
     nonisolated let input: TranscriptionInput = .mixed
 
     private let apiKey: String
-    private let language: String?
+    /// The languages this meeting may be in. Consulted for one decision only —
+    /// whether a language can be named at all — because the API has no way to
+    /// narrow detection to a set the way assemblyai's `expected_languages`
+    /// does. See `languageField(for:)`.
+    private let expected: [String]
     /// A parameter rather than a constant so the sliced path can be exercised
     /// against real audio and the real API without a meeting long enough to
     /// pass 25 MB — an hour of it, every time anyone wanted to check.
@@ -69,7 +73,7 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
     init(requestLimit: Int64 = OpenAITranscriptionEngine.defaultRequestLimit) throws {
         guard let key = Config.openAIKey() else { throw EngineError.noAPIKey }
         apiKey = key
-        language = Config.transcriptionLanguage()
+        expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
         model = Config.openAITranscriptionModel()
         self.requestLimit = requestLimit
     }
@@ -158,10 +162,9 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
             // without it the API answers 400 rather than transcribing.
             ("chunking_strategy", "auto"),
         ]
-        // The model detects the language itself; a configured one is still
-        // passed, for the same reason it is passed to every other engine — a
-        // told language beats a guessed one on a noisy first minute.
-        if let language { fields.append(("language", language)) }
+        if let language = Self.languageField(for: expected) {
+            fields.append(("language", language))
+        }
 
         let body = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-openai-\(UUID().uuidString).multipart")
@@ -182,6 +185,25 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
             throw EngineError.http(http.statusCode, String(data: data, encoding: .utf8) ?? "")
         }
         return data
+    }
+
+    /// The `language` field for a request, or nil to let the model detect.
+    ///
+    /// `language` is a pin: it tells the model what it is listening to rather
+    /// than what it might be, and there is nothing beside it — no
+    /// `expected_languages`, no candidate list — to express an expectation
+    /// instead. So it is only sent when the expectation is a single language
+    /// and there is nothing for the pin to be wrong about, which today means
+    /// somebody who chose English.
+    ///
+    /// "Mostly Russian" is not that. It means Russian *and* English, and a
+    /// pin on either is how the other comes back as fluent nonsense — the
+    /// same failure the local engine's script filter used to cause, and the
+    /// same reason it matters: `keep_audio` is off by default, so that
+    /// transcript is the whole of what survives the meeting. Detection over
+    /// two candidates is a far smaller risk than a confident wrong answer.
+    static func languageField(for expected: [String]) -> String? {
+        expected.count == 1 ? expected.first : nil
     }
 
     private static func writeMultipart(
