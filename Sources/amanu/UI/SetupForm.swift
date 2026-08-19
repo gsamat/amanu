@@ -1483,7 +1483,8 @@ final class ChoiceCard: NSView, LayerTinted {
         retint()
 
         let stack = compact
-            ? NSStackView(views: [heading, detailLabel, NSView(), statusLabel] + accessories)
+            ? NSStackView(
+                views: [heading, detailLabel, SetupLayout.spacer(), statusLabel] + accessories)
             : NSStackView(views: [heading, detailLabel, statusLabel] + accessories)
         stack.orientation = compact ? .horizontal : .vertical
         stack.alignment = compact ? .centerY : .leading
@@ -1497,7 +1498,14 @@ final class ChoiceCard: NSView, LayerTinted {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        guard !compact else { return }
+        guard !compact else {
+            // A compact card is a row, and rows state their own height here
+            // rather than inheriting whatever the stack settles on — the same
+            // arithmetic `SetupLayout.row` gets, so there is one answer to
+            // this question in the window and not two.
+            SetupLayout.fitRowHeight(stack)
+            return
+        }
         for accessory in accessories where accessory is NSTextField || accessory is NSSegmentedControl {
             accessory.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         }
