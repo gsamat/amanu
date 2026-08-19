@@ -120,6 +120,9 @@ struct Run: ParsableCommand {
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
         delegate.onShowSettings = { MainActor.assumeIsolated { controller.showSettings() } }
         delegate.onShowSetup = { MainActor.assumeIsolated { controller.showSetup() } }
+        controller.onSetupAvailable = { available in
+            MainActor.assumeIsolated { delegate.setupAvailable(available) }
+        }
         delegate.onCheckForUpdates = { MainActor.assumeIsolated { controller.checkForUpdates() } }
         app.delegate = delegate
         app.mainMenu = Self.mainMenu(settingsTarget: delegate)
@@ -168,7 +171,7 @@ struct Run: ParsableCommand {
     /// menu that bar is empty — no ⌘Q, no window menu. This is the minimum
     /// that makes the app behave like an app.
     @MainActor
-    private static func mainMenu(settingsTarget: AppDelegate) -> NSMenu {
+    static func mainMenu(settingsTarget: AppDelegate) -> NSMenu {
         let main = NSMenu()
 
         let appItem = NSMenuItem()
@@ -183,12 +186,20 @@ struct Run: ParsableCommand {
         )
         settings.target = settingsTarget
         appMenu.addItem(settings)
+        // Present only while there is a first run to finish; the delegate
+        // keeps it so it can be taken away again. See `setupAvailable`.
         let setup = NSMenuItem(
             title: "Setup…",
             action: #selector(AppDelegate.showSetupClicked(_:)),
             keyEquivalent: ""
         )
         setup.target = settingsTarget
+        settingsTarget.setupItem = setup
+        // Answered here as well as by the controller, because the menu is
+        // built after the controller has already asked once: an item that is
+        // born visible on a machine that finished setup last month is visible
+        // until something else happens to change it.
+        setup.isHidden = !SetupState.isPending
         appMenu.addItem(setup)
         let updates = NSMenuItem(
             title: "Check for updates…",
@@ -259,6 +270,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         onTerminate?()
     }
 
+    /// The app menu's **Setup…**, kept so that it can be taken away once the
+    /// first run is over and put back when `amanu setup` asks for it again.
+    var setupItem: NSMenuItem?
+
+    func setupAvailable(_ available: Bool) {
+        setupItem?.isHidden = !available
+    }
+
     @objc func showSettingsClicked(_ sender: Any?) { onShowSettings?() }
     @objc func showSetupClicked(_ sender: Any?) { onShowSetup?() }
     @objc func checkForUpdatesClicked(_ sender: Any?) { onCheckForUpdates?() }
@@ -297,6 +316,7 @@ final class AppController {
         setup.isRecording = { [weak self] in self?.session != nil }
         setup.onFinished = { [weak self] in
             self?.startAutomaticFeatures(requestCalendarAccess: false)
+            self?.offerSetup()
         }
         return setup
     }()
@@ -315,6 +335,9 @@ final class AppController {
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
+    /// How the app menu is told whether to offer **Setup…**; the status
+    /// item's own menu is reached directly.
+    var onSetupAvailable: ((Bool) -> Void)?
     /// The live-transcript switch is on the status window and in the setup
     /// form, which is in two windows; whichever one is used, the others have
     /// to agree.
@@ -397,6 +420,7 @@ final class AppController {
             options: [.userInitiated, .suddenTerminationDisabled, .automaticTerminationDisabled],
             reason: "amanu watches for meetings and answers its command line")
 
+        offerSetup()
         configWatch = ConfigWatch.observe { [weak self] in
             self?.window.updateLivePreference(enabled: Config.liveTranscriptionEnabled())
         }
@@ -676,10 +700,31 @@ final class AppController {
         settings.show()
     }
 
-    /// First-run setup, reopened from either menu or `amanu setup`.
+    /// First-run setup: opened by the first launch, by the menu item while
+    /// that is still there, and by `amanu setup` at any time.
+    ///
+    /// The command resets the marker before it rings, which is what makes it
+    /// the way back to the wizard on a machine that has been through setup —
+    /// so the menus are asked again here, and the item is on offer for as
+    /// long as the first run is unfinished.
     func showSetup() {
         NSApp.activate(ignoringOtherApps: true)
+        offerSetup()
         setupWindow.show()
+    }
+
+    /// Offer the wizard in both menus, or in neither.
+    ///
+    /// It is offered while there is a first run to finish. After that the
+    /// item is a door to a window whose job is over: the form inside it lives
+    /// in Settings for good, and what the wizard adds — the order the grants
+    /// have to happen in, and the line saying what is still outstanding — has
+    /// been answered by then. `amanu setup` is the way back, and README says
+    /// so where the menu used to.
+    private func offerSetup() {
+        let available = SetupState.isPending
+        menuBar.setupAvailable(available)
+        onSetupAvailable?(available)
     }
 
     /// The Dock icon: show the window, or put it away if amanu was already in

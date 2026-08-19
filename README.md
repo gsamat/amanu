@@ -123,7 +123,9 @@ tone into its own tap and counting the samples that come back.
    asks for access, requests microphone/system-audio/calendar permissions, and
    lets you choose transcription, summaries, and whether audio is kept. It also
    detects working Claude Code and Codex CLIs, including Codex bundled with the
-   ChatGPT desktop app. Reopen it later from either menu or with `amanu setup`.
+   ChatGPT desktop app. It is a first run and it goes away like one: once it
+   has been through, **Setup…** is no longer in either menu, and `amanu setup`
+   is the way back to it.
 2. **Click the feather in the menu bar → Start recording.** While recording,
    the icon turns red with a running elapsed counter, and macOS shows the
    purple recording indicator.
@@ -200,8 +202,11 @@ alone:
   with the elapsed time as its badge. Clicking it opens the window, and
   clicking it again — with amanu already in front — puts it away.
 - **The menu bar item**, as before: the same state and the same controls,
-  plus **Manage recordings…**, **Settings…**, and **Setup…**. Settings and Setup
-  are also in the app menu.
+  plus **Manage recordings…** and **Settings…**, which are also in the app
+  menu. **Setup…** is there too while the first run is unfinished, and both
+  menus drop it once it is done — the form it opens is a permanent tab of
+  Settings, and the wizard around it has nothing left to say. `amanu setup`
+  brings it back for a machine where a permission has since been revoked.
 
 The window and the Dock icon exist because a status item is not a dependable
 place for the only control of a recorder. When the menu bar runs out of room
@@ -543,10 +548,11 @@ permission rows, the same switches for what transcribes and cards for who
 does, the same folder and language and automatic recording. It reports what it
 finds on the machine — whether a grant exists, whether the local model is
 downloaded, whether `claude` and `codex` answer when run — and nothing in it
-was ever meant to be changeable only on the day amanu was installed. **Setup…**
-in the menu opens the same form with a wizard around it: a footer naming what
-is still outstanding, and one button that does the next thing that has to
-happen.
+was ever meant to be changeable only on the day amanu was installed. The
+first run opens the same form with a wizard around it: a footer naming what is
+still outstanding, and one button that does the next thing that has to happen.
+That window is gone from the menus once it has been through; `amanu setup`
+reopens it, and `amanu doctor` answers the same question in a terminal.
 
 Both windows can be open at once, and either can be typed into: every window
 showing a setting reads the file again when anything writes it, so the one you
@@ -687,7 +693,7 @@ Optional, at `~/.config/amanu/config.json`:
 ```sh
 amanu                        # run the menu-bar daemon (^C to quit)
 amanu run --out <dir>        # custom recordings root (default ~/Recordings)
-amanu setup                  # reopen first-run setup in the running daemon
+amanu setup                  # reopen first-run setup — the only door once it is done
 amanu record start|stop|toggle  # record on purpose, in the running daemon
 amanu doctor                 # check permissions, recordings folder, models/keys
 amanu sessions               # what's recorded and what's still owed on it

@@ -19,6 +19,7 @@ final class MenuBarController {
     private let autoRecordItem: NSMenuItem
     private let autoRecordStatus: NSMenuItem
     private let updatesItem: NSMenuItem
+    private let setupItem: NSMenuItem
 
     var onToggle: (() -> Void)?
     var onTogglePause: (() -> Void)?
@@ -114,12 +115,13 @@ final class MenuBarController {
         )
         menu.addItem(settings)
 
-        let setup = NSMenuItem(
+        // Hidden once the first run is over — see `setupAvailable`.
+        setupItem = NSMenuItem(
             title: "Setup…",
             action: #selector(showSetupClicked),
             keyEquivalent: ""
         )
-        menu.addItem(setup)
+        menu.addItem(setupItem)
 
         // Hidden until someone says there is an updater behind it. A bare
         // build has nothing to update, and an item that can only report
@@ -143,7 +145,7 @@ final class MenuBarController {
 
         for item in [
             toggleItem, pauseItem, autoRecordItem, showWindow, openFolder,
-            recordings, settings, setup, updatesItem, quit,
+            recordings, settings, setupItem, updatesItem, quit,
         ] {
             item.target = self
         }
@@ -157,6 +159,22 @@ final class MenuBarController {
     /// can be replaced by Sparkle, so only a real application bundle offers it.
     func updatesAvailable(_ available: Bool) {
         updatesItem.isHidden = !available
+    }
+
+    /// Show or hide **Setup…**. The wizard is the first run, and once it has
+    /// been through, the same form is in Settings for good — what the wizard
+    /// adds is the order things must happen in and the line saying what is
+    /// still outstanding, and both are answered by then. `amanu setup` resets
+    /// the marker, so the item comes back whenever there is a first run to
+    /// finish again.
+    func setupAvailable(_ available: Bool) {
+        setupItem.isHidden = !available
+    }
+
+    /// The items a person would actually see. Two of them come and go, and
+    /// this is how anything outside asks which are on offer.
+    var offeredItemTitles: [String] {
+        (statusItem.menu?.items ?? []).filter { !$0.isHidden }.map(\.title)
     }
 
     /// Reflect recording state in the icon and the menu. Called once a second
