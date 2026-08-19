@@ -55,7 +55,6 @@ naming one no longer forces the engine to hear it.
   for ever, which had left a key field open over a key that already worked.
   And a row of two lines has its bottom margin back: the last line used to sit
   on the separator under it.
-
 - **`amanu setup` works on a Mac where nothing is running yet** — the branch
   that starts the application itself never worked, which is to say it never
   worked on a fresh install, the one place the README sends people. Fixing it
@@ -91,18 +90,37 @@ update as they survive any rebuild.
 
 ## Honest about what is untested
 
-The whole of this release was written by several agents working at once and
-merged afterwards, and the merge is the part worth being careful about. The
-automated tests pass — 201 of them — the universal build is signed and both
-slices answer `doctor`, and each window was rendered off screen and looked at.
-But **nobody has clicked through the merged setup window in a running copy**,
-and `docs/testing/setup-window-manual-checklist.md` has not been run against
-this build.
+This release was written by several agents working at once, each on its own
+copy, none of them knowing about the others, and merged afterwards. The merge
+is the part worth being careful about, so it is worth saying exactly what was
+checked and how.
 
-**OpenAI has never run on an Intel Mac.** The engine was exercised against the
-live API, including a meeting long enough to be sliced, but only on Apple
-Silicon. There is nothing architecture-dependent in it, which makes that a
-prediction rather than a measurement. `docs/old-macs.md` keeps the two apart.
+The automated tests pass — 201 of them — the universal build is signed and
+both slices answer `doctor`. Every window was rendered off screen in both
+appearances and compared frame by frame against the same window before the
+merge; that is how two of the layout defects above were found. The transcription
+section, both key fields, the two windows that show one form, and the setup
+command's handoff to the application were each driven by hand in a running
+copy, and four of the fixes above exist because that found something the tests
+did not.
+
+What that did not cover:
+
+- **The manual checklist has not been run end to end** against this build.
+  `docs/testing/setup-window-manual-checklist.md` is longer than what was
+  driven by hand, and the last two fixes went in after the last click-through.
+- **Pasting a key that works has not been watched.** A deliberately wrong key
+  was, and it is refused without touching the key already on disk. The other
+  half of that path — an accepted key turning the cloud switch on by itself —
+  needs a real key typed by a person, and nobody typed one.
+- **Downloading parakeet from scratch has not been watched** either, because
+  the only way to arrange it was to move a working model out from under a
+  machine that was using it.
+- **OpenAI has never run on an Intel Mac.** The engine was exercised against
+  the live API, including a meeting long enough to be sliced, but only on
+  Apple Silicon. There is nothing architecture-dependent in it, which makes
+  that a prediction rather than a measurement. `docs/old-macs.md` keeps the
+  measured and the expected in separate columns, and so does this.
 
 ## Requirements
 
