@@ -96,14 +96,14 @@ enum SetupLayout {
     /// Rows in a bordered container with hairlines between them — the shape
     /// macOS uses everywhere for a list of settings.
     static func box(_ rows: [NSView]) -> NSView {
-        let stack = NSStackView()
+        let stack = Box()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 0
         stack.wantsLayer = true
         stack.layer?.borderWidth = 1
-        stack.layer?.borderColor = NSColor.separatorColor.cgColor
         stack.layer?.cornerRadius = corner
+        stack.retint()
 
         for (index, row) in rows.enumerated() {
             if index > 0 { stack.addArrangedSubview(hairline()) }
@@ -114,9 +114,9 @@ enum SetupLayout {
     }
 
     static func hairline() -> NSView {
-        let line = NSView()
+        let line = Hairline()
         line.wantsLayer = true
-        line.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        line.retint()
         line.heightAnchor.constraint(equalToConstant: 1).isActive = true
         return line
     }
@@ -192,5 +192,29 @@ enum SetupLayout {
             ])
         button.identifier = NSUserInterfaceItemIdentifier(url)
         return button
+    }
+}
+
+/// The bordered container of `SetupLayout.box`. It exists as a class only so
+/// that the border can be read again when the Mac changes appearance — see
+/// `LayerTinted`.
+@MainActor
+final class Box: NSStackView, LayerTinted {
+    func tintLayer() { layer?.borderColor = NSColor.separatorColor.cgColor }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        retint()
+    }
+}
+
+/// One of the lines between a box's rows, for the same reason.
+@MainActor
+final class Hairline: NSView, LayerTinted {
+    func tintLayer() { layer?.backgroundColor = NSColor.separatorColor.cgColor }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        retint()
     }
 }

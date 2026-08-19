@@ -69,6 +69,21 @@ configuration. There is no environment variable to remember; the test in
 `NativeAppTests` — *"A bare build has no bundle to post banners under"* — is
 what keeps that true.
 
+## A `CGColor` is a number, not a colour
+
+`NSColor.separatorColor` is a rule that answers differently in light and dark;
+`.cgColor` is the answer it gave once. A layer handed that answer keeps it, so
+every border and hairline in the setup window vanished the first time someone
+switched their Mac's appearance with the window already built — pale lines on
+a white background. Worse, outside of drawing `.cgColor` resolves against the
+*thread's* appearance rather than the view's, which for a view built before it
+has a window is plain Aqua whatever the Mac is set to.
+
+Anything that paints into a layer therefore conforms to `LayerTinted`: it
+names its colours in `tintLayer()`, which is called through the view's own
+appearance and again whenever that appearance changes. Setting
+`layer.borderColor` anywhere else is the bug coming back.
+
 # What has never been verified
 
 Not defects, and not oversights: places where the code is believed correct on

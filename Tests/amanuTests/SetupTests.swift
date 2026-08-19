@@ -274,6 +274,56 @@ struct SetupTests {
         #expect(!link.isHidden)
     }
 
+    @Test("A card's border is re-read when the Mac changes appearance")
+    @MainActor
+    func cardBorderFollowsAppearance() throws {
+        // The bug this is about: a CGColor is a number, so a border read from
+        // `separatorColor` under one appearance stays that number under the
+        // other, where it is invisible. The window lost every border and
+        // hairline the first time someone switched their Mac while it was
+        // open.
+        let card = ChoiceCard(id: "one", title: "One", detail: "The first")
+
+        card.appearance = NSAppearance(named: .darkAqua)
+        #expect(card.layer?.borderColor == separator(0.6, in: .darkAqua))
+        card.appearance = NSAppearance(named: .aqua)
+        #expect(card.layer?.borderColor == separator(0.6, in: .aqua))
+
+        // The chosen card is the accent colour instead, and follows too.
+        card.isSelected = true
+        #expect(card.layer?.borderColor != separator(0.6, in: .aqua))
+        card.appearance = NSAppearance(named: .darkAqua)
+        card.isSelected = false
+        #expect(card.layer?.borderColor == separator(0.6, in: .darkAqua))
+    }
+
+    @Test("A box and its hairlines are re-read when the Mac changes appearance")
+    @MainActor
+    func boxBorderFollowsAppearance() throws {
+        let box = SetupLayout.box([SetupLayout.title("First"), SetupLayout.title("Second")])
+        let hairline = try #require(box.subviews.compactMap { $0 as? Hairline }.first)
+
+        box.appearance = NSAppearance(named: .darkAqua)
+        #expect(box.layer?.borderColor == separator(in: .darkAqua))
+        #expect(hairline.layer?.backgroundColor == separator(in: .darkAqua))
+
+        box.appearance = NSAppearance(named: .aqua)
+        #expect(box.layer?.borderColor == separator(in: .aqua))
+        #expect(hairline.layer?.backgroundColor == separator(in: .aqua))
+    }
+
+    /// What `separatorColor` comes to under a named appearance — the value a
+    /// correctly tinted layer should be holding.
+    @MainActor
+    private func separator(_ alpha: CGFloat? = nil, in name: NSAppearance.Name) -> CGColor? {
+        var resolved: CGColor?
+        NSAppearance(named: name)?.performAsCurrentDrawingAppearance {
+            let colour = NSColor.separatorColor
+            resolved = (alpha.map(colour.withAlphaComponent) ?? colour).cgColor
+        }
+        return resolved
+    }
+
     @Test("Doctor accepts either API key or a CLI that actually runs")
     func summaryAvailabilityPolicy() {
         #expect(DoctorReport.hasSummaryBackend(
