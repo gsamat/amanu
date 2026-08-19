@@ -20,7 +20,14 @@ struct Setup: ParsableCommand {
         // No live app answered, so this process becomes the app. That matters:
         // TCC grants belong to the signed process that asks for them, and the
         // window asks for system audio.
-        try Run().run()
+        //
+        // Built through `parse` rather than by calling the initializer:
+        // `Run` carries an `@Option`, and a command constructed without
+        // parsing has no value behind that property — reading it traps with
+        // "Can't read a value from a parsable argument definition". Which is
+        // what `amanu setup` did on the one machine that needs this branch:
+        // a fresh install nobody has launched yet.
+        try Run.parse([]).run()
     }
 }
 
