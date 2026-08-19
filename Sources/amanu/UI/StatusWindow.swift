@@ -36,7 +36,7 @@ final class StatusWindow {
         checkboxWithTitle: localised("Live transcript", "Расшифровка на ходу"),
         target: nil, action: nil)
     private let liveStatus = NSTextField(labelWithString: "")
-    private let liveReveal = NSButton(title: "Show transcript", target: nil, action: nil)
+    private let liveReveal = NSButton(title: "", target: nil, action: nil)
     private let liveText = NSTextView()
     private let liveScroll = NSScrollView()
     private let liveSection = NSStackView()
@@ -111,7 +111,11 @@ final class StatusWindow {
         liveReveal.target = self
         liveReveal.action = #selector(liveRevealClicked)
         liveReveal.isHidden = true
-        setRevealTitle("Show transcript")
+        // Named so the suite that walks this window for sentences left in
+        // the other language can find the one control whose words are not in
+        // its `title` to begin with.
+        liveReveal.identifier = NSUserInterfaceItemIdentifier("live-reveal")
+        setRevealTitle(showing: false)
 
         liveText.isEditable = false
         liveText.isSelectable = true
@@ -203,6 +207,10 @@ final class StatusWindow {
     func show() {
         panel.orderFront(nil)
     }
+
+    /// What the window has in it, for the suite that builds it in both
+    /// languages and looks for a sentence left behind in one of them.
+    var view: NSView? { panel.contentView }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -337,7 +345,7 @@ final class StatusWindow {
         guard visible != liveTextVisible else { return }
         liveTextVisible = visible
         liveScroll.isHidden = !visible
-        setRevealTitle(visible ? "Hide" : "Show transcript")
+        setRevealTitle(showing: visible)
 
         if visible {
             panel.minSize = NSSize(width: Self.compactSize.width, height: 320)
@@ -362,9 +370,14 @@ final class StatusWindow {
         panel.setFrame(frame, display: true, animate: panel.isVisible)
     }
 
-    private func setRevealTitle(_ title: String) {
+    /// Both halves are short on purpose. "Показать расшифровку" beside the
+    /// Russian checkbox comes to 293 points of the 288 the row has, and a
+    /// truncated link is worse than a shorter word.
+    private func setRevealTitle(showing visible: Bool) {
         liveReveal.attributedTitle = NSAttributedString(
-            string: title,
+            string: visible
+                ? localised("Hide", "Скрыть")
+                : localised("Show transcript", "Показать"),
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11),
                 .foregroundColor: NSColor.linkColor,

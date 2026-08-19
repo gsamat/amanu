@@ -75,6 +75,28 @@ struct InterfaceLanguageTests {
         #expect(untranslated.isEmpty, "still English in a Russian window: \(untranslated)")
     }
 
+    /// And the same question of the status window, which the walk above does
+    /// not reach and which is the window a person actually keeps open.
+    ///
+    /// It says almost nothing until it is spoken to — the recorder's state,
+    /// the live session's status, who is talking — so building one and
+    /// reading it proves only that its checkboxes were translated. Drive it
+    /// through every state it has instead, and read it after each.
+    @Test("Nothing in the status window is left in English when the window is Russian")
+    @MainActor
+    func theStatusWindowIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) { Self.readableStatusWindow() }
+        let russian = Self.inLanguage(.russian) { Self.readableStatusWindow() }
+
+        #expect(english.count == russian.count, "the two windows are not the same window")
+        var untranslated: [String] = []
+        for (before, after) in zip(english, russian)
+        where before == after && !Self.sameInBothLanguages(before) {
+            untranslated.append(before)
+        }
+        #expect(untranslated.isEmpty, "still English in a Russian window: \(untranslated)")
+    }
+
     /// And the same question of the Advanced tab, which is written from
     /// `SettingsSchema` rather than by hand. No window needed: the schema is
     /// the list, and the window renders it whole.
@@ -144,6 +166,70 @@ struct InterfaceLanguageTests {
             == "1,1 ГБ")
     }
 
+    /// Every state the status window has, read after each one.
+    ///
+    /// The speech itself is `amanu` throughout: what was said in a meeting is
+    /// not amanu's to translate, so a sentence that differed between the two
+    /// runs would be the test lying about what it checks, and one that did
+    /// not differ would be reported as untranslated. A name is neither.
+    @MainActor
+    private static func readableStatusWindow() -> [String] {
+        _ = NSApplication.shared
+        let window = StatusWindow()
+        var found: [String] = []
+        func read() {
+            guard let view = window.view else { return }
+            view.layoutSubtreeIfNeeded()
+            found.append(contentsOf: strings(in: view))
+        }
+
+        for state in [MenuBarController.State.idle, .recording, .paused] {
+            window.update(state: state, elapsed: "1:23")
+            read()
+        }
+        window.updateTranscription(nil)
+        window.updateAutoRecord(enabled: true, decision: nil)
+
+        var transcript = LiveTranscriptState()
+        transcript.beginRecording(enabled: true)
+        transcript.applyPartial(
+            speaker: .you, text: "amanu", startMilliseconds: 0, epoch: transcript.epoch)
+        transcript.setEnabled(false)
+        transcript.setEnabled(true)
+        transcript.applyPartial(
+            speaker: .them, text: "amanu", startMilliseconds: 10, epoch: transcript.epoch)
+
+        func snapshot(
+            recording: Bool, status: LiveTranscriptionCoordinator.Status
+        ) -> LiveTranscriptionCoordinator.Snapshot {
+            LiveTranscriptionCoordinator.Snapshot(
+                isRecording: recording, isEnabled: true,
+                entries: transcript.entries, status: status)
+        }
+
+        // A failure carries a message from CoreML, which arrives in whatever
+        // language CoreML wrote it in; only the words around it are amanu's.
+        let statuses: [LiveTranscriptionCoordinator.Status] = [
+            .idle, .paused, .loading, .live, .modelMissing, .overloaded, .error("CoreML"),
+        ]
+        for status in statuses {
+            window.updateLive(snapshot(recording: true, status: status))
+            read()
+        }
+
+        // And after the recording, where the folded-away transcript keeps a
+        // link back to itself — first the link, then what it says once the
+        // text is showing again.
+        window.updateLive(snapshot(recording: false, status: .idle))
+        read()
+        for view in window.view?.allDescendants ?? []
+        where view.identifier?.rawValue == "live-reveal" {
+            (view as? NSButton)?.performClick(nil)
+        }
+        read()
+        return found
+    }
+
     private static func inLanguage<T>(_ language: InterfaceLanguage, _ body: () -> T) -> T {
         let previous = InterfaceLanguage.current
         InterfaceLanguage.current = language
@@ -157,8 +243,16 @@ struct InterfaceLanguageTests {
     @MainActor
     private static func readable(_ form: SetupForm) -> [String] {
         form.view.layoutSubtreeIfNeeded()
-        var found: [String] = [form.nextActionTitle, form.outstandingSentence]
-        for view in form.view.allDescendants {
+        return [form.nextActionTitle, form.outstandingSentence] + strings(in: form.view)
+    }
+
+    /// Everything a person can read inside a view, in the order the views are
+    /// in. `NSTextView` is in the list for the live transcript, which is the
+    /// one place amanu writes running text into a window rather than a label.
+    @MainActor
+    private static func strings(in root: NSView) -> [String] {
+        var found: [String] = []
+        for view in root.allDescendants {
             switch view {
             case let field as NSTextField:
                 found.append(field.stringValue)
@@ -171,6 +265,12 @@ struct InterfaceLanguageTests {
                 })
             case let button as NSButton:
                 found.append(button.title)
+            case let text as NSTextView:
+                // Line by line rather than whole. A transcript is one string
+                // with several sentences in it, and comparing it whole lets a
+                // line left in English hide behind a line beside it that was
+                // translated — which is exactly what "You" and "Them" did.
+                found.append(contentsOf: text.string.components(separatedBy: "\n"))
             default:
                 break
             }

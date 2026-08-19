@@ -33,7 +33,11 @@ struct LiveTranscriptState: Sendable {
         case you
         case them
 
-        var label: String { self == .you ? "You" : "Them" }
+        /// Who said it, in the window's language rather than the meeting's:
+        /// this names the two microphones, not the two languages.
+        var label: String {
+            self == .you ? localised("You", "Вы") : localised("Them", "Они")
+        }
     }
 
     struct Block: Sendable, Equatable {
