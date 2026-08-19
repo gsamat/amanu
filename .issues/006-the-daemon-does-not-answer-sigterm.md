@@ -38,4 +38,7 @@ covers it.
 
 Related: `004-cli-and-app-race-for-the-same-session.md` is about two processes
 disagreeing about one session; this is about one process disappearing in the
-middle of it.
+middle of it. `005-a-recording-in-progress-is-invisible-…` is the same evening
+from the other end: a recording was cut by a deliberate quit, which at least
+recorded `"stop_reason": "app-quit"` — the question here is what a kill that
+nothing can catch leaves behind instead.
