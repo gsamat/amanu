@@ -17,9 +17,17 @@ struct LiveTranscriptionModelStore: Sendable {
             .appendingPathComponent("Models", isDirectory: true)
     }
 
+    /// Everything this model has ever downloaded, every language and every
+    /// chunk length. It is what gets deleted and what gets measured: the
+    /// variants are the same model in different clothes, and a window
+    /// offering to remove one of them would be describing an arrangement of
+    /// files rather than a decision anybody made.
+    var modelDirectory: URL {
+        root.appendingPathComponent(Repo.nemotronMultilingual.folderName, isDirectory: true)
+    }
+
     func variantDirectory(language: String) -> URL {
-        root
-            .appendingPathComponent(Repo.nemotronMultilingual.folderName, isDirectory: true)
+        modelDirectory
             .appendingPathComponent(
                 StreamingNemotronMultilingualAsrManager.languageDirectory(for: language),
                 isDirectory: true

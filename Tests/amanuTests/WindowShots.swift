@@ -105,6 +105,14 @@ struct WindowShots {
             // in their field's placeholder, so this is where to see one lost.
             panel.setContentSize(NSSize(width: 640, height: 900))
             try write(panel, "settings-advanced-\(name)-narrow")
+
+            // The Advanced tab is taller than any window it can be shown in,
+            // and what is at the bottom of it — the models on disk, which is
+            // the one block here that is not a setting — appears in no
+            // picture taken from the top.
+            panel.setContentSize(NSSize(width: 700, height: 900))
+            scrollToBottom(in: tabs.selectedTabViewItem?.view)
+            try write(panel, "settings-advanced-\(name)-bottom")
         }
 
         // The setup form here is built before its window exists and then lives
@@ -142,6 +150,28 @@ struct WindowShots {
         describe(root, in: root, depth: 0, into: &lines)
         try lines.joined(separator: "\n").write(
             toFile: "\(directory)/tree.txt", atomically: true, encoding: .utf8)
+    }
+
+    /// Put every scroller in a view at the end of its content, so a picture
+    /// of it shows what is down there rather than what is at the top.
+    @MainActor
+    private func scrollToBottom(in view: NSView?) {
+        guard let view else { return }
+        view.layoutSubtreeIfNeeded()
+
+        var pending = [view]
+        while let next = pending.popLast() {
+            pending.append(contentsOf: next.subviews)
+            guard let scroll = next as? NSScrollView,
+                  let document = scroll.documentView else { continue }
+            // The forms in these windows are flipped, so the end of the
+            // content is the largest y rather than the smallest.
+            let hidden = document.frame.height - scroll.contentView.bounds.height
+            guard hidden > 0 else { continue }
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: hidden))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
+        view.layoutSubtreeIfNeeded()
     }
 
     // MARK: - the windows

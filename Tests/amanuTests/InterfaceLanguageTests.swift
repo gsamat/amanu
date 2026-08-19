@@ -111,6 +111,39 @@ struct InterfaceLanguageTests {
 
     // MARK: - the machinery of the two above
 
+    /// The models on disk are the one block on that tab written by hand
+    /// rather than rendered from the schema, so the test above walks straight
+    /// past them.
+    @Test("The models-on-disk block is in the window's language too")
+    @MainActor
+    func theModelsBlockIsTranslated() {
+        let english = Self.inLanguage(.english) { SettingsWindow().modelLines }
+        let russian = Self.inLanguage(.russian) { SettingsWindow().modelLines }
+
+        #expect(english.count == russian.count)
+        var untranslated: [String] = []
+        for (before, after) in zip(english, russian)
+        where before == after && !Self.sameInBothLanguages(before) {
+            untranslated.append(before)
+        }
+        #expect(untranslated.isEmpty, "still English under Advanced: \(untranslated)")
+    }
+
+    /// A size is half number and half word, and the word is not the only
+    /// thing that changes: Russian writes the decimal separator the other
+    /// way, and `String(format:)` does not know that.
+    @Test("Model sizes are written the way each language writes them")
+    func sizesAreTranslated() {
+        #expect(Self.inLanguage(.english) { ModelStorage.describe(bytes: 461 * 1_048_576) }
+            == "461 MB")
+        #expect(Self.inLanguage(.russian) { ModelStorage.describe(bytes: 461 * 1_048_576) }
+            == "461 МБ")
+        #expect(Self.inLanguage(.english) { ModelStorage.describe(bytes: 1_147_483_648) }
+            == "1.1 GB")
+        #expect(Self.inLanguage(.russian) { ModelStorage.describe(bytes: 1_147_483_648) }
+            == "1,1 ГБ")
+    }
+
     private static func inLanguage<T>(_ language: InterfaceLanguage, _ body: () -> T) -> T {
         let previous = InterfaceLanguage.current
         InterfaceLanguage.current = language
@@ -158,6 +191,8 @@ struct InterfaceLanguageTests {
         let names = [
             "AssemblyAI", "OpenAI", "Anthropic", "Claude Code", "Codex", "Ollama",
             "sk-ant-…", "sk-…", "amanu",
+            // The models, named the way their release notes name them.
+            "parakeet v3", "parakeet v2", "NVIDIA nemotron",
         ]
         if names.contains(text) { return true }
         // The meeting languages are named in themselves — English, Русский,

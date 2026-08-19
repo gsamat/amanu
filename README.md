@@ -592,6 +592,15 @@ Keys the running version doesn't read — a typo, or a setting from an older
 build — are listed at the bottom of the window rather than silently ignored.
 That failure otherwise looks exactly like a setting being disobeyed.
 
+**Models on disk**, at the bottom of the same tab, is the one block there that
+is not a setting: what each local model is actually using, measured rather
+than quoted, and a **Delete** beside it. Deleting also switches off whatever
+asked for the model — otherwise it downloads itself again at the next meeting
+and the space comes straight back — and the confirmation says which switch is
+going with it. A parakeet version left behind by a change to
+`transcription.model` is listed too, which is the only place it is visible at
+all.
+
 Everything below is the same thing in a text editor; nothing needs the window.
 
 ## Config
