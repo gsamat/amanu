@@ -505,9 +505,20 @@ enum Config {
             nested = updated(nested, path: Array(path.dropFirst()), value: value)
             if nested.isEmpty { json.removeValue(forKey: first) } else { json[first] = nested }
         }
-        guard write(json) else { return false }
-        NotificationCenter.default.post(name: didChange, object: nil)
-        return true
+        switch write(json) {
+        case .failed: return false
+        case .unchanged: return true
+        case .written:
+            NotificationCenter.default.post(name: didChange, object: nil)
+            return true
+        }
+    }
+
+    /// What a write did, which is not always what it was asked to do.
+    private enum WriteResult {
+        case written
+        case unchanged
+        case failed
     }
 
     private static func updated(
@@ -525,21 +536,34 @@ enum Config {
         return object
     }
 
-    private static func write(_ json: [String: Any]) -> Bool {
+    /// Put the config on disk, unless it is already there.
+    ///
+    /// The unchanged case is not an optimisation. A field commits when it
+    /// loses focus, and focus is lost for reasons that are not edits — a tab
+    /// changed, another window taking over, the window closing — so the same
+    /// bytes were being written back regularly with nobody having decided
+    /// anything. Nothing was lost, but the file's timestamp is the only claim
+    /// anyone has that a setting was changed, and it was lying; and since
+    /// every write wakes every open window to redraw, a write from inside a
+    /// redraw is the start of a loop rather than a wasted syscall.
+    private static func write(_ json: [String: Any]) -> WriteResult {
         guard let data = try? JSONSerialization.data(
             withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
-        ) else { return false }
+        ) else { return .failed }
+        // Sorted keys and a stable formatter, so identical settings really do
+        // produce identical bytes rather than a diff in key order.
+        if let current = try? Data(contentsOf: path), current == data { return .unchanged }
         do {
             try FileManager.default.createDirectory(
                 at: path.deletingLastPathComponent(), withIntermediateDirectories: true
             )
             try data.write(to: path, options: .atomic)
-            return true
+            return .written
         } catch {
             FileHandle.standardError.write(Data(
                 "couldn't write \(path.path): \(error)\n".utf8
             ))
-            return false
+            return .failed
         }
     }
 

@@ -265,6 +265,37 @@ enum SettingsSchema {
         case invalid
     }
 
+    /// Whether committing this resolution would change the file at all.
+    ///
+    /// A text field commits when it loses focus, and focus is lost for
+    /// reasons that have nothing to do with typing: the tab changed, another
+    /// window took over, the window closed. Each of those used to write the
+    /// value back exactly as it already was — same bytes, new timestamp, and
+    /// a redraw announced to every open window. The timestamp on that file is
+    /// the only evidence anyone has that a setting was changed, so writing is
+    /// for changes.
+    static func changes(_ resolution: Resolution, from stored: Any?) -> Bool {
+        switch resolution {
+        case .invalid: return false
+        case .clear: return stored != nil
+        case .set(let value): return !same(value, stored)
+        }
+    }
+
+    /// Two JSON values compared as the file would hold them. Anything this
+    /// can't recognise counts as different, so an unknown shape is written
+    /// rather than silently kept.
+    private static func same(_ lhs: Any, _ rhs: Any?) -> Bool {
+        guard let rhs else { return false }
+        switch (lhs, rhs) {
+        case let (a as Bool, b as Bool): return a == b
+        case let (a as String, b as String): return a == b
+        case let (a as [String], b as [String]): return a == b
+        case let (a as NSNumber, b as NSNumber): return a == b
+        default: return false
+        }
+    }
+
     /// Turn a control's contents into what should be in the config file.
     ///
     /// The one rule worth stating: a value equal to the default is *cleared*,

@@ -373,16 +373,25 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             input = .text(row.control.stringValue)
         }
 
-        switch SettingsSchema.resolve(input, for: entry) {
-        case .set(let value):
-            Config.update(path: entry.path, value: value)
-        case .clear:
-            Config.update(path: entry.path, value: nil)
-        case .invalid:
+        let resolution = SettingsSchema.resolve(input, for: entry)
+        if case .invalid = resolution {
             // Letters in a number field: put back what is actually stored
             // rather than writing a guess or leaving the field lying.
             refresh()
             return
+        }
+        // Leaving a field is not deciding anything. This is reached whenever
+        // editing ends — a tab switch, another window, the window closing —
+        // and a row still showing what the file already says has nothing to
+        // commit.
+        guard SettingsSchema.changes(
+            resolution, from: value(at: entry.path, in: Config.raw()))
+        else { return }
+
+        switch resolution {
+        case .set(let value): Config.update(path: entry.path, value: value)
+        case .clear: Config.update(path: entry.path, value: nil)
+        case .invalid: return
         }
 
         if entry.needsRestart {

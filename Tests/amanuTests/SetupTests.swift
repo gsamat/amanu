@@ -559,6 +559,87 @@ struct SetupTests {
         }
     }
 
+    /// The rule these windows now live by: drawing is not deciding.
+    ///
+    /// It is not tidiness. Every write announces itself so that each open copy
+    /// of the form redraws, so a write from inside a redraw is a loop, not a
+    /// wasted syscall — and short of that, the file's timestamp is the only
+    /// evidence anybody has that a setting was changed. It was moving on its
+    /// own: switching to the Setup tab rewrote the file byte for byte.
+    ///
+    /// Redrawing is what a config change causes, so posting the change is how
+    /// a redraw is asked for here. The count is of the posts this test made
+    /// itself; anything above that came from a redraw that wrote.
+    @Test("Redrawing every open form leaves the config file alone")
+    @MainActor
+    func redrawingWritesNothing() throws {
+        let setup = SetupWindow()
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime((setup, settings)) {} }
+
+        let path = Config.path
+        let before = try? Data(contentsOf: path)
+        let stamped = { (try? FileManager.default.attributesOfItem(atPath: path.path))?
+            .first { $0.key == .modificationDate }?.value as? Date }
+        let stamp = stamped()
+
+        let posts = PostCount()
+        let observer = NotificationCenter.default.addObserver(
+            forName: Config.didChange, object: nil, queue: nil
+        ) { _ in posts.value += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        for _ in 0..<5 {
+            NotificationCenter.default.post(name: Config.didChange, object: nil)
+        }
+
+        #expect(posts.value == 5, "a redraw wrote the config, and the write announced itself")
+        #expect((try? Data(contentsOf: path)) == before, "a redraw changed the config file")
+        #expect(stamped() == stamp, "a redraw rewrote the config file with the same bytes")
+    }
+
+    /// The bug itself, in the shape it actually happened in.
+    ///
+    /// Editing ends when a field loses focus, and a field loses focus for
+    /// reasons that are nobody's decision — the tab changed, another window
+    /// came forward, the window closed. Every one of those committed the row,
+    /// which wrote the file back exactly as it already was: `diff` said the
+    /// bytes were identical and the timestamp said somebody had just changed
+    /// a setting.
+    @Test("Leaving an untouched Advanced field writes nothing")
+    @MainActor
+    func endingEditingOnAnUntouchedRowWritesNothing() throws {
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime(settings) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu settings" })
+
+        // The Advanced tab is built with the window but only installed in the
+        // hierarchy while it is the one on screen, so it is reached through
+        // the tab item rather than from the content view.
+        let tabs = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTabView }.first)
+        let advanced = try #require(tabs.tabViewItems
+            .first { $0.identifier as? String == "Advanced" }?.view)
+        let fields = advanced.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .filter { $0.isEditable }
+        #expect(!fields.isEmpty, "no editable rows found under Advanced")
+
+        let path = Config.path
+        let before = try? Data(contentsOf: path)
+        let stamped = { (try? FileManager.default.attributesOfItem(atPath: path.path))?
+            .first { $0.key == .modificationDate }?.value as? Date }
+        let stamp = stamped()
+
+        for field in fields {
+            settings.controlTextDidEndEditing(
+                Notification(name: NSControl.textDidEndEditingNotification, object: field))
+        }
+
+        #expect((try? Data(contentsOf: path)) == before, "leaving a field changed the config")
+        #expect(stamped() == stamp, "leaving a field rewrote the config with the same bytes")
+    }
+
     /// The wizard answers "what is left?" in one line above its buttons. The
     /// settings tab shows the same form and used to answer it only by being
     /// read row by row — so the line moved to where the form is, both times.
@@ -710,4 +791,11 @@ private extension NSView {
     var allDescendants: [NSView] {
         subviews + subviews.flatMap(\.allDescendants)
     }
+}
+
+/// A counter the notification centre can reach from inside its closure. Posts
+/// are delivered synchronously on the thread that made them, so there is no
+/// race here to protect against — the box is for the compiler.
+private final class PostCount: @unchecked Sendable {
+    var value = 0
 }
