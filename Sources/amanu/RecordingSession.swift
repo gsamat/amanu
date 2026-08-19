@@ -1,5 +1,18 @@
 import Foundation
 
+/// A session that is being recorded, as far as the filesystem can tell: the
+/// folder, the process that claimed it, and when it started. `ownerIsAlive`
+/// separates the two things an in-progress manifest can mean — a recording
+/// happening right now, or one a crash left behind.
+struct RecordingInProgress: Sendable {
+    let dir: URL
+    let pid: Int32
+    /// Nil only when the manifest was written by something that did not put a
+    /// readable `started` in it; every version of amanu does.
+    let started: Date?
+    let ownerIsAlive: Bool
+}
+
 /// One meeting recording: a timestamped folder holding two independent tracks
 /// (mic = you, system = them) plus a meta.json written on clean stop. Tracks
 /// are separate on purpose — speech models do better on clean single-source
@@ -34,7 +47,9 @@ final class RecordingSession {
     /// interrupted" — without it, a crash leaves perfectly good CAF files that
     /// nothing ever looks at again, because the transcription queue only
     /// considers folders that have a meta.json (upstream issue #8).
-    private static let manifestFile = ".recording.json"
+    /// Nonisolated because `inProgress(root:)` reads it from the command line,
+    /// where there is no main actor to be on.
+    nonisolated private static let manifestFile = ".recording.json"
 
     // Track-liveness watchdog. Both .caf files grow continuously while their
     // capture is healthy; a track whose file freezes mid-session (a call app
@@ -230,6 +245,54 @@ final class RecordingSession {
     /// folder fills with rubbish nobody deletes.
     func discard() {
         try? FileManager.default.removeItem(at: dir)
+    }
+
+    // MARK: - what is being recorded right now
+
+    /// Every session folder that still holds an in-progress manifest, with the
+    /// pid that wrote it and the moment it started.
+    ///
+    /// This is the only answer on disk to "is something being recorded right
+    /// now". `meta.json` is written when a recording stops, so anything that
+    /// reads it — `amanu sessions`, the transcription queue — can only ever
+    /// say no, which is the wrong answer in exactly the case that matters
+    /// (.issues/005).
+    nonisolated static func inProgress(root: URL) -> [RecordingInProgress] {
+        let fm = FileManager.default
+        guard let entries = try? fm.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil
+        ) else { return [] }
+
+        let iso = ISO8601DateFormatter()
+        var found: [RecordingInProgress] = []
+
+        for dir in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let manifestURL = dir.appendingPathComponent(manifestFile)
+            guard fm.fileExists(atPath: manifestURL.path) else { continue }
+            // A manifest beside a meta.json is litter from a stop that failed
+            // to delete it, not a recording: that session has ended, and
+            // recoverInterrupted tidies the file away on the next launch.
+            guard !fm.fileExists(atPath: dir.appendingPathComponent("meta.json").path) else {
+                continue
+            }
+            guard
+                let data = try? Data(contentsOf: manifestURL),
+                let manifest = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let pid = manifest["pid"] as? Int32
+            else { continue }
+
+            // The same liveness test recovery uses, and the same caveat: a
+            // recycled PID could fool it. Here the cost is warning about a
+            // recording that has already ended, which is again the safe
+            // direction to be wrong in.
+            found.append(RecordingInProgress(
+                dir: dir,
+                pid: pid,
+                started: (manifest["started"] as? String).flatMap { iso.date(from: $0) },
+                ownerIsAlive: kill(pid, 0) == 0
+            ))
+        }
+        return found
     }
 
     // MARK: - crash recovery

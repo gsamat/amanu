@@ -99,6 +99,25 @@ struct TranscriptionChoiceTests {
         #expect(read.provider == "assemblyai")
     }
 
+    /// And leaving record-only is one switch, so turning either one on has to
+    /// take `enabled: false` back out. The window used to write it straight
+    /// back: it started the model's download, redrew the two switches from a
+    /// config that still said transcription was off, and then saved what the
+    /// redraw had handed it — which is neither engine, which is off.
+    @Test("Turning a switch on from record-only turns transcription back on")
+    func leavingRecordOnly() {
+        let off = Self.read("auto", enabled: false)
+        #expect(!off.cloud)
+        #expect(!off.local)
+
+        for chosen in [
+            TranscriptionChoice(cloud: false, local: true, provider: off.provider),
+            TranscriptionChoice(cloud: true, local: false, provider: off.provider),
+        ] {
+            #expect(Self.written(chosen)["transcription.enabled"] == "nil")
+        }
+    }
+
     /// The default provider is removed rather than written out: a config file
     /// holding only what was actually chosen is one a person can read.
     @Test("Only a non-default provider is written to the config")

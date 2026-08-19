@@ -157,11 +157,12 @@ enum SettingsSchema {
                           + "кончится."),
                   .number(unit: localised("seconds", "с")), default: 90),
             Entry(["auto_record", "min_duration_seconds"],
-                  localised("Discard recordings shorter than", "Выбрасывать записи короче"),
+                  localised("Discard meetings shorter than", "Выбрасывать встречи короче"),
                   localised(
-                      "A mic that opened for a few seconds was never a meeting. Automatic recordings only.",
-                      "Микрофон, открытый на несколько секунд, встречей не был. Только для "
-                          + "автоматических записей."),
+                      "A mic that opened for a few seconds was never a meeting. The wait before "
+                          + "stopping doesn't count. Automatic recordings only.",
+                      "Микрофон, открытый на несколько секунд, встречей не был. Ожидание перед "
+                          + "остановкой не считается. Только для автоматических записей."),
                   .number(unit: localised("seconds", "с")), default: 45),
             Entry(["auto_record", "silence_stop_minutes"],
                   localised("Stop after silence on both tracks", "Останавливать после тишины на обеих дорожках"),

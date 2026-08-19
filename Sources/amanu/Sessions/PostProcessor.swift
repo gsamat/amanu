@@ -69,10 +69,30 @@ enum PostProcessor {
     /// Order matters and is the whole point: names first, so the summary is
     /// handed "Фёдор" instead of "them" and writes about people rather than
     /// about channels.
+    ///
+    /// Four things call this — the transcription coordinator, the sweep at
+    /// launch and on every network return, the recordings window's button, and
+    /// `amanu process` — and any two of them can be in the same folder at the
+    /// same moment. So it takes the session's claim first, and returns an empty
+    /// `Work` when somebody else has it: these are model calls, and asking the
+    /// same model the same question twice costs money for one answer.
+    ///
+    /// `policy` is here for the same reason `outstanding` has one: a test can
+    /// say which steps it is exercising instead of inheriting whatever the
+    /// machine owner has turned on this week.
     @discardableResult
-    static func finish(_ dir: URL) async -> Work {
-        let work = outstanding(dir)
+    static func finish(_ dir: URL, policy: Policy = .configured) async -> Work {
+        let work = outstanding(dir, policy: policy)
         guard !work.isEmpty else { return work }
+
+        do {
+            try SessionClaim.acquire(dir, stage: .finish)
+        } catch {
+            appendSessionLog("post-processing skipped — \(error)", to: dir)
+            return Work()
+        }
+        defer { SessionClaim.release(dir) }
+
         guard let transcript = readTranscript(dir) else {
             appendSessionLog("post-processing skipped — can't read transcript.json", to: dir)
             return Work()
@@ -150,6 +170,8 @@ enum PostProcessor {
         /// Gone some other way: moved, or cleaned out with the Finder.
         case audioGone
 
+        /// For the terminal, which stays English along with the rest of the
+        /// command line.
         var description: String {
             switch self {
             case .unreadable:
@@ -159,6 +181,28 @@ enum PostProcessor {
                     + "so the transcript is all there is"
             case .audioGone:
                 return "the recording is no longer in the folder"
+            }
+        }
+
+        /// And for the recordings window, which does not. The pair sits on
+        /// one type for the same reason `SessionInventory.Step` carries both
+        /// `label` and `described`: the surfaces differ in language and in
+        /// nothing else, and keeping the two versions a line apart is what
+        /// stops one of them being changed alone.
+        var described: String {
+            switch self {
+            case .unreadable:
+                return localised("its meta.json can't be read", "не читается её meta.json")
+            case .audioDiscarded:
+                return localised(
+                    "the audio was discarded after transcribing — keep_audio is off, "
+                        + "so the transcript is all there is",
+                    "звук выбросили после расшифровки — keep_audio выключен, "
+                        + "и кроме расшифровки ничего не осталось")
+            case .audioGone:
+                return localised(
+                    "the recording is no longer in the folder",
+                    "записи больше нет в папке")
             }
         }
     }
@@ -191,7 +235,60 @@ enum PostProcessor {
         /// The transcript is there; only names and a summary can still be owed.
         case finish
         /// Nothing can be done, and this is what to say about it.
-        case refuse(String)
+        case refuse(Refusal)
+    }
+
+    /// Why nothing can be done, in words rather than in a silence.
+    ///
+    /// A type rather than the sentence itself because both surfaces refuse
+    /// and only one of them is in English: `description` is what `amanu
+    /// process` prints, `described` is what the recordings window puts in an
+    /// alert, and the two are a line apart so that a reason cannot be added
+    /// to one surface alone.
+    enum Refusal: Equatable, CustomStringConvertible {
+        case transcriptionOff
+        case cannotTranscribe(Obstacle)
+        /// Retired without a transcript, carrying the reason it recorded —
+        /// which came from an engine and stays in the language the engine
+        /// said it in.
+        case retired(String)
+
+        var description: String {
+            switch self {
+            case .transcriptionOff:
+                return "Transcription is off in the config, so there is nothing to "
+                    + "transcribe with — set transcription.enabled back to true."
+            case .cannotTranscribe(let obstacle):
+                return "This session can't be transcribed: \(obstacle)."
+            case .retired(let why):
+                return "This session was retired without a transcript: \(why)\n"
+                    + "Transcribe it from its audio anyway with `amanu process --again`."
+            }
+        }
+
+        /// The window names its own button where the command line names its
+        /// own flag: the two say the same thing, and neither sends a person
+        /// looking for the other one.
+        var described: String {
+            switch self {
+            case .transcriptionOff:
+                return localised(
+                    "Transcription is off in the settings, so there is nothing to "
+                        + "transcribe with — turn transcription.enabled back on.",
+                    "Расшифровка выключена в настройках, расшифровывать нечем — "
+                        + "включите transcription.enabled обратно.")
+            case .cannotTranscribe(let obstacle):
+                return localised(
+                    "This recording can't be transcribed: \(obstacle.described).",
+                    "Эту запись не расшифровать: \(obstacle.described).")
+            case .retired(let why):
+                return localised(
+                    "This recording was retired without a transcript: \(why)\n"
+                        + "Re-transcribe makes one from its audio anyway.",
+                    "Эту запись оставили без расшифровки: \(why)\n"
+                        + "Кнопка «Расшифровать заново» всё равно сделает её из звука.")
+            }
+        }
     }
 
     static func plan(
@@ -201,21 +298,15 @@ enum PostProcessor {
     ) -> Plan {
         if item.transcript == .done, !again { return .finish }
 
-        guard transcriptionEnabled else {
-            return .refuse(
-                "Transcription is off in the config, so there is nothing to transcribe with — "
-                + "set transcription.enabled back to true.")
-        }
+        guard transcriptionEnabled else { return .refuse(.transcriptionOff) }
         if let obstacle = obstacleToTranscribing(item.dir) {
-            return .refuse("This session can't be transcribed: \(obstacle).")
+            return .refuse(.cannotTranscribe(obstacle))
         }
         // A retired session gave up for a reason it recorded, and some of
         // those reasons cost money to rediscover. Say what happened and let
         // the person decide, rather than deciding for them.
         if case .failed(let why) = item.transcript, !again {
-            return .refuse(
-                "This session was retired without a transcript: \(why)\n"
-                + "Transcribe it from its audio anyway with `amanu process --again`.")
+            return .refuse(.retired(why))
         }
         return .transcribe(clearingFirst: again)
     }
@@ -226,7 +317,18 @@ enum PostProcessor {
     /// queue treats it as untranscribed at the next scan. The AssemblyAI
     /// response cache is deliberately kept: re-rendering from it is free,
     /// while re-uploading is neither free nor fast.
+    ///
+    /// A session somebody else is working on is left exactly as it is: deleting
+    /// the transcript out from under a run in flight is how a summarizer ends
+    /// up reading a file that no longer exists, and the run it would have
+    /// interrupted is producing the very transcript being asked for.
     static func markForRetranscription(_ dir: URL) {
+        guard !SessionClaim.isHeld(dir) else {
+            appendSessionLog(
+                "not clearing for re-transcription — another amanu has this session", to: dir)
+            return
+        }
+
         let fm = FileManager.default
         for file in ["transcript.json", "transcript.md", SpeakerNames.file] {
             try? fm.removeItem(at: dir.appendingPathComponent(file))

@@ -84,6 +84,68 @@ struct SetupTests {
         #expect(!DoctorReport.canContinueIntoSetup([microphone, recordings]))
     }
 
+    /// A recordings root holding one session that is being recorded right now,
+    /// claimed by this process — which is the only pid a test can be sure is
+    /// still alive when the check runs.
+    private func rootWithLiveRecording(
+        named name: String, startedSecondsAgo: TimeInterval
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-doctor-\(UUID().uuidString)", isDirectory: true)
+        let session = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "started": ISO8601DateFormatter().string(
+                from: Date().addingTimeInterval(-startedSecondsAgo)),
+            "files": ["mic": "mic.caf", "system": "system.caf"],
+            "trigger": "manual",
+        ]).write(to: session.appendingPathComponent(".recording.json"))
+        return root
+    }
+
+    @Test("Doctor says nothing about a recording when there is none")
+    func quietWhenNothingIsRecording() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-doctor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        if case .warn(let message) = DoctorReport.checkLiveRecording(root).status {
+            Issue.record("An idle machine carries a warning nobody can act on: \(message)")
+        }
+    }
+
+    @Test("Doctor names the recording in progress and how long it has run")
+    func liveRecordingIsReported() throws {
+        let root = try rootWithLiveRecording(named: "2026.08.20-1431 Standup",
+                                             startedSecondsAgo: 252)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let check = DoctorReport.checkLiveRecording(root)
+
+        guard case .warn(let message) = check.status else {
+            Issue.record("A live recording must be a warning, not silence.")
+            return
+        }
+        // The folder, so it can be found, and the elapsed time, because
+        // "recording" and "recording for forty minutes" are different news.
+        #expect(message.contains("2026.08.20-1431 Standup"))
+        #expect(message.contains("4:12"))
+        #expect(check.remediation != nil)
+    }
+
+    @Test("A recording in progress never stops amanu from starting")
+    func liveRecordingIsNeverAFailure() throws {
+        let root = try rootWithLiveRecording(named: "2026.08.20-1431", startedSecondsAgo: 60)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // allOK drives `throw ExitCode(1)` in `amanu doctor` and, at startup,
+        // the refusal to launch. A second copy started during a meeting must
+        // report the meeting and then carry on.
+        #expect(DoctorReport.allOK([DoctorReport.checkLiveRecording(root)]))
+    }
+
     @Test("A detected tool's status is visible inside its choice card")
     @MainActor
     func choiceCardShowsStatus() {
@@ -601,6 +663,120 @@ struct SetupTests {
         #expect(stamped() == stamp, "a redraw rewrote the config file with the same bytes")
     }
 
+    /// The click that shipped broken for four releases: turning the local
+    /// engine on downloaded the model and chose nothing.
+    ///
+    /// The download was started first, so that the footer could say what was
+    /// happening from the first second, and starting it redraws the form —
+    /// from a config that still said cloud, which put the switch back off.
+    /// The write that followed read the switch it had just been handed back
+    /// and saved cloud-only: 460 megabytes fetched to serve a setting that
+    /// had been re-chosen against.
+    ///
+    /// It is the case with no model on the disk and no download already
+    /// running, because both of the other cases return before the redraw —
+    /// which is why the second click appeared to work and why nobody with
+    /// the model already downloaded could reproduce it.
+    @Test(
+        "Turning the local engine on chooses it, and then downloads it",
+        .enabled(if: Platform.supportsLocalModels))
+    @MainActor
+    func localSwitchChoosesBeforeItDownloads() throws {
+        let store = TranscriptionStore(engine: "assemblyai")
+        let form = SetupForm()
+        defer { form.stop() }
+        form.storedTranscription = { store.choice }
+        form.write = { store.write($0, $1) }
+        form.parakeetIsHere = { false }
+        form.fetchParakeet = {}
+        form.refresh()
+
+        let local = try Self.toggle("On this Mac", in: form.view)
+        #expect(local.state == .off, "the form did not start from the cloud-only config")
+
+        local.performClick(nil)
+
+        #expect(local.state == .on, "the switch was put back by the redraw its own click caused")
+        #expect(store.engine == nil, "the click wrote \(store.engine ?? "nothing")")
+        #expect(store.enabled)
+        #expect(form.isDownloading, "the model was chosen but never fetched")
+    }
+
+    /// And the second attempt is no longer the one that works. That it did
+    /// was the symptom people described — click, nothing, click again, fine —
+    /// and the reason was only that a download already in flight returns
+    /// before the redraw that undid the first click.
+    @Test(
+        "A click made while the download is running writes what the first one did",
+        .enabled(if: Platform.supportsLocalModels))
+    @MainActor
+    func clickingAgainDuringTheDownloadWritesTheSame() throws {
+        let store = TranscriptionStore(engine: "assemblyai")
+        let form = SetupForm()
+        defer { form.stop() }
+        form.storedTranscription = { store.choice }
+        form.write = { store.write($0, $1) }
+        form.parakeetIsHere = { false }
+        form.fetchParakeet = {}
+        form.refresh()
+
+        let local = try Self.toggle("On this Mac", in: form.view)
+        local.performClick(nil)
+        let first = store.log
+        #expect(form.isDownloading)
+
+        local.performClick(nil)
+        #expect(local.state == .off)
+        store.log = []
+        local.performClick(nil)
+
+        #expect(local.state == .on)
+        #expect(form.isDownloading, "the download stopped when the switch went off and on")
+        #expect(store.log == first, "the same click wrote something different the second time")
+    }
+
+    /// The worse half of the same bug, which nobody reported because the
+    /// window said nothing was wrong: with transcription switched off
+    /// altogether, the redraw handed back two switches that were both off,
+    /// and "neither engine" is written as `enabled: false`. Turning the local
+    /// engine on left transcription off, and the footer went on saying
+    /// everything amanu needs is granted.
+    @Test(
+        "Turning the local engine on from record-only turns transcription back on",
+        .enabled(if: Platform.supportsLocalModels))
+    @MainActor
+    func localSwitchLeavesRecordOnly() throws {
+        let store = TranscriptionStore(enabled: false)
+        let form = SetupForm()
+        defer { form.stop() }
+        form.storedTranscription = { store.choice }
+        form.write = { store.write($0, $1) }
+        form.parakeetIsHere = { false }
+        form.fetchParakeet = {}
+        form.refresh()
+
+        let local = try Self.toggle("On this Mac", in: form.view)
+        #expect(local.state == .off)
+
+        local.performClick(nil)
+
+        #expect(local.state == .on)
+        #expect(store.enabled, "the click rewrote the record-only setting it was leaving")
+        #expect(store.engine == "parakeet")
+    }
+
+    /// A switch in a row built by `SetupLayout.row`: the title label's
+    /// grandparent is the row, and the switch is the first thing in it.
+    @MainActor
+    private static func toggle(_ title: String, in view: NSView) throws -> NSSwitch {
+        let label = try #require(
+            view.allDescendants.compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == title },
+            "no row titled \(title)")
+        let row = try #require(label.superview?.superview as? NSStackView)
+        return try #require(row.arrangedSubviews.compactMap { $0 as? NSSwitch }.first)
+    }
+
     /// The bug itself, in the shape it actually happened in.
     ///
     /// Editing ends when a field loses focus, and a field loses focus for
@@ -793,6 +969,49 @@ struct SetupTests {
 private extension NSView {
     var allDescendants: [NSView] {
         subviews + subviews.flatMap(\.allDescendants)
+    }
+}
+
+/// The transcription section's three settings, in memory.
+///
+/// `Config.update` writes the config file of whoever is running the suite, so
+/// the form's writes went untested — and the ordering bug that made a click
+/// on the local switch save the arrangement it was leaving lived in exactly
+/// that gap. It has to be a store rather than a list of writes because the
+/// section is a loop: a click writes the choice and then redraws the switches
+/// from what it wrote, and a fake that only remembered the writing would have
+/// the form redrawing from somebody's real config file.
+@MainActor
+private final class TranscriptionStore {
+    /// nil is the setting absent from the file, which reads as `auto`.
+    var engine: String?
+    var cloud = "assemblyai"
+    var enabled = true
+    /// Every write, in order, for comparing one click against another.
+    var log: [String] = []
+
+    init(engine: String? = nil, enabled: Bool = true) {
+        self.engine = engine
+        self.enabled = enabled
+    }
+
+    var choice: TranscriptionChoice {
+        TranscriptionChoice.read(
+            engine: engine ?? "auto",
+            cloudProvider: cloud,
+            enabled: enabled,
+            localModels: Platform.supportsLocalModels)
+    }
+
+    /// nil removes the setting, exactly as it does in the file.
+    func write(_ path: [String], _ value: Any?) {
+        log.append(path.joined(separator: ".") + " = " + (value.map { "\($0)" } ?? "nil"))
+        switch path {
+        case ["transcription", "enabled"]: enabled = value as? Bool ?? true
+        case ["transcription", "engine"]: engine = value as? String
+        case ["transcription", "cloud"]: cloud = value as? String ?? "assemblyai"
+        default: Issue.record("the form wrote \(path.joined(separator: ".")), which is not ours")
+        }
     }
 }
 

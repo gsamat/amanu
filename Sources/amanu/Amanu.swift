@@ -125,6 +125,11 @@ struct Run: ParsableCommand {
             MainActor.assumeIsolated { controller.toggleWindow(alreadyActive: alreadyActive) }
         }
         delegate.onTerminate = { MainActor.assumeIsolated { controller.finishForTermination() } }
+        // Asked before the quit rather than after it, which is the whole
+        // difference: onTerminate saves the session, this decides whether the
+        // meeting should be interrupted at all.
+        delegate.quitGate = QuitGate(
+            recordingElapsed: { MainActor.assumeIsolated { controller.recordingElapsed } })
         delegate.onShowSettings = { MainActor.assumeIsolated { controller.showSettings() } }
         delegate.onShowSetup = { MainActor.assumeIsolated { controller.showSetup() } }
         controller.onSetupAvailable = { available in
@@ -216,8 +221,10 @@ struct Run: ParsableCommand {
         updates.target = settingsTarget
         appMenu.addItem(updates)
         appMenu.addItem(.separator())
-        // Quit routes through terminate so applicationWillTerminate runs and
-        // a live recording is closed properly rather than truncated.
+        // Quit routes through terminate so the delegate is asked first — it
+        // stops to ask when a meeting is being recorded — and so
+        // applicationWillTerminate closes a live recording properly rather
+        // than truncating it.
         appMenu.addItem(withTitle: localised("Quit Amanu", "Завершить amanu"),
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
@@ -236,6 +243,32 @@ struct Run: ParsableCommand {
     }
 }
 
+/// Whether ⌘Q may go straight through, asked without AppKit in the room.
+///
+/// The rule is the same one `UpdateGate` holds for Sparkle — a meeting outranks
+/// whatever else the program was asked to do — and it lives in its own type for
+/// the same reason: a modal panel cannot be tested, and the question it asks
+/// can be.
+struct QuitGate {
+    enum Decision: Equatable {
+        case quitNow
+        /// Ask first, and say how long the recording has been running: the
+        /// number is what makes the choice an informed one.
+        case ask(elapsed: TimeInterval)
+    }
+
+    private let recordingElapsed: () -> TimeInterval?
+
+    init(recordingElapsed: @escaping () -> TimeInterval? = { nil }) {
+        self.recordingElapsed = recordingElapsed
+    }
+
+    func decide() -> Decision {
+        guard let elapsed = recordingElapsed() else { return .quitNow }
+        return .ask(elapsed: elapsed)
+    }
+}
+
 /// Dock behaviour. Clicking the icon of a running app sends a reopen, which is
 /// how the window comes back after you close it; and amanu must not quit just
 /// because its only window was closed — it's a recorder, the window is a view
@@ -251,6 +284,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
+    /// Answers whether ⌘Q needs to ask first. The default gate knows of no
+    /// recording, which is the right answer for a delegate nobody wired up.
+    var quitGate = QuitGate()
 
     private var becameActiveAt = Date.distantPast
 
@@ -271,6 +307,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    /// Quitting a recorder mid-meeting is not an ordinary quit. What survives
+    /// is the part people assume is at risk — `applicationWillTerminate` closes
+    /// the session properly and it is transcribed like any other — and what is
+    /// lost is the part nobody thinks about: everything said between this quit
+    /// and the next launch, which cannot be recovered from anywhere. So the
+    /// alert leads with the elapsed time and then says exactly that (.issues/005,
+    /// where a quit during a call cost three minutes of it).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard case .ask(let elapsed) = quitGate.decide() else { return .terminateNow }
+
+        let running = AppController.format(elapsed)
+        let alert = NSAlert()
+        alert.messageText = localised(
+            "Quit while a recording is running? It has been going for \(running).",
+            "Выйти во время записи? Она идёт уже \(running).")
+        alert.informativeText = localised(
+            """
+            Quitting stops the recording and saves it — nothing recorded so far is lost, \
+            and it will be transcribed like any other session. But nothing is recorded \
+            after this until amanu runs again.
+            """,
+            """
+            При выходе запись остановится и сохранится — записанное не пропадёт \
+            и будет расшифровано, как любая другая сессия. Но дальше, до следующего \
+            запуска amanu, ничего записываться не будет.
+            """)
+        alert.addButton(withTitle: localised(
+            "Quit and save the recording", "Выйти и сохранить запись"))
+        alert.addButton(withTitle: localised("Keep recording", "Продолжить запись"))
+        return alert.runModal() == .alertFirstButtonReturn ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -315,12 +383,12 @@ final class AppController {
     /// all of its life recording rather than being configured.
     private lazy var settings: SettingsWindow = {
         let window = SettingsWindow()
-        window.isRecording = { [weak self] in self?.session != nil }
+        window.isRecording = { [weak self] in self?.isRecording == true }
         return window
     }()
     private lazy var setupWindow: SetupWindow = {
         let setup = SetupWindow()
-        setup.isRecording = { [weak self] in self?.session != nil }
+        setup.isRecording = { [weak self] in self?.isRecording == true }
         setup.onFinished = { [weak self] in
             self?.startAutomaticFeatures(requestCalendarAccess: false)
             self?.offerSetup()
@@ -331,13 +399,24 @@ final class AppController {
     /// the same reason the windows are: most of amanu's life is spent
     /// recording, and the updater is only ever touched from a menu or a timer.
     private lazy var updates = AppUpdates(
-        gate: UpdateGate(isRecording: { [weak self] in self?.session != nil })
+        gate: UpdateGate(isRecording: { [weak self] in self?.isRecording == true })
     )
     private let transcription = TranscriptionCoordinator()
     private let liveTranscription = LiveTranscriptionCoordinator()
     private let calendar: CalendarWatcher?
     private let autoRecord: AutoRecordController
     private var session: RecordingSession?
+    /// Whether a meeting is being recorded. The session itself stays private —
+    /// four things need this one fact about it (the settings form, the setup
+    /// form, the update gate, and the quit alert) and none of them need the
+    /// session.
+    var isRecording: Bool { session != nil }
+    /// How long the current recording has been running, or nil when there is
+    /// none. Both facts in one answer, because whoever is about to be
+    /// interrupted needs the number and not just the yes.
+    var recordingElapsed: TimeInterval? {
+        session.map { Date().timeIntervalSince($0.startedAt) }
+    }
     private var ticker: Timer?
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
@@ -641,20 +720,21 @@ final class AppController {
         updates.recordingDidFinish()
 
         // A mic that opened for a few seconds was never a meeting. Throwing
-        // these away is what keeps the recordings folder worth opening —
-        // but only ever for recordings we started ourselves, and only when the
-        // recording ended because the meeting did.
-        //
-        // "app-quit" and "max-duration" say nothing about whether this was a
-        // real meeting: they mean we stopped it. Discarding on those threw
-        // away the first fifteen seconds of a genuine call that happened to
-        // start while amanu was being reinstalled (2026.08.18).
-        let endedByItself = ["call-ended", "silence", "calendar-event-ended"].contains(reason)
-        let minimum = Config.autoRecord().minDuration
-        if session.trigger != .manual, endedByItself, duration < minimum {
+        // these away is what keeps the recordings folder worth opening — but
+        // only ever for recordings we started ourselves, and only when the
+        // recording ended because the meeting did. The rule itself lives on
+        // AutoRecordController, which is the type that knows how long each
+        // way of ending waits before it fires; what is left of the recording
+        // once that wait is taken out is what gets compared.
+        let settings = Config.autoRecord()
+        if AutoRecordController.shouldDiscard(
+            trigger: session.trigger, reason: reason, duration: duration, settings: settings) {
+            let meeting = duration
+                - (AutoRecordController.trailingQuiet(for: reason, settings: settings) ?? 0)
             FileHandle.standardError.write(Data(
-                ("discarded \(session.dir.lastPathComponent): \(Int(duration))s "
-                    + "is under the \(Int(minimum))s minimum for an automatic recording\n").utf8
+                ("discarded \(session.dir.lastPathComponent): \(Int(meeting))s of meeting in "
+                    + "\(Int(duration))s of recording is under the \(Int(settings.minDuration))s "
+                    + "minimum for an automatic recording\n").utf8
             ))
             session.discard()
             Task { [liveTranscription] in await liveTranscription.finishRecording() }
@@ -796,7 +876,10 @@ final class AppController {
         recordings.show()
     }
 
-    private static func format(_ interval: TimeInterval) -> String {
+    /// The elapsed time as the status window shows it. Not private and not
+    /// isolated because `amanu doctor` prints the same number from a command
+    /// that never touches AppKit, and one shape for it is the point.
+    nonisolated static func format(_ interval: TimeInterval) -> String {
         let total = Int(interval)
         let h = total / 3600, m = (total % 3600) / 60, s = total % 60
         return h > 0

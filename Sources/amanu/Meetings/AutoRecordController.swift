@@ -58,6 +58,11 @@ final class AutoRecordController {
     /// After a manual stop, don't immediately re-arm — the call is usually
     /// still open, and the user just said they didn't want it recorded.
     private static let manualStopCooldown: TimeInterval = 15 * 60
+    /// How long the far end must have been quiet before a finished calendar
+    /// event may end the recording. Named rather than written twice, because
+    /// the discard rule below has to subtract exactly this number and a pair
+    /// of literals drifts apart the first time one of them is tuned.
+    nonisolated static let calendarEndQuiet: TimeInterval = 60
 
     init(settings: Config.AutoRecordSettings, calendar: CalendarWatcher?) {
         self.enabled = settings.enabled
@@ -226,7 +231,7 @@ final class AutoRecordController {
         // gone quiet: three agreeing signals, stop without waiting out the
         // full idle delay.
         if let end = currentEventEnd, now > end.addingTimeInterval(120),
-           !mic.active, farEndQuietFor > 60 {
+           !mic.active, farEndQuietFor > Self.calendarEndQuiet {
             lastDecision = localised(
                 "stopped — calendar event ended", "остановила — событие календаря кончилось")
             stopRecording?("calendar-event-ended")
@@ -245,5 +250,59 @@ final class AutoRecordController {
             : localised(
                 "quiet for \(Int(min(micIdleFor, farEndQuietFor)))s",
                 "тихо уже \(Int(min(micIdleFor, farEndQuietFor))) с")
+    }
+
+    // MARK: - discard
+
+    /// The quiet an automatic recording had to sit through before this reason
+    /// could fire. None of it was the meeting: `call-ended` means nobody
+    /// touched the microphone for `stopDelay`, `silence` means neither track
+    /// made a sound for `silenceStop`, and `calendar-event-ended` means the
+    /// far end was quiet for `calendarEndQuiet` after the event was over.
+    ///
+    /// `nil` for every other reason, because the others say nothing about
+    /// whether a meeting happened: "app-quit" and "max-duration" mean we
+    /// stopped it, not that it ended. Treating those as evidence threw away
+    /// the first fifteen seconds of a genuine call that happened to start
+    /// while amanu was being reinstalled (2026.08.18).
+    nonisolated static func trailingQuiet(
+        for reason: String, settings: Config.AutoRecordSettings
+    ) -> TimeInterval? {
+        switch reason {
+        case "call-ended": return settings.stopDelay
+        case "silence": return settings.silenceStop
+        case "calendar-event-ended": return calendarEndQuiet
+        default: return nil
+        }
+    }
+
+    /// Whether a finished recording was too short to have been a meeting.
+    ///
+    /// The length compared against `minDuration` is the meeting's, not the
+    /// file's: the recording keeps running for as long as the stop rule waits,
+    /// and the wait is a property of the rule rather than of the call. Left in
+    /// terms of the file, the comparison could never be true — the shortest
+    /// automatic recording that can exist is longer than the shortest wait
+    /// that can end one — so the discard shipped unreachable and every
+    /// nineteen-second join was kept (`.issues/008`).
+    ///
+    /// Measuring from the recording's start still under-counts the meeting by
+    /// the `startDelay` of pre-roll that had already passed before we started,
+    /// which errs a little towards throwing away — the direction the setting
+    /// exists for.
+    ///
+    /// A parameter rather than a `Config.autoRecord()` call inside, and a free
+    /// function rather than four lines inside the closure that stops a
+    /// session, because a rule nothing can call is a rule nothing can check.
+    nonisolated static func shouldDiscard(
+        trigger: RecordingSession.Trigger,
+        reason: String,
+        duration: TimeInterval,
+        settings: Config.AutoRecordSettings
+    ) -> Bool {
+        // If you pressed the button, only you decide what it was worth.
+        guard trigger != .manual else { return false }
+        guard let quiet = trailingQuiet(for: reason, settings: settings) else { return false }
+        return duration - quiet < settings.minDuration
     }
 }

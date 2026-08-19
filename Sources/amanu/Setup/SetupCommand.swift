@@ -10,6 +10,15 @@ struct Setup: ParsableCommand {
     )
 
     func run() throws {
+        // This command reaches into the running copy, and on the machine that
+        // also records the meetings that copy may be recording one right now.
+        // Doctor's line, printed here rather than a second wording of it,
+        // because opening a window over a live session is one of the things
+        // people do without knowing (.issues/005). The check never fails, so
+        // nothing here can stop setup from opening.
+        let recording = DoctorReport.checkLiveRecording(Config.resolveRoot(cliOverride: nil))
+        if case .warn = recording.status { DoctorReport.print([recording]) }
+
         SetupState.reset()
 
         let reachedRunningApp = MainActor.assumeIsolated {

@@ -21,8 +21,19 @@ actor AssemblyAIEngine: TranscriptionEngine {
         /// Only "there was no speech in this audio" is permanent: a silent
         /// recording will still be silent tomorrow. Everything else here —
         /// a missing key, an HTTP error, a timeout — is worth another go.
+        ///
+        /// The server can reach that same verdict before we do, and when it
+        /// does it is worth exactly as much as our own: a nineteen-second join
+        /// with nobody speaking comes back as `language_detection cannot be
+        /// performed on files with no spoken audio`, and retried it uploads
+        /// and pays for the same silence twice more before the queue gives up.
+        /// The match is deliberately narrow — every other transcript error is
+        /// something that happened to the request, not to the audio.
         var isPermanent: Bool {
             if case .empty = self { return true }
+            if case .transcriptFailed(let message) = self {
+                return message.lowercased().contains("no spoken audio")
+            }
             return false
         }
 

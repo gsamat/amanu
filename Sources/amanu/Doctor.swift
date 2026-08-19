@@ -17,6 +17,10 @@ struct Check {
 enum DoctorReport {
     static func run(recordingsRoot: URL) -> [Check] {
         [
+            // First because it is the one line that changes what the reader
+            // should do next: everything else describes how the next meeting
+            // will go, this one says a meeting is being recorded now.
+            checkLiveRecording(recordingsRoot),
             checkMicrophone(),
             checkSystemAudio(),
             checkRecordingsRoot(recordingsRoot),
@@ -34,6 +38,51 @@ enum DoctorReport {
             if case .fail = check.status { return check.name != "microphone" }
             return false
         }
+    }
+
+    /// Whether a recording is underway, which is invisible from everywhere
+    /// anyone looks before quitting, replacing or reinstalling amanu
+    /// (.issues/005 — a quit during a call cost three minutes of it). The
+    /// in-progress manifest is the only honest answer on disk: `meta.json`,
+    /// which `amanu sessions` reads, is written when the recording stops.
+    ///
+    /// Always a warning, never a failure. `allOK` decides whether `amanu
+    /// doctor` exits non-zero and whether startup refuses to continue, and a
+    /// recording in progress must not stop a second copy from starting — the
+    /// person running it is the one who needs to be told.
+    static func checkLiveRecording(_ root: URL) -> Check {
+        let underway = RecordingSession.inProgress(root: root)
+        let now = Date()
+
+        let live = underway.filter(\.ownerIsAlive)
+        if !live.isEmpty {
+            let listed = live.map { session -> String in
+                let name = session.dir.lastPathComponent
+                guard let started = session.started else { return "\(name) (started when unknown)" }
+                return "\(name) (\(AppController.format(now.timeIntervalSince(started))))"
+            }
+            return Check(
+                name: "recording",
+                status: .warn("in progress — " + listed.joined(separator: ", ")),
+                remediation: "stop it in amanu before quitting or replacing the app: the session "
+                    + "is saved either way, but nothing is recorded until amanu runs again"
+            )
+        }
+
+        // A manifest whose owner is gone is a crashed session, not a live one.
+        // Saying so is worth a line: the audio is intact and the next launch
+        // adopts it, which is not obvious from a folder with no transcript.
+        guard underway.isEmpty else {
+            let names = underway.map(\.dir.lastPathComponent).joined(separator: ", ")
+            return Check(
+                name: "recording",
+                status: .warn("interrupted and not yet recovered — " + names),
+                remediation: "start amanu: the next launch writes the meta.json that crash left "
+                    + "unwritten and transcribes the audio"
+            )
+        }
+
+        return Check(name: "recording", status: .ok, remediation: nil)
     }
 
     /// Says out loud what amanu will do on its own, because the surprising

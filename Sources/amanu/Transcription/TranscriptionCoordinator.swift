@@ -65,18 +65,7 @@ actor TranscriptionCoordinator {
     /// oldest-first is a name sort.
     func resumePending(root: URL) {
         guard Config.transcriptionEnabled() else { return }
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: root, includingPropertiesForKeys: nil
-        ) else { return }
-
-        let fm = FileManager.default
-        let pending = entries
-            .filter {
-                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
-                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
-                    && !Self.hasGivenUp(on: $0)
-            }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let pending = Self.pendingSessions(in: root)
         for dir in pending where !queue.contains(dir) {
             queue.append(dir)
         }
@@ -86,6 +75,32 @@ actor TranscriptionCoordinator {
             ))
         }
         drainIfIdle()
+    }
+
+    /// The folders `resumePending` would take, as a plain question about a
+    /// directory: which sessions have ended, have no transcript, have not been
+    /// retired, and are not being worked on by somebody else. Separate from the
+    /// queueing so the answer can be checked without a coordinator running a
+    /// drain over real audio.
+    static func pendingSessions(in root: URL) -> [URL] {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: nil
+        ) else { return [] }
+
+        let fm = FileManager.default
+        return entries
+            .filter {
+                fm.fileExists(atPath: $0.appendingPathComponent("meta.json").path)
+                    && !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+                    && !hasGivenUp(on: $0)
+                    // A session another process is already transcribing is not
+                    // pending, it is in progress somewhere else. Queueing it
+                    // would be refused at the claim anyway; leaving it out is
+                    // what stops the menu bar counting somebody else's work as
+                    // its own backlog.
+                    && !SessionClaim.isHeld($0)
+            }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
     // MARK: -
@@ -103,6 +118,13 @@ actor TranscriptionCoordinator {
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
                 try await transcribeAndAnnounce(dir)
+            } catch let busy as SessionClaim.Busy {
+                // Not a failure of this session — a collision with another
+                // process that has it. Counting it would retire a perfectly
+                // good recording after three unlucky launches, so the folder is
+                // simply left where it is: the filesystem is the queue, and the
+                // next `resumePending` offers it again once the owner is done.
+                log(dir, "\(busy)")
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
@@ -128,6 +150,13 @@ actor TranscriptionCoordinator {
     func transcribeNow(_ dir: URL) async throws {
         do {
             try await transcribeAndAnnounce(dir)
+        } catch let busy as SessionClaim.Busy {
+            // The app has this session. Nothing failed, so nothing is recorded
+            // against it — the person gets the sentence and the folder is left
+            // exactly as the process that owns it expects to find it.
+            log(dir, "\(busy)")
+            await releaseEngine()
+            throw busy
         } catch {
             log(dir, "transcription failed: \(error)")
             recordFailure(error, for: dir)
@@ -156,6 +185,15 @@ actor TranscriptionCoordinator {
             try await engine?.prepare()
             try await transcribe(dir)
         }
+        // After the transcript, never instead of it: transcript.json is the
+        // completion marker, so anything that runs before it risks retiring a
+        // session that has no transcript. Naming and summarizing both just log
+        // when they can't run, and are picked up again by a later sweep.
+        //
+        // Outside `transcribe` rather than at the end of it because both take
+        // the session's claim, and a claim held while asking for a second one
+        // would refuse itself.
+        await PostProcessor.finish(dir)
         notifyUser(
             title: localised("amanu — transcript ready", "amanu — расшифровка готова"),
             body: dir.lastPathComponent,
@@ -232,6 +270,15 @@ actor TranscriptionCoordinator {
     }
 
     private func transcribe(_ dir: URL) async throws {
+        // The one place both routes into transcription meet: the app draining
+        // its queue and `amanu process` given a folder by hand. Claiming here,
+        // before an engine is prepared and long before anything is uploaded,
+        // is what keeps two processes from paying twice for one recording.
+        // Released in the `defer` so the throw and the local-engine retry give
+        // the folder back as surely as the success does.
+        try SessionClaim.acquire(dir, stage: .transcribe)
+        defer { SessionClaim.release(dir) }
+
         let meta = try SessionMeta.read(from: dir)
         let engine = try await preparedEngine()
 
@@ -277,12 +324,6 @@ actor TranscriptionCoordinator {
         // the gigabyte wait for a model it isn't going to be shown to would be
         // paying twice for nothing.
         TrackCompressor.settle(sessionDir: dir)
-
-        // After the transcript, never instead of it: transcript.json is the
-        // completion marker, so anything that runs before it risks retiring a
-        // session that has no transcript. Naming and summarizing both just log
-        // when they can't run, and are picked up again by a later sweep.
-        await PostProcessor.finish(dir)
     }
 
     /// One pass per track, speaker taken from the track itself.

@@ -293,15 +293,95 @@ final class RecordingsWindow: NSObject {
         reload()
     }
 
+    /// What Finish processing does about one recording.
+    enum Decision: Equatable {
+        /// A transcript exists and something after it is still owed.
+        case finish
+        /// No transcript, but audio to make one from.
+        case transcribe(clearingFirst: Bool)
+        /// Nothing can be done, and this is the sentence that says why.
+        case refuse(String)
+        /// Everything that could be done has been.
+        case nothingOwed
+    }
+
+    /// Which of those it is, decided before anything is run or shown.
+    ///
+    /// Through `PostProcessor.plan` rather than around it: a button that
+    /// reached its own conclusion about a folder is the bug this replaces —
+    /// for a settled recording with no transcript this one used to run the
+    /// post-processing that needs one, get nothing back, and say nothing
+    /// about it. What is left here is the part the window owns, which is
+    /// which of the plans it can carry out and in whose language it answers.
+    /// A function of its own because `runModal` blocks, and because a
+    /// sentence nothing can call is a sentence nothing can check.
+    static func decision(
+        for item: SessionInventory.Item,
+        policy: PostProcessor.Policy = .configured,
+        transcriptionEnabled: Bool = Config.transcriptionEnabled()
+    ) -> Decision {
+        switch PostProcessor.plan(for: item, transcriptionEnabled: transcriptionEnabled) {
+        case .refuse(let why):
+            return .refuse(why.described)
+        case .transcribe(let clearingFirst):
+            return .transcribe(clearingFirst: clearingFirst)
+        case .finish:
+            return PostProcessor.outstanding(item.dir, policy: policy).isEmpty
+                ? .nothingOwed
+                : .finish
+        }
+    }
+
+    /// Said when the button was pressed and there was nothing to press it
+    /// for. A property of its own because two places say it — the decision
+    /// made before the work, and the work coming back empty afterwards — and
+    /// they must say the same thing.
+    static var nothingOwedLine: String {
+        localised(
+            "Everything that can be done here is already done.",
+            "Всё, что можно было сделать, уже сделано.")
+    }
+
     @objc private func finishClicked() {
         guard let item = selected else { return }
-        working = true
-        updateButtons()
-        Task {
-            await PostProcessor.finish(item.dir)
-            working = false
+        switch Self.decision(for: item) {
+        case .refuse(let why):
+            say(why, about: item)
+
+        case .nothingOwed:
+            say(Self.nothingOwedLine, about: item)
+
+        // Asked without a confirmation, unlike Re-transcribe: there is no
+        // transcript here for the work to throw away.
+        case .transcribe(let clearingFirst):
+            if clearingFirst { PostProcessor.markForRetranscription(item.dir) }
+            onRetranscribe?(item.dir)
             reload()
+
+        case .finish:
+            working = true
+            updateButtons()
+            Task {
+                let work = await PostProcessor.finish(item.dir)
+                working = false
+                reload()
+                // Empty after all means the transcript could not be read —
+                // the one thing the decision above cannot see. The command
+                // line answers that the same way, and the session log has
+                // the detail either way.
+                if work.isEmpty { say(Self.nothingOwedLine, about: item) }
+            }
         }
+    }
+
+    /// An answer with nothing to decide: the recording it is about, and one
+    /// sentence saying what happened to it.
+    private func say(_ sentence: String, about item: SessionInventory.Item) {
+        let alert = NSAlert()
+        alert.messageText = item.title ?? item.name
+        alert.informativeText = sentence
+        alert.addButton(withTitle: localised("OK", "Ладно"))
+        alert.runModal()
     }
 
     /// Re-transcribing throws away a transcript that already exists, so it
