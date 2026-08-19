@@ -548,11 +548,15 @@ permission rows, the same switches for what transcribes and cards for who
 does, the same folder and language and automatic recording. It reports what it
 finds on the machine — whether a grant exists, whether the local model is
 downloaded, whether `claude` and `codex` answer when run — and nothing in it
-was ever meant to be changeable only on the day amanu was installed. The
-first run opens the same form with a wizard around it: a footer naming what is
-still outstanding, and one button that does the next thing that has to happen.
-That window is gone from the menus once it has been through; `amanu setup`
-reopens it, and `amanu doctor` answers the same question in a terminal.
+was ever meant to be changeable only on the day amanu was installed. Under the
+tab is the one line the wizard says above its buttons — *Everything amanu
+needs is granted*, or what is still outstanding — because the tab is as often
+opened to be reassured as to repair something.
+
+The first run opens the same form with a wizard around it: that line, and one
+button that does the next thing that has to happen. That window is gone from
+the menus once it has been through; `amanu setup` reopens it, and `amanu
+doctor` answers the same question in a terminal.
 
 Both windows can be open at once, and either can be typed into: every window
 showing a setting reads the file again when anything writes it, so the one you

@@ -1188,6 +1188,27 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         return left
     }
 
+    /// The same list in a sentence, for whatever is showing it.
+    ///
+    /// Both windows say this, so both say it the same way: the setup window
+    /// in its footer, the settings window under the Setup tab. It says the
+    /// good news as well as the bad, because most of the time somebody opens
+    /// that tab to be reassured rather than to repair anything, and a line
+    /// that only ever appears when something is wrong leaves them counting
+    /// green ticks to find out whether it is.
+    var outstandingSentence: String { Self.sentence(for: outstanding) }
+
+    /// Separate from the machine, and `nonisolated` to say so: it reads no
+    /// permission and no file, which is what lets the three shapes of it be
+    /// tested without granting or revoking anything.
+    nonisolated static func sentence(for outstanding: [String]) -> String {
+        switch outstanding.count {
+        case 0: return "Everything amanu needs is granted."
+        case 1: return "One thing left: \(outstanding[0])"
+        default: return "Left: \(outstanding.joined(separator: ", "))"
+        }
+    }
+
     /// Whether a model is coming down right now — the work a host must not
     /// offer to start a second time.
     var isDownloading: Bool { liveDownloading || parakeetProgress != nil }

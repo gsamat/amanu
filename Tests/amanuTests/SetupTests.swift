@@ -559,6 +559,52 @@ struct SetupTests {
         }
     }
 
+    /// The wizard answers "what is left?" in one line above its buttons. The
+    /// settings tab shows the same form and used to answer it only by being
+    /// read row by row — so the line moved to where the form is, both times.
+    @Test("The Setup tab says what is outstanding, in the wizard's own words")
+    @MainActor
+    func setupTabCarriesTheOutstandingLine() throws {
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime(settings) {} }
+
+        #expect(settings.outstandingLine == SetupForm().outstandingSentence)
+        #expect(!settings.outstandingLine.isEmpty)
+    }
+
+    /// And it has to follow. A grant given in this very window, a switch
+    /// thrown in the other one, a model that finished downloading — the form
+    /// redraws for all of them, and a line that does not redraw with it is
+    /// the same defect one level up.
+    @Test("The outstanding line is redrawn whenever the form is")
+    @MainActor
+    func outstandingLineFollowsTheForm() throws {
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime(settings) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu settings" })
+
+        let truth = settings.outstandingLine
+        let label = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == truth })
+        label.stringValue = "something that is not true"
+
+        NotificationCenter.default.post(name: Config.didChange, object: nil)
+
+        #expect(settings.outstandingLine == truth)
+    }
+
+    /// Both halves of the sentence matter. Somebody opens that tab to be
+    /// reassured at least as often as to repair something, and a line that
+    /// only appears when something is wrong leaves them counting green ticks.
+    @Test("The sentence says the good news as well as the bad")
+    func outstandingSentenceShapes() {
+        #expect(SetupForm.sentence(for: []) == "Everything amanu needs is granted.")
+        #expect(SetupForm.sentence(for: ["microphone"]) == "One thing left: microphone")
+        #expect(SetupForm.sentence(for: ["microphone", "system audio"])
+            == "Left: microphone, system audio")
+    }
+
     @Test("The Claude card keeps the automatic fallback chain")
     func summaryChoiceMapping() {
         #expect(SetupSelection.summaryBackend(

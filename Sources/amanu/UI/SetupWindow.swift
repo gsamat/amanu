@@ -123,13 +123,7 @@ final class SetupWindow: NSObject, NSWindowDelegate {
     /// The one line above the buttons, and what the button itself says. Both
     /// are the form's answers — this only arranges them.
     private func updateFooter() {
-        let outstanding = form.outstanding
-        footerNote.stringValue = outstanding.isEmpty
-            ? "Everything amanu needs is granted."
-            : (outstanding.count == 1
-                ? "One thing left: \(outstanding[0])"
-                : "Left: \(outstanding.joined(separator: ", "))")
-
+        footerNote.stringValue = form.outstandingSentence
         primary.title = form.nextActionTitle
         primary.isEnabled = !form.isDownloading
     }
