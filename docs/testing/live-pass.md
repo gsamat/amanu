@@ -15,12 +15,20 @@ a failing test first. That is the argument for this page.
 **Check that nothing is being recorded**, like this:
 
 ```sh
+amanu doctor | head -2
 ls ~/Recordings/*/.recording.json
 ```
 
 A session being recorded holds that file, with the owning pid and the moment it
 started; it is written at the start and removed at the end. Nothing printed
 means nothing is recording.
+
+`amanu doctor` reads the same file and says so in its first line — `! recording:
+in progress — 2026.08.20-1431 Standup (4:12)`, or `✓ recording: ok` when there
+is nothing. A manifest whose owning process is gone is reported differently
+again, as a crashed session the next launch will adopt. The `ls` is still worth
+knowing: it works when the copy you are about to replace is not the one on your
+PATH.
 
 Do **not** use `amanu sessions` for this. It does not list a recording in
 progress at all — `SessionInventory` filters on `meta.json`, which is only
@@ -208,7 +216,9 @@ arch -x86_64 /Applications/Amanu.app/Contents/MacOS/Amanu doctor
 ```
 
 The Intel slice should report the cloud engine, because the local models are
-refused there. Both should agree with what the windows say.
+refused there. Both should agree with what the windows say. The first line is
+about a recording in progress and reads `✓ recording: ok` when there is none;
+`amanu setup` prints the same line, and only when it is not ok.
 
 **D4 — The command line is English.** Deliberately: it ends up in bug reports
 and half of it is the names of things. Confirm it stays English even with the

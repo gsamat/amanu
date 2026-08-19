@@ -84,6 +84,68 @@ struct SetupTests {
         #expect(!DoctorReport.canContinueIntoSetup([microphone, recordings]))
     }
 
+    /// A recordings root holding one session that is being recorded right now,
+    /// claimed by this process — which is the only pid a test can be sure is
+    /// still alive when the check runs.
+    private func rootWithLiveRecording(
+        named name: String, startedSecondsAgo: TimeInterval
+    ) throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-doctor-\(UUID().uuidString)", isDirectory: true)
+        let session = root.appendingPathComponent(name, isDirectory: true)
+        try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "started": ISO8601DateFormatter().string(
+                from: Date().addingTimeInterval(-startedSecondsAgo)),
+            "files": ["mic": "mic.caf", "system": "system.caf"],
+            "trigger": "manual",
+        ]).write(to: session.appendingPathComponent(".recording.json"))
+        return root
+    }
+
+    @Test("Doctor says nothing about a recording when there is none")
+    func quietWhenNothingIsRecording() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-doctor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        if case .warn(let message) = DoctorReport.checkLiveRecording(root).status {
+            Issue.record("An idle machine carries a warning nobody can act on: \(message)")
+        }
+    }
+
+    @Test("Doctor names the recording in progress and how long it has run")
+    func liveRecordingIsReported() throws {
+        let root = try rootWithLiveRecording(named: "2026.08.20-1431 Standup",
+                                             startedSecondsAgo: 252)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let check = DoctorReport.checkLiveRecording(root)
+
+        guard case .warn(let message) = check.status else {
+            Issue.record("A live recording must be a warning, not silence.")
+            return
+        }
+        // The folder, so it can be found, and the elapsed time, because
+        // "recording" and "recording for forty minutes" are different news.
+        #expect(message.contains("2026.08.20-1431 Standup"))
+        #expect(message.contains("4:12"))
+        #expect(check.remediation != nil)
+    }
+
+    @Test("A recording in progress never stops amanu from starting")
+    func liveRecordingIsNeverAFailure() throws {
+        let root = try rootWithLiveRecording(named: "2026.08.20-1431", startedSecondsAgo: 60)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // allOK drives `throw ExitCode(1)` in `amanu doctor` and, at startup,
+        // the refusal to launch. A second copy started during a meeting must
+        // report the meeting and then carry on.
+        #expect(DoctorReport.allOK([DoctorReport.checkLiveRecording(root)]))
+    }
+
     @Test("A detected tool's status is visible inside its choice card")
     @MainActor
     func choiceCardShowsStatus() {

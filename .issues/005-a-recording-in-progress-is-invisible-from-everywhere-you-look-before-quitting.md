@@ -1,7 +1,7 @@
 ---
 title: "A recording in progress is invisible from everywhere anyone looks before quitting amanu"
 date: 2026-08-19
-status: open
+status: done
 affects: "anyone testing a build on the machine that also records the meetings"
 ---
 
@@ -102,3 +102,29 @@ which is the whole difficulty restated.
 Whatever fixes this has to make the answer available where the decision is
 made — a line in `amanu doctor`, an exit status, anything a person about to
 type `rm -rf /Applications/Amanu.app` would see without having gone looking.
+
+## What was done
+
+Fixed on 20 August 2026, in both the shapes this note asked for.
+
+`amanu doctor` now answers first, from `.recording.json` — the marker the
+correction above identified as the honest one. `RecordingSession.inProgress(root:)`
+reads it, using the `kill(pid, 0)` liveness test `recoverInterrupted` already
+uses and carrying the same caveat about recycled pids, which here errs toward a
+false warning rather than a missed one. The check is `.warn`, never `.fail`,
+because `allOK` drives `ExitCode(1)` at startup and a meeting in progress must
+not stop amanu from launching. A crashed session that has not been recovered
+gets its own line rather than being counted as live or passed over in silence.
+`amanu setup` prints the same line, from the same check, before it does anything
+else.
+
+Quitting now asks. `QuitGate` — shaped after `UpdateGate`, which was already the
+project's example of a "do not disturb a recording" rule kept apart from its
+UI — turns ⌘Q into a question carrying how long the recording has been going,
+and the alert says the part that makes the answer safe: the session is saved
+either way, and nothing is recorded until amanu runs again. `AppController` grew
+a named `isRecording` that the settings form, the setup form and the update gate
+now share instead of four separate tests for a nil session.
+
+Eleven tests. The modal itself is a manual step, C10 in
+`docs/testing/live-pass.md`, whose opening check now leads with `amanu doctor`.

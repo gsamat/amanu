@@ -3,30 +3,33 @@ import Testing
 
 @testable import amanu
 
-/// Crash recovery: a session interrupted by a crash, a kill, or a flat battery
-/// must come back through the normal transcription queue on the next launch.
-/// The CAF files survive on their own — what was missing was anything that
-/// pointed at them.
+/// The in-progress manifest, from both ends: crash recovery adopts a session
+/// interrupted by a crash, a kill or a flat battery so it comes back through
+/// the normal transcription queue on the next launch — the CAF files survive on
+/// their own, what was missing was anything that pointed at them — and the same
+/// file is the only thing on disk that can say a recording is happening now.
 @MainActor
 struct RecordingRecoveryTests {
     /// A recordings root containing one session folder with an in-progress
-    /// manifest, and audio of `bytes` in each track.
+    /// manifest, and audio of `bytes` in each track. Pass `into` to put a
+    /// second session beside an existing one in the same root.
     private func makeInterruptedSession(
         pid: Int32,
         bytes: Int = 4096,
         started: Date = Date().addingTimeInterval(-600),
         title: String? = nil,
-        environment: (root: URL, session: URL)? = nil
+        name: String = "2026.08.17-1200",
+        into existingRoot: URL? = nil
     ) throws -> (root: URL, session: URL) {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory
+        let root = existingRoot ?? fm.temporaryDirectory
             .appendingPathComponent("amanu-\(UUID().uuidString)", isDirectory: true)
-        let session = root.appendingPathComponent("2026.08.17-1200", isDirectory: true)
+        let session = root.appendingPathComponent(name, isDirectory: true)
         try fm.createDirectory(at: session, withIntermediateDirectories: true)
 
-        for name in ["mic.caf", "system.caf"] {
+        for track in ["mic.caf", "system.caf"] {
             try Data(repeating: 0x41, count: bytes)
-                .write(to: session.appendingPathComponent(name))
+                .write(to: session.appendingPathComponent(track))
         }
 
         var manifest: [String: Any] = [
@@ -134,5 +137,83 @@ struct RecordingRecoveryTests {
         #expect(FileManager.default.fileExists(
             atPath: session.appendingPathComponent(".recording.json").path
         ) == false)
+    }
+
+    // MARK: - what is being recorded right now
+
+    @Test("A recording in progress is reported with its pid and start time")
+    func liveRecordingIsReported() throws {
+        // Our own PID stands in for the amanu that is recording; nothing else
+        // on the machine can be relied upon to be alive for the length of a
+        // test.
+        let own = ProcessInfo.processInfo.processIdentifier
+        let started = Date().addingTimeInterval(-252)
+        let (root, session) = try makeInterruptedSession(pid: own, started: started)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let underway = RecordingSession.inProgress(root: root)
+
+        #expect(underway.count == 1)
+        #expect(underway.first?.dir.lastPathComponent == session.lastPathComponent)
+        #expect(underway.first?.pid == own)
+        #expect(underway.first?.ownerIsAlive == true)
+        let reported = try #require(underway.first?.started)
+        #expect(abs(reported.timeIntervalSince(started)) < 1)
+    }
+
+    @Test("A manifest whose owner is gone is reported as stale, not as live")
+    func deadOwnerIsNotALiveRecording() throws {
+        let (root, _) = try makeInterruptedSession(pid: 999_999)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let underway = RecordingSession.inProgress(root: root)
+
+        // Still reported — the folder is a crashed session waiting for the
+        // next launch, and saying nothing about it would be the same silence
+        // that made this worth checking. Just not as something being recorded.
+        #expect(underway.count == 1)
+        #expect(underway.first?.ownerIsAlive == false)
+    }
+
+    @Test("A finished session that kept its manifest is not a recording")
+    func manifestBesideMetaIsNotARecording() throws {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let (root, session) = try makeInterruptedSession(pid: own)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A clean stop that wrote meta.json but failed to delete the manifest.
+        // Warning about this would be a warning that never goes away, since
+        // the pid it names is this very process.
+        try JSONSerialization.data(withJSONObject: ["stop_reason": "manual"])
+            .write(to: session.appendingPathComponent("meta.json"))
+
+        #expect(RecordingSession.inProgress(root: root).isEmpty)
+    }
+
+    @Test("A manifest that cannot be read is skipped rather than thrown")
+    func malformedManifestIsSkipped() throws {
+        let (root, session) = try makeInterruptedSession(pid: 999_999)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try Data("{ not json".utf8)
+            .write(to: session.appendingPathComponent(".recording.json"))
+
+        // Doctor asks this question on every startup; a truncated write must
+        // cost a line of output, not the launch.
+        #expect(RecordingSession.inProgress(root: root).isEmpty)
+    }
+
+    @Test("Every live recording in the root comes back, not just the first")
+    func severalLiveRecordingsAreAllReported() throws {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let (root, _) = try makeInterruptedSession(pid: own, name: "2026.08.17-1200")
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeInterruptedSession(pid: own, name: "2026.08.17-1400", into: root)
+
+        let underway = RecordingSession.inProgress(root: root)
+
+        #expect(underway.map { $0.dir.lastPathComponent }
+            == ["2026.08.17-1200", "2026.08.17-1400"])
+        #expect(underway.allSatisfy { $0.ownerIsAlive })
     }
 }
