@@ -191,6 +191,38 @@ struct InterfaceLanguageTests {
                 "still English under Advanced: \(Self.untranslated(english, russian))")
     }
 
+    /// The transcript's speaker keys, which the recordings window draws in
+    /// its own language while the files keep theirs.
+    ///
+    /// The walk above sees the left-hand column of that window, but not the
+    /// quotation above it — that view is skipped, because what was said in a
+    /// meeting is not amanu's to translate, and the label in front of each
+    /// quoted line goes through here too.
+    @Test("A voice is named in the window's language and keyed in the file's")
+    func speakerKeysAreTranslated() {
+        #expect(Self.inLanguage(.english) { SpeakerNames.described(label: "me") } == "me")
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "me") } == "я")
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "them") } == "они")
+
+        // The letter is what tells two far-end voices apart, and it is the
+        // same letter in the file — which is how somebody reading
+        // `transcript.md` finds the row this window is talking about.
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "them A") } == "они A")
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "me B") } == "я B")
+
+        // A name is not a key and is left exactly as it is.
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "Фёдор") } == "Фёдор")
+        #expect(Self.inLanguage(.russian) { SpeakerNames.described(label: "Sam") } == "Sam")
+
+        // And the quotation above the samples names its speakers the same way.
+        let transcript = Transcript(
+            engine: "parakeet", model: "v3", created_at: "2026-08-18T09:31:00Z",
+            segments: [.init(speaker: "them A", start_ms: 0, end_ms: 1, text: "…")])
+        #expect(Self.inLanguage(.russian) {
+            SessionInventory.opening(of: transcript, names: nil)
+        } == "они A: …")
+    }
+
     /// A size is half number and half word, and the word is not the only
     /// thing that changes: Russian writes the decimal separator the other
     /// way, and `String(format:)` does not know that.
@@ -468,10 +500,6 @@ struct InterfaceLanguageTests {
         // A string with no letters in it — a date, a clock, two counts with a
         // slash between them — says the same thing in every language.
         if !text.contains(where: \.isLetter) { return true }
-        // The transcript's own speaker keys, which the recordings window
-        // shows so that a person can match a row to what they are reading.
-        // They are the file's word for a voice, not amanu's word for anything.
-        if text == "me" || text.hasPrefix("them ") { return true }
         return false
     }
 }

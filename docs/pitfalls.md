@@ -139,13 +139,19 @@ control by the words on it would be reading identifiers instead of reading the
 interface. And `.lproj` directories would need putting into the bundle by
 something, which is a second assembler of the bundle beside `make app`.
 
-Two things follow, and both have already caught something.
+Three things follow, and all three have already caught something.
 
 The language is settled once, in `Run`, before the first window exists, and
 never afterwards. A test process therefore never resolves it and is always in
 English — which is what lets the suite look for *Keep the audio after
 transcribing* on a Mac set to any language at all. Anything that reads the
-language at some later moment is reading it after the windows were built.
+language at some later moment is reading it after the windows were built —
+and anything built *once* keeps whichever language was in force when something
+first asked for it. A `static let` `DateFormatter` in `SetupForm` was right in
+the running program only because nothing changes the language after startup;
+in the suite, which does, it handed the second walk the first walk's language
+and put *19 Aug* in a Russian window. It is built per use now. A thing that is
+right by luck is worth less than a thing that is right by construction.
 
 And nothing may decide anything by matching on the words. A `ChoiceCard`
 coloured its own status green by testing whether the text began with
@@ -155,6 +161,18 @@ code looking wrong. The caller knows what the machine answered and says so —
 `report(_:good:)`. The same trap was in `SetupForm.outstanding`, which returned
 the words the footer shows and was then asked whether it contained
 `"parakeet"`.
+
+And a sentence left in English hides behind a translated sentence beside it.
+The walk that builds a window in both languages and compares the two used to
+compare each label whole, and almost every label in these windows is several
+independent phrases with a separator between them — a transcript is lines, a
+provenance line is *who said so · how many turns*. `You` and `Them` over the
+live transcript blocks survived the entire translation that way, sitting
+beside a divider that had been translated; `manual` survived beside a turn
+count that had been; a date survived beside a row title that had. Three of
+those four were found the day the comparison started splitting on `\n` and on
+` · ` and asking the question phrase by phrase. Compare the smallest thing
+that is a sentence, not the largest thing that is a string.
 
 ## Banners need a bundle
 

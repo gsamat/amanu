@@ -107,6 +107,30 @@ struct SpeakerNames: Codable {
         speakers[label]?.name ?? label
     }
 
+    /// A transcript's own word for a voice, in the language of the window
+    /// showing it.
+    ///
+    /// `me`, `them`, `them A` are keys rather than words: they are what
+    /// `transcript.json` stores, what `transcript.md` prints wherever nobody
+    /// has been named, and what this file is keyed by. None of that changes
+    /// here — only what a window draws, where `them A` beside a name somebody
+    /// typed is two languages in one row.
+    ///
+    /// The letter after the word is what tells two far-end voices apart, and
+    /// it is left alone. That is also what keeps a row in the window and a
+    /// line in the file pointing at each other: `они A` is `them A`, and
+    /// there is only ever one `я`.
+    static func described(label: String) -> String {
+        let parts = label.split(separator: " ", maxSplits: 1)
+        guard let head = parts.first else { return label }
+        let rest = parts.count > 1 ? " " + parts[1] : ""
+        switch head {
+        case "me": return localised("me", "я") + rest
+        case "them": return localised("them", "они") + rest
+        default: return label
+        }
+    }
+
     /// Names a person typed, which a re-run must preserve.
     var manual: [String: Entry] {
         speakers.filter { $0.value.source == .manual }
