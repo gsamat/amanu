@@ -207,6 +207,11 @@ alone:
   menus drop it once it is done — the form it opens is a permanent tab of
   Settings, and the wizard around it has nothing left to say. `amanu setup`
   brings it back for a machine where a permission has since been revoked.
+- **About Amanu**, in both menus, which opens a small window saying which
+  version this is, who wrote it, where the source is, and how to commission
+  something like it. An `.accessory` application's own menu is only on screen
+  while one of its windows is in front, so the answer lives in the menu bar
+  menu as well.
 
 The window and the Dock icon exist because a status item is not a dependable
 place for the only control of a recorder. When the menu bar runs out of room

@@ -127,6 +127,27 @@ struct WindowShots {
         try write(panel, "settings-setup-switched-back-to-dark")
     }
 
+    /// The About window, which is small enough that both appearances fit in
+    /// one pass and has no state to drive it through. What there is to see is
+    /// the spacing: an icon, a name, a version and three links, centred, and
+    /// Russian is a fifth longer than English at every one of them.
+    @Test("The About window, in both appearances")
+    @MainActor
+    func aboutWindow() throws {
+        _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try aboutPanel(builtIn: appearance, keeping: &owners)
+            try write(panel, "about-\(name)")
+        }
+    }
+
     /// Every view in the setup window with its frame, in the window's own
     /// coordinates. This is what to measure against when a row looks a pixel
     /// wrong: eyes are bad at 2pt and this is exact.
@@ -202,6 +223,20 @@ struct WindowShots {
         owners.append(try #require(window))
         let title = localised("amanu settings", "Настройки amanu")
         let panel = try #require(NSApp.windows.last { $0.title == title })
+        panel.appearance = appearance
+        return panel
+    }
+
+    @MainActor
+    private func aboutPanel(
+        builtIn appearance: NSAppearance?, keeping owners: inout [Any]
+    ) throws -> NSWindow {
+        NSApp.appearance = appearance
+        var window: AboutWindow?
+        appearance?.performAsCurrentDrawingAppearance { window = AboutWindow() }
+        let about = try #require(window)
+        owners.append(about)
+        let panel = try #require(NSApp.windows.last { $0.title == about.title })
         panel.appearance = appearance
         return panel
     }
