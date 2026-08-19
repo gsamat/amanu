@@ -64,3 +64,20 @@ and the same state a warning would come from.
 `Sources/amanu/Amanu.swift` — owns the live session and the quit path.
 `CLAUDE.md` — "Quit the running app before replacing `/Applications/Amanu.app`"
 is the instruction that leads here, and says nothing about looking first.
+
+## `amanu sessions` does not answer the question either
+
+Measured the same evening, an hour later. A session still being recorded
+appears in `amanu sessions` as an ordinary row — its elapsed time and
+`transcript: pending` — which is indistinguishable from one that stopped a
+minute ago and has not been transcribed yet. So the one command that looks
+authoritative, and that this note was about to recommend, does not in fact
+separate "recording now" from "recently finished".
+
+What did answer honestly was the status window: a running transcript and a
+live **Pause** button. That is a window, not something a script can consult,
+which is the whole difficulty restated.
+
+Whatever fixes this has to make the answer available where the decision is
+made — a line in `amanu doctor`, an exit status, anything a person about to
+type `rm -rf /Applications/Amanu.app` would see without having gone looking.
