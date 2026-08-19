@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// How this copy of amanu is running: as `Amanu.app`, or as the bare binary
@@ -40,6 +41,83 @@ enum Runtime {
     static var executableURL: URL {
         (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))
             .resolvingSymlinksInPath()
+    }
+
+    // MARK: - being asked for, rather than asking on someone else's behalf
+
+    /// Set on the copy we hand over to, so a launch this program cannot read
+    /// correctly can cost at most one extra start rather than an endless
+    /// sequence of them.
+    static let handOffMarker = "AMANU_OPENED_BY_AMANU"
+
+    /// Whether LaunchServices started this process — which is the same
+    /// question as whether TCC will hold *this* program responsible for what
+    /// it asks for.
+    ///
+    /// The parent process id looks like the obvious test and is the wrong
+    /// one. Measured on 19 August 2026 with a signed bundle that had no TCC
+    /// record of its own, reading its own calendar authorization three ways:
+    ///
+    ///   | started by                | ppid | XPC_SERVICE_NAME | status |
+    ///   | shell                     | shell| 0                | full   |
+    ///   | shell, double-forked      | 1    | 0                | full   |
+    ///   | LaunchServices            | 1    | application.…    | none   |
+    ///
+    /// "full" is the terminal's grant being read by a program that was never
+    /// granted anything: both shell launches are answered against the
+    /// responsible process, and reparenting to launchd does not change that.
+    /// Only the LaunchServices launch is answered against the bundle itself.
+    static func startedThroughLaunchServices(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        environment["XPC_SERVICE_NAME"]?.hasPrefix("application.") ?? false
+    }
+
+    /// Whether this invocation should open the bundle and step aside instead
+    /// of becoming the app itself.
+    ///
+    /// A bare build has nothing to hand over to and answers false: `swift run`
+    /// and the tests are the shell's responsibility by their nature, and that
+    /// is the bargain a bare build already makes everywhere else.
+    static func shouldHandOffToBundle(
+        bundle: Bundle?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard bundle != nil, environment[handOffMarker] == nil else { return false }
+        return !startedThroughLaunchServices(environment: environment)
+    }
+
+    /// Ask LaunchServices to start the bundle, so the copy that shows the
+    /// window and asks for the permissions is answering for itself.
+    @MainActor
+    static func handOffToBundle(_ bundle: Bundle, arguments: [String] = []) -> Bool {
+        let configuration = NSWorkspace.OpenConfiguration()
+        // Whatever was typed still has to be honoured — a `--out` that only
+        // the terminal copy obeys would send the recordings somewhere the app
+        // never looks.
+        configuration.arguments = arguments
+        // Never a second recorder beside the first: `handOverToRunningCopy`
+        // has already looked, and if one appeared in the meantime the right
+        // answer is still to bring that one forward.
+        configuration.createsNewApplicationInstance = false
+        configuration.activates = true
+        configuration.environment = [handOffMarker: "1"]
+
+        final class Answer: @unchecked Sendable {
+            var launched = false
+        }
+        let answer = Answer()
+        let finished = DispatchSemaphore(value: 0)
+        NSWorkspace.shared.openApplication(at: bundle.bundleURL, configuration: configuration) {
+            app, _ in
+            answer.launched = app != nil
+            finished.signal()
+        }
+        // The completion arrives off the main thread, so waiting here is safe;
+        // the timeout is only so a wedged LaunchServices cannot hang a command
+        // someone typed.
+        guard finished.wait(timeout: .now() + 20) == .success else { return false }
+        return answer.launched
     }
 
     /// LaunchServices hands an app arguments of its own on some launches, and

@@ -19,6 +19,32 @@ struct NativeAppTests {
         #expect(Runtime.meaningfulArguments(typed) == typed)
     }
 
+    @Test("Only a LaunchServices start makes this program answer for itself")
+    func handOffDecision() {
+        let bundle = Bundle.main
+
+        // The two shell shapes. The double-forked one is why the parent
+        // process id cannot be the test: it is reparented to launchd and is
+        // still the terminal's responsibility.
+        #expect(Runtime.shouldHandOffToBundle(
+            bundle: bundle, environment: ["XPC_SERVICE_NAME": "0"]))
+        #expect(Runtime.shouldHandOffToBundle(bundle: bundle, environment: [:]))
+
+        #expect(!Runtime.shouldHandOffToBundle(
+            bundle: bundle,
+            environment: ["XPC_SERVICE_NAME": "application.me.samat.amanu.18516703.18517717"]))
+
+        // A bare build has nowhere to hand over to.
+        #expect(!Runtime.shouldHandOffToBundle(
+            bundle: nil, environment: ["XPC_SERVICE_NAME": "0"]))
+
+        // And the copy we opened never opens another, however it reads its
+        // own launch.
+        #expect(!Runtime.shouldHandOffToBundle(
+            bundle: bundle,
+            environment: ["XPC_SERVICE_NAME": "0", Runtime.handOffMarker: "1"]))
+    }
+
     @Test("Start at login is a question only an application can answer")
     @MainActor
     func startAtLoginPolicy() {

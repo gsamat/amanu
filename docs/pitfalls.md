@@ -25,6 +25,32 @@ bundled" must go through it rather than consulting `Bundle.main` itself.
 This is load-bearing well beyond the question it looks like. Login-item
 registration, notifications and system-audio capture all depend on the answer.
 
+## Starting amanu from a shell gives its permissions to the shell
+
+TCC answers a request against the *responsible* process, and a program started
+from a terminal is the terminal's responsibility. `.issues/rca-002` measured
+that with a bare binary; it is just as true of the signed bundle. Measured on
+19 August 2026 with a signed, entitled bundle that had no TCC record at all,
+reading its own calendar authorization:
+
+| started by           | ppid  | XPC_SERVICE_NAME | answer |
+|----------------------|-------|------------------|--------|
+| shell                | shell | `0`              | full access |
+| shell, double-forked | 1     | `0`              | full access |
+| LaunchServices       | 1     | `application.…`  | not determined |
+
+"Full access" there is the terminal's grant, read back by a program nobody has
+granted anything. That is the trap: not a refusal, but a confident yes to a
+question about somebody else — the setup window would show green rows for
+grants amanu does not have, and remember a system-audio test the terminal
+passed on its behalf.
+
+Two things follow. The parent process id cannot be used to tell the cases
+apart: double-forking reparents to launchd and changes nothing about who is
+responsible. And `Run` hands over to LaunchServices rather than becoming the
+app when it was not started by it, so `amanu setup` out of the README is safe
+on a machine where nothing has been granted yet.
+
 ## TCC is keyed to the code signature
 
 Microphone and system-audio grants belong to the Developer ID signature and to
