@@ -1,7 +1,7 @@
 # Seeing the windows
 
-`Tests/amanuTests/WindowShots.swift` renders the setup window and the settings
-window to PNG files, and writes a listing of where every view in the setup
+`Tests/amanuTests/WindowShots.swift` renders the setup window, the settings
+window and the About window to PNG files, and writes a listing of where every view in the setup
 window ended up. It asserts nothing. It exists because the defects these
 windows produce are not the kind a test catches: a label whose descenders sit
 on the hairline below it, a border still painted in the appearance the Mac has
@@ -43,6 +43,7 @@ program to suit its instruments.
 | `settings-advanced-{light,dark}.png` | The Advanced tab, and `-narrow` at the minimum width the window allows. |
 | `settings-advanced-{light,dark}-bottom.png` | The same tab scrolled to its end, which is the only picture the models-on-disk block appears in. |
 | `settings-setup-switched-*.png` | The settings window through the same change of appearance. |
+| `about-{light,dark}.png` | The About window, which sizes itself to its words — so this pair is where a Russian line that outgrew the width would show. |
 | `tree.txt` | Every view in the setup window with its frame, in window coordinates. |
 
 ## How to read them

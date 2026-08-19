@@ -30,6 +30,7 @@ final class MenuBarController {
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
+    var onShowAbout: (() -> Void)?
     var onQuit: (() -> Void)?
 
     init() {
@@ -135,6 +136,17 @@ final class MenuBarController {
         updatesItem.isHidden = true
         menu.addItem(updatesItem)
 
+        // Where every Mac keeps it, near the bottom rather than at the top:
+        // the application menu is the one place About is expected to be
+        // first, and an `.accessory` app's application menu is only on
+        // screen while one of its windows is in front.
+        let about = NSMenuItem(
+            title: localised("About Amanu", "О программе amanu"),
+            action: #selector(showAboutClicked),
+            keyEquivalent: ""
+        )
+        menu.addItem(about)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -146,7 +158,7 @@ final class MenuBarController {
 
         for item in [
             toggleItem, pauseItem, autoRecordItem, showWindow, openFolder,
-            recordings, settings, setupItem, updatesItem, quit,
+            recordings, settings, setupItem, updatesItem, about, quit,
         ] {
             item.target = self
         }
@@ -252,5 +264,6 @@ final class MenuBarController {
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
     @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
+    @objc private func showAboutClicked() { onShowAbout?() }
     @objc private func quitClicked() { onQuit?() }
 }

@@ -173,6 +173,32 @@ struct InterfaceLanguageTests {
             != Self.inLanguage(.russian) { RecordingsWindow.nothingOwedLine })
     }
 
+    /// And the About window, which is four sentences and three links and is
+    /// read in one go — nothing in it changes after it is built.
+    @Test("Nothing in the About window is left in English when it is Russian")
+    @MainActor
+    func theAboutWindowIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) { Self.readableAbout() }
+        let russian = Self.inLanguage(.russian) { Self.readableAbout() }
+
+        #expect(english.count == russian.count, "the two windows are not the same window")
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian window: \(Self.untranslated(english, russian))")
+    }
+
+    /// The one link in amanu whose address depends on the language: the
+    /// studio has a site in each, and an English window sending a person to
+    /// the Russian one would be sending them to a page they cannot read. The
+    /// other two are one page each and stay where they are.
+    @Test("«Order custom development» goes to the site in the window's language")
+    @MainActor
+    func theStudioLinkFollowsTheLanguage() {
+        #expect(Self.inLanguage(.english) { AboutWindow().offeredLinks.map(\.url) }
+            == ["https://samat.me", "https://github.com/gsamat/amanu", "https://fans.dev"])
+        #expect(Self.inLanguage(.russian) { AboutWindow().offeredLinks.map(\.url) }
+            == ["https://samat.me", "https://github.com/gsamat/amanu", "https://fansdev.ru"])
+    }
+
     /// And the same question of the Advanced tab, which is written from
     /// `SettingsSchema` rather than by hand. No window needed: the schema is
     /// the list, and the window renders it whole.
@@ -385,6 +411,17 @@ struct InterfaceLanguageTests {
             }
         }
         return found
+    }
+
+    /// Everything the About window says, its title included — that one is
+    /// not inside the content view, and it is a sentence like the rest.
+    @MainActor
+    private static func readableAbout() -> [String] {
+        _ = NSApplication.shared
+        let about = AboutWindow()
+        guard let view = about.view else { return [about.title] }
+        view.layoutSubtreeIfNeeded()
+        return [about.title] + strings(in: view)
     }
 
     /// What a menu shows. An item that carries a submenu shows the submenu's

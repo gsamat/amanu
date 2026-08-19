@@ -136,6 +136,7 @@ struct Run: ParsableCommand {
             MainActor.assumeIsolated { delegate.setupAvailable(available) }
         }
         delegate.onCheckForUpdates = { MainActor.assumeIsolated { controller.checkForUpdates() } }
+        delegate.onShowAbout = { MainActor.assumeIsolated { controller.showAbout() } }
         app.delegate = delegate
         app.mainMenu = Self.mainMenu(settingsTarget: delegate)
 
@@ -188,6 +189,15 @@ struct Run: ParsableCommand {
 
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        // First in the menu, where every Mac puts it.
+        let about = NSMenuItem(
+            title: localised("About Amanu", "О программе amanu"),
+            action: #selector(AppDelegate.showAboutClicked(_:)),
+            keyEquivalent: ""
+        )
+        about.target = settingsTarget
+        appMenu.addItem(about)
+        appMenu.addItem(.separator())
         // ⌘, is where every Mac user looks for settings, and it only works
         // from the main menu — the status item's copy of it is live just
         // while that menu is open.
@@ -284,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
     var onCheckForUpdates: (() -> Void)?
+    var onShowAbout: (() -> Void)?
     /// Answers whether ⌘Q needs to ask first. The default gate knows of no
     /// recording, which is the right answer for a delegate nobody wired up.
     var quitGate = QuitGate()
@@ -356,6 +367,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func showSettingsClicked(_ sender: Any?) { onShowSettings?() }
     @objc func showSetupClicked(_ sender: Any?) { onShowSetup?() }
     @objc func checkForUpdatesClicked(_ sender: Any?) { onCheckForUpdates?() }
+    @objc func showAboutClicked(_ sender: Any?) { onShowAbout?() }
 }
 
 struct Doctor: ParsableCommand {
@@ -386,6 +398,9 @@ final class AppController {
         window.isRecording = { [weak self] in self?.isRecording == true }
         return window
     }()
+    /// Built on first use, like the others, and for a stronger reason: most
+    /// copies of amanu will never be asked who wrote them.
+    private lazy var aboutWindow = AboutWindow()
     private lazy var setupWindow: SetupWindow = {
         let setup = SetupWindow()
         setup.isRecording = { [weak self] in self?.isRecording == true }
@@ -459,6 +474,7 @@ final class AppController {
         menuBar.onShowSettings = { [weak self] in self?.showSettings() }
         menuBar.onShowSetup = { [weak self] in self?.showSetup() }
         menuBar.onCheckForUpdates = { [weak self] in self?.updates.checkForUpdates() }
+        menuBar.onShowAbout = { [weak self] in self?.showAbout() }
         menuBar.onQuit = { [weak self] in self?.shutdown() }
         menuBar.update(state: .idle, elapsed: nil)
         menuBar.updatesAvailable(updates.isAvailable)
@@ -798,6 +814,15 @@ final class AppController {
     func showSettings() {
         NSApp.activate(ignoringOtherApps: true)
         settings.show()
+    }
+
+    /// About, from either menu. Activating for the same reason Settings
+    /// does: a click on the status item does not bring the app forward, and a
+    /// window that opens behind the one you were reading is a window you have
+    /// to go looking for.
+    func showAbout() {
+        NSApp.activate(ignoringOtherApps: true)
+        aboutWindow.show()
     }
 
     /// First-run setup: opened by the first launch, by the menu item while

@@ -138,6 +138,35 @@ struct SetupOfferTests {
         #expect(menuBar.offeredItemTitles.contains("Setup…"))
     }
 
+    /// About is where a Mac user looks for a name, and there are two menus
+    /// it could be missing from. In the application menu it is also first,
+    /// which is where every Mac puts it.
+    @Test("About Amanu is offered in both menus")
+    @MainActor
+    func aboutIsInBothMenus() throws {
+        let menuBar = MenuBarController()
+        defer { withExtendedLifetime(menuBar) {} }
+        #expect(menuBar.offeredItemTitles.contains("About Amanu"))
+
+        let menu = Run.mainMenu(settingsTarget: AppDelegate())
+        let appMenu = try #require(menu.items.first?.submenu)
+        #expect(appMenu.items.first?.title == "About Amanu")
+    }
+
+    /// The window itself: three links, and each going where it says.
+    @Test("The About window names its author and links to the source and the studio")
+    @MainActor
+    func aboutWindowOffersThreeLinks() {
+        let about = AboutWindow()
+        #expect(about.offeredLinks.map(\.title)
+            == ["Samat Galimov ↗", "Source code on GitHub ↗", "Order custom development ↗"])
+        #expect(about.offeredLinks.map(\.url) == [
+            "https://samat.me",
+            "https://github.com/gsamat/amanu",
+            "https://fans.dev",
+        ])
+    }
+
     @Test("The app menu's Setup follows the same answer, and Settings never does")
     func appMenuHidesSetup() throws {
         let delegate = AppDelegate()

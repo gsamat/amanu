@@ -388,7 +388,13 @@ read once at startup, which is what the row under it says.
 - Click **Later** or **Done**, quit and reopen the app, and confirm Setup does
   not open automatically again.
 - Reopen Setup from both the menu-bar menu and the app menu. Both also carry
-  **Check for updates…**, which is present only in a real bundle.
+  **Check for updates…**, which is present only in a real bundle, and **About
+  Amanu**, which is first in the app menu and last but one in the other.
+- Open **About Amanu** and confirm it names the version this build actually
+  is — that line comes from the bundle's `Info.plist` and is the one thing in
+  the window a bare `swift run` cannot show. Click all three links and confirm
+  each opens the page it names, the third going to `fansdev.ru` in a Russian
+  interface and `fans.dev` in an English one.
 - **By hand:** make one final ordinary meeting test and verify auto-record,
   transcription, speaker naming, summary generation, and the recordings list
   still work.
