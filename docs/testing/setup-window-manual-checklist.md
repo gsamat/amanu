@@ -280,13 +280,20 @@ checking by hand is only the seam between them.
   switches, cards and machine-read statuses as the Setup window.
 - In **Advanced**, confirm every empty field shows its default in grey and
   nothing is truncated at the right edge of the field.
-- Change something in **Advanced** that the Setup tab also shows —
-  `keep_audio`, or `transcription.cloud` — switch back, and confirm the Setup
-  tab already agrees. It is redrawn on every write rather than when reopened.
+- Change something in **Advanced** that the Setup tab also shows — the meeting
+  language, or the summary backend, which are the two that stayed on both tabs
+  because setup cannot reach everything they allow — switch back, and confirm
+  the Setup tab already agrees. It is redrawn on every write rather than when
+  reopened.
+- Confirm the eight settings setup asks in full are **not** in Advanced any
+  more: the recordings folder, **Keep the audio**, automatic recording,
+  transcription and its engine and service, the live transcript, summaries.
+  They are still in `config.json` and still in the README; the tab is what
+  stopped repeating them.
 - Change the same setting on the Setup tab and confirm `config.json` says so.
 - **Open Settings and Setup side by side**, so both are visible at once, and
-  change the same setting in each in turn: the cloud provider, **Keep the
-  audio**, the meeting language, **On this Mac**. Confirm the other window
+  change the same setting in each in turn: the meeting language and the summary
+  backend, which are the ones both tabs still draw. Confirm the other window
   follows *immediately*, without being clicked or brought forward. This is the
   one that used to fail — the file was written correctly and the window nobody
   had touched kept the old answer until it was reopened.

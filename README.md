@@ -586,9 +586,9 @@ transcript, summaries on or off — are not repeated here; change them on
 **Setup**. The two it asks only partly are on both tabs, because setup cannot
 say everything they allow: the language menu offers the 25 languages the local
 model knows while the cloud engines understand more, and the summary cards have
-no card for `none`. An untouched field
-shows its default in grey as the placeholder — the value itself where there is
-one, and otherwise what happens instead (`the language of the meeting`,
+no card for `none`. An untouched field shows its default in grey as the
+placeholder — the value itself where there is one, and otherwise what happens
+instead (`the language of the meeting`,
 `detected from any language`), so a setting can be read without being set.
 Settings that are only read at startup say so under the control instead of
 pretending to take effect.

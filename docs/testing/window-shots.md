@@ -1,8 +1,8 @@
 # Seeing the windows
 
 `Tests/amanuTests/WindowShots.swift` renders the setup window, the settings
-window and the About window to PNG files, and writes a listing of where every view in the setup
-window ended up. It asserts nothing. It exists because the defects these
+window and the About window to PNG files, and writes a listing of where every
+view in the setup window ended up. It asserts nothing. It exists because the defects these
 windows produce are not the kind a test catches: a label whose descenders sit
 on the hairline below it, a border still painted in the appearance the Mac has
 left, two rows nobody thought to compare that came out different heights. Each
