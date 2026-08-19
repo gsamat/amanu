@@ -9,8 +9,11 @@ left, two rows nobody thought to compare that came out different heights. Each
 of those was found by rendering the window and looking at it.
 
 ```sh
-AMANU_SHOTS=/tmp/shots swift test --filter WindowShots
+mkdir -p /tmp/shots && AMANU_SHOTS=/tmp/shots swift test --filter WindowShots
 ```
+
+The directory has to exist: the suite writes into it rather than creating it,
+so a first run without the `mkdir` fails on the first PNG.
 
 `AMANU_SHOTS` both switches the suite on and says where to write; without it
 `swift test` skips the whole thing, which is why it can live in the test target
