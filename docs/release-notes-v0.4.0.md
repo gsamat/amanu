@@ -5,9 +5,9 @@ naming one no longer forces the engine to hear it.
 
 ## What changed since v0.3.0
 
-- **Transcription asks what you want, not which engine.** Two switches: **In
-  the cloud** and **On this Mac**. Both on is the old fallback — the cloud when
-  it answers, this Mac when it does not — so there is no card for it any more.
+- **Transcription asks what you want, not which engine.** Two switches,
+  **In the cloud** and **On this Mac**. Both on is the old fallback — the cloud
+  when it answers, this Mac when it does not — so there is no card for it now.
   Both off turns transcription off. Under the cloud switch are the two
   providers with what they cost per hour, and pasting a working key turns the
   switch on by itself.
@@ -19,9 +19,9 @@ naming one no longer forces the engine to hear it.
 - **A named meeting language stopped being a pin.** Setting the language to
   Russian used to tell parakeet to refuse Latin letters, so an English meeting
   came back as fluent-looking Cyrillic nonsense — and, with **Keep the audio**
-  off by default, came back that way for good. The setting now means *expect
-  this language, and English* and leaves the engines to hear which one it
-  actually was. The cloud engines were fixed the same way.
+  off by default, came back that way for good. The setting now reads as
+  **expect this language, and English**, and leaves the engines to hear which
+  one it actually was. The cloud engines were fixed the same way.
 - **The language is chosen from a list.** Every language parakeet knows, named
   in itself, behind **Detect automatically**. No two-letter codes anywhere in
   the window.
