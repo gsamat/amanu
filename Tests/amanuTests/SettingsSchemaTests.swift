@@ -146,6 +146,72 @@ struct SettingsSchemaTests {
         #expect(!keys.isEmpty)
     }
 
+    /// The eight settings the setup form asks in full, and therefore the eight
+    /// the Advanced tab leaves out. Written down rather than derived, because
+    /// there is nothing to derive it from: setup asks these through cards,
+    /// switches and an open panel, in its own vocabulary, and no signature in
+    /// `SetupForm` says which config key a card stands for.
+    ///
+    /// So this is a canary, and it is worth having as one. Dropping a control
+    /// from setup without clearing its flag here does not break a build or
+    /// fail a test elsewhere — it removes the setting from the window
+    /// altogether, which is the one failure this schema exists to prevent, and
+    /// the one nobody notices until somebody goes looking for a setting that
+    /// is no longer anywhere.
+    @Test("The settings held back from Advanced are the ones setup asks")
+    func setupCoversWhatAdvancedOmits() {
+        let held = Set(SettingsSchema.sections
+            .flatMap(\.entries)
+            .filter(\.askedInSetup)
+            .map { $0.path.joined(separator: ".") })
+        #expect(held == [
+            // The switch at the foot of the form.
+            "auto_record.enabled",
+            // Both transcription switches off.
+            "transcription.enabled",
+            // The two switches, "In the cloud" and "On this Mac".
+            "transcription.engine",
+            // The AssemblyAI and OpenAI cards under the cloud switch.
+            "transcription.cloud",
+            // The live-transcript switch — Apple Silicon only, on both sides.
+            "live_transcription.enabled",
+            // Files: the switch, and the folder chosen with an open panel.
+            "keep_audio",
+            "recordings_dir",
+            // The switch beside the Summaries heading.
+            "summary.enabled",
+        ])
+    }
+
+    /// The two that stay on both tabs, and why: setup asks them, but cannot
+    /// say everything the schema allows. The language menu offers parakeet's
+    /// 25 European languages while the cloud engines understand more, and the
+    /// summary cards have no card for `none`. Flagging either would leave a
+    /// legal value reachable only by editing the config file by hand.
+    @Test("A setting setup asks only partly is still asked in Advanced")
+    func partialCoverageStaysInAdvanced() {
+        let advanced = Set(SettingsSchema.advancedSections
+            .flatMap(\.entries)
+            .map { $0.path.joined(separator: ".") })
+        #expect(advanced.contains("transcription.language"))
+        #expect(advanced.contains("summary.backend"))
+
+        // The claim about the menu, checked rather than asserted: a menu that
+        // grew to every language the cloud takes would make the field above
+        // redundant after all.
+        let offered = Set(MeetingLanguages.menu.map(\.code))
+        #expect(!offered.contains("ja"), "the meeting-language menu now covers more than parakeet")
+        // And the claim about the cards: every card setup offers, resolved
+        // through the translation the form uses, and none of them is `none`.
+        let cards = ["claude-cli", "codex-cli", "api-key", "ollama"]
+        let reachable = cards.flatMap { card in
+            ["anthropic-api", "openai-api"].compactMap {
+                SetupSelection.summaryBackend(choice: card, keyBackend: $0)
+            }
+        }
+        #expect(!reachable.contains("none"), "a summary card now writes none after all")
+    }
+
     /// The list that tells someone a setting is being ignored has to be right
     /// in one direction above all: a key amanu *does* read must never appear
     /// in it. It did — `transcription.assemblyai.*` and the two summary key
@@ -291,12 +357,12 @@ struct SettingsSchemaTests {
 /// is one nobody will ever find.
 @MainActor
 struct SettingsWindowTests {
-    @Test("Every setting in the schema gets a control")
+    @Test("Every setting the Advanced tab is for gets a control")
     func rendersEverySetting() {
         _ = NSApplication.shared
         let window = SettingsWindow()
         let controls = window.renderedControls
-        let entries = SettingsSchema.sections.flatMap(\.entries)
+        let entries = SettingsSchema.advancedSections.flatMap(\.entries)
 
         #expect(controls.count == entries.count)
         for (entry, control) in zip(entries, controls) {
@@ -322,7 +388,7 @@ struct SettingsWindowTests {
     func fieldsShowDefaults() {
         _ = NSApplication.shared
         let window = SettingsWindow()
-        for (entry, control) in zip(SettingsSchema.sections.flatMap(\.entries),
+        for (entry, control) in zip(SettingsSchema.advancedSections.flatMap(\.entries),
                                     window.renderedControls) {
             guard let field = control as? NSTextField else { continue }
             #expect(field.placeholderString == SettingsSchema.describeDefault(entry),

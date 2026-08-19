@@ -1,7 +1,7 @@
 import AppKit
 
 /// The settings window: the setup form, and behind an Advanced tab, every
-/// entry in `SettingsSchema`.
+/// entry in `SettingsSchema` that the form does not already ask.
 ///
 /// The first tab is not a copy of setup — it *is* setup, the same `SetupForm`
 /// the first-run window wraps in a wizard. Two hand-written forms over one set
@@ -18,6 +18,18 @@ import AppKit
 /// and it appears, described, with its default showing, in this window. The
 /// README is written by hand against the same list, and
 /// `SettingsDocumentationTests` fails when the two drift.
+///
+/// "What setup doesn't ask" is a filter and not merely a sentence, because for
+/// a while it was only the sentence. This tab drew the entire schema, so eight
+/// settings were asked twice in one window — the folder chosen with a panel on
+/// one tab and typed as a path on the other, two switches for the same cloud
+/// engine, and a pair of transcription pop-ups saying in the config file's
+/// vocabulary what the form beside them said in a person's. The schema now
+/// carries `askedInSetup`, and `advancedSections` is what this tab draws.
+/// Coverage has to be total to earn the flag: the meeting language and the
+/// summary backend are asked on both tabs still, because setup's menu and
+/// cards cannot reach every value the schema allows and hiding them here would
+/// leave those values settable only by editing the file.
 ///
 /// Two rules make the config file stay readable as a record of decisions.
 /// Nothing is written until it differs from the default — setting a control
@@ -160,9 +172,11 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
     var isVisible: Bool { panel.isVisible }
 
-    /// The controls of the Advanced tab, in schema order. This is where the
-    /// window's whole promise — every setting appears, none is invisible —
-    /// can be checked, so it's worth the accessor.
+    /// The controls of the Advanced tab, in the order of
+    /// `SettingsSchema.advancedSections`. This is where the window's whole
+    /// promise — every setting is asked somewhere, none is invisible — can be
+    /// checked, so it's worth the accessor. Checking it takes both halves:
+    /// what is here, and what the setup form asks instead.
     var renderedControls: [NSControl] { rows.map(\.control) }
 
     /// What the Setup tab says is still outstanding — the wizard's footer
@@ -258,7 +272,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         form.spacing = 12
         form.edgeInsets = NSEdgeInsets(top: 18, left: 20, bottom: 18, right: 20)
 
-        for (index, section) in SettingsSchema.sections.enumerated() {
+        for (index, section) in SettingsSchema.advancedSections.enumerated() {
             if index > 0 { form.setCustomSpacing(24, after: form.arrangedSubviews.last!) }
             form.addArrangedSubview(sectionHeader(section.title))
             for entry in section.entries {
