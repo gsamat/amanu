@@ -34,6 +34,20 @@ enum SettingsSchema {
         /// True when the value is only read at startup. Saying so beats a
         /// user changing a switch and quietly getting nothing.
         let needsRestart: Bool
+        /// True when the setup form already asks this, and asks it fully —
+        /// every value the schema allows is reachable from a control there.
+        /// Those settings are left out of the Advanced tab, which is the
+        /// tab's whole premise: it is what setup doesn't ask. Asked twice in
+        /// one window, in two vocabularies, they were two controls a person
+        /// had to work out were the same control.
+        ///
+        /// It is `askedInSetup`, not `hidden`: the entry stays in the list,
+        /// so `knownKeys` still knows it, the README still has to document
+        /// it, and the config file still reads as a record of decisions.
+        /// Partial coverage does not count — the meeting language menu
+        /// offers parakeet's 25 languages and the cloud engines understand
+        /// more, so that one is still asked here.
+        let askedInSetup: Bool
 
         init(
             _ path: [String],
@@ -41,7 +55,8 @@ enum SettingsSchema {
             _ help: String,
             _ kind: Kind,
             default defaultValue: Any,
-            needsRestart: Bool = false
+            needsRestart: Bool = false,
+            askedInSetup: Bool = false
         ) {
             self.path = path
             self.label = label
@@ -49,6 +64,7 @@ enum SettingsSchema {
             self.kind = kind
             self.defaultValue = defaultValue
             self.needsRestart = needsRestart
+            self.askedInSetup = askedInSetup
         }
     }
 
@@ -68,12 +84,12 @@ enum SettingsSchema {
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
                           "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
-                      .choice(["auto", "assemblyai", "openai"]), default: "auto"),
+                      .choice(["auto", "assemblyai", "openai"]), default: "auto", askedInSetup: true),
                 Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                       localised(
                           "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
                           "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
-                      .choice(["assemblyai", "openai"]), default: "assemblyai"),
+                      .choice(["assemblyai", "openai"]), default: "assemblyai", askedInSetup: true),
                 Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
                       localised(
                           "Two-letter code for what meetings are mostly in. English is expected "
@@ -91,17 +107,17 @@ enum SettingsSchema {
                   localised(
                       "Uses an additional local NVIDIA model while a meeting is being recorded.",
                       "Пока идёт запись, работает ещё одна местная модель NVIDIA."),
-                  .toggle, default: false),
+                  .toggle, default: false, askedInSetup: true),
             Entry(["transcription", "engine"], localised("Engine", "Движок"),
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
                       "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
-                  .choice(["auto", "assemblyai", "openai", "parakeet"]), default: "auto"),
+                  .choice(["auto", "assemblyai", "openai", "parakeet"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                   localised(
                       "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
                       "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
-                  .choice(["assemblyai", "openai"]), default: "assemblyai"),
+                  .choice(["assemblyai", "openai"]), default: "assemblyai", askedInSetup: true),
             Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
                   localised(
                       "Two-letter code for what meetings are mostly in. English is expected "
@@ -129,7 +145,7 @@ enum SettingsSchema {
                   localised(
                       "Start and stop on their own when a call begins and ends.",
                       "Запись начинается и заканчивается сама, вместе со звонком."),
-                  .toggle, default: true),
+                  .toggle, default: true, askedInSetup: true),
             Entry(["auto_record", "mic_activity"],
                   localised("Start when a call app takes the mic", "Начинать по микрофону"),
                   localised(
@@ -214,10 +230,10 @@ enum SettingsSchema {
                       "Saves one stereo M4A: your mic on the left, the other side on the right. A recording that never got a transcript is kept either way.",
                       "Сохраняет один стереофайл M4A: ваш микрофон слева, дальняя сторона справа. "
                           + "Запись, которая так и не получила расшифровку, остаётся в любом случае."),
-                  .toggle, default: false),
+                  .toggle, default: false, askedInSetup: true),
             Entry(["recordings_dir"], localised("Recordings folder", "Папка записей"),
                   localised("Where sessions land.", "Куда складываются встречи."),
-                  .text, default: "~/Recordings", needsRestart: true),
+                  .text, default: "~/Recordings", needsRestart: true, askedInSetup: true),
         ]),
 
         Section(title: localised("Transcription", "Расшифровка"), entries: [
@@ -226,7 +242,7 @@ enum SettingsSchema {
                   localised(
                       "Off means record only; the on_stop hook still fires.",
                       "Выключено — только запись; хук on_stop всё равно срабатывает."),
-                  .toggle, default: true),
+                  .toggle, default: true, askedInSetup: true),
         ] + localModelEntries + [
             Entry(["transcript_echo_filter"],
                   localised("Drop echoed speech", "Убирать отражённую речь"),
@@ -261,7 +277,7 @@ enum SettingsSchema {
                   localised(
                       "Topic, key points, decisions, action items, open questions.",
                       "Тема, главное, решения, задачи, открытые вопросы."),
-                  .toggle, default: true),
+                  .toggle, default: true, askedInSetup: true),
             Entry(["summary", "backend"],
                   localised("Which model to ask", "У какой модели спрашивать"),
                   localised(
@@ -383,6 +399,22 @@ enum SettingsSchema {
                   .text, default: localised("nothing", "ничего")),
         ]),
     ] }
+
+    /// `sections` minus what setup already asks, which is what the Advanced
+    /// tab draws. A section emptied by the filter is dropped with it rather
+    /// than left as a heading over nothing.
+    ///
+    /// The filter lives here, beside the flag it reads, so that the window
+    /// keeps holding no list of its own — the thing that stops the two from
+    /// drifting. `sections` stays the whole list, and everything else that
+    /// asks the schema a question about *settings* rather than about controls
+    /// — `knownKeys`, the README test — goes on asking that one.
+    static var advancedSections: [Section] {
+        sections.compactMap { section in
+            let entries = section.entries.filter { !$0.askedInSetup }
+            return entries.isEmpty ? nil : Section(title: section.title, entries: entries)
+        }
+    }
 
     /// The default in words, for the grey of an empty field.
     ///

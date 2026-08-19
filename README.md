@@ -573,8 +573,15 @@ Both windows can be open at once, and either can be typed into: every window
 showing a setting reads the file again when anything writes it, so the one you
 are not typing in never shows the old answer.
 
-**Advanced** is everything setup doesn't ask, which is most of the settings:
-every entry amanu has, with a line saying what it does. An untouched field
+**Advanced** is everything setup doesn't ask, which is most of the settings,
+each with a line saying what it does. The eight the form does ask in full —
+the recordings folder, keeping the audio, the two automatic-recording and
+transcription switches, the engine and the service behind it, the live
+transcript, summaries on or off — are not repeated here; change them on
+**Setup**. The two it asks only partly are on both tabs, because setup cannot
+say everything they allow: the language menu offers the 25 languages the local
+model knows while the cloud engines understand more, and the summary cards have
+no card for `none`. An untouched field
 shows its default in grey as the placeholder — the value itself where there is
 one, and otherwise what happens instead (`the language of the meeting`,
 `detected from any language`), so a setting can be read without being set.
