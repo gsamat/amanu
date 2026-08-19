@@ -46,25 +46,29 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
 
     private let launchRow = AccessRow(
-        title: "Start at login",
-        detail: "So a meeting is never missed because nobody opened amanu.",
-        action: "Install",
-        grantedNote: "installed")
+        title: localised("Start at login", "Запуск при входе"),
+        detail: localised(
+            "So a meeting is never missed because nobody opened amanu.",
+            "Чтобы встреча не пропала из-за того, что amanu никто не открыл."),
+        action: localised("Install", "Включить"),
+        grantedNote: localised("installed", "включено"))
     private let micRow = AccessRow(
-        title: "Microphone",
-        detail: "Your side of the call.",
-        action: "Allow",
-        grantedNote: "allowed")
+        title: localised("Microphone", "Микрофон"),
+        detail: localised("Your side of the call.", "Ваша сторона разговора."),
+        action: localised("Allow", "Разрешить"),
+        grantedNote: localised("allowed", "разрешено"))
     private let audioRow = AccessRow(
-        title: "System audio",
+        title: localised("System audio", "Звук системы"),
         detail: "",
-        action: "Allow and test",
-        grantedNote: "heard the tone")
+        action: localised("Allow and test", "Разрешить и проверить"),
+        grantedNote: localised("heard the tone", "тон услышан"))
     private let calendarRow = AccessRow(
-        title: "Calendar",
-        detail: "Names the folder and the speakers from the invitees.",
-        action: "Allow",
-        grantedNote: "allowed",
+        title: localised("Calendar", "Календарь"),
+        detail: localised(
+            "Names the folder and the speakers from the invitees.",
+            "По участникам события называет папку и говорящих."),
+        action: localised("Allow", "Разрешить"),
+        grantedNote: localised("allowed", "разрешено"),
         optional: true)
 
     private let cloudSwitch = NSSwitch()
@@ -110,7 +114,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let summaryKey = NSSecureTextField()
     private let summaryKeyStatus = NSTextField(labelWithString: "")
     private lazy var summaryKeyLink = link(
-        "Get a key", "https://console.anthropic.com/settings/keys")
+        localised("Get a key", "Получить ключ"),
+        "https://console.anthropic.com/settings/keys")
 
     private let recordingsPath = NSTextField(labelWithString: "")
     private let autoRecord = NSSwitch()
@@ -132,7 +137,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             top: 22, left: SetupLayout.gutter, bottom: 22, right: SetupLayout.gutter)
 
         form.addArrangedSubview(SetupLayout.section(
-            "Access",
+            localised("Access", "Доступ"),
             content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
         var transcription: [NSView] = [transcriptionRows(), languageRow()]
@@ -143,14 +148,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             transcription.append(SetupLayout.box([liveTranscriptionRow()]))
         }
         form.addArrangedSubview(SetupLayout.section(
-            "Transcription", content: SetupLayout.group(transcription)))
+            localised("Transcription", "Расшифровка"),
+            content: SetupLayout.group(transcription)))
 
         form.addArrangedSubview(SetupLayout.section(
-            "Files",
+            localised("Files", "Файлы"),
             content: SetupLayout.box([folderRow(), keepAudioRow()])))
 
         form.addArrangedSubview(SetupLayout.section(
-            "Summaries",
+            localised("Summaries", "Саммари"),
             leading: summariesOn,
             content: summaryChoices()))
 
@@ -208,10 +214,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let cloudRow = SetupLayout.row(
             leading: cloudSwitch,
-            title: SetupLayout.title("In the cloud"),
+            title: SetupLayout.title(localised("In the cloud", "В облаке")),
             detail: SetupLayout.detail(
-                "Audio is uploaded to the provider's servers. Better on Russian, "
-                    + "and tells apart multiple speakers.",
+                localised(
+                    "Audio is uploaded to the provider's servers. Better on Russian, "
+                        + "and tells apart multiple speakers.",
+                    "Звук уходит на серверы провайдера. Лучше слышит русский "
+                        + "и различает нескольких говорящих."),
                 lines: 2, width: 440),
             trailing: [cloudStatus])
 
@@ -233,10 +242,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let localRow = SetupLayout.row(
             leading: localSwitch,
-            title: SetupLayout.title("On this Mac"),
+            title: SetupLayout.title(localised("On this Mac", "На этом маке")),
             detail: SetupLayout.detail(
-                "Nvidia parakeet, \(Self.parakeetMegabytes) MB download and disk usage. Nothing leaves "
-                    + "the machine, only me / them in the transcript.",
+                localised(
+                    "Nvidia parakeet, \(Self.parakeetMegabytes) MB download and disk usage. Nothing leaves "
+                        + "the machine, only me / them in the transcript.",
+                    "Nvidia parakeet, \(Self.parakeetMegabytes) МБ при скачивании и на диске. С мака "
+                        + "ничего не уходит, но в расшифровке только «я» и «они»."),
                 lines: 2, width: 440),
             trailing: [parakeetBar, parakeetStatus])
 
@@ -251,17 +263,25 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let assembly = ChoiceCard(
             id: "assemblyai",
             title: "AssemblyAI",
-            detail: "$0.23 an hour. No limit on meeting length.",
-            accessories: [link("Get a key", "https://www.assemblyai.com/dashboard/signup")])
+            detail: localised(
+                "$0.23 an hour. No limit on meeting length.",
+                "$0,23 за час. Без ограничения на длину встречи."),
+            accessories: [link(
+                localised("Get a key", "Получить ключ"),
+                "https://www.assemblyai.com/dashboard/signup")])
         let openai = ChoiceCard(
             id: "openai",
             title: "OpenAI",
-            detail: "$0.36 an hour. Same key as summaries.",
-            accessories: [link("Get a key", "https://platform.openai.com/api-keys")])
+            detail: localised(
+                "$0.36 an hour. Same key as summaries.",
+                "$0,36 за час. Тот же ключ, что и для саммари."),
+            accessories: [link(
+                localised("Get a key", "Получить ключ"),
+                "https://platform.openai.com/api-keys")])
         providerCards.adopt([assembly, openai])
         providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
-        cloudKey.placeholderString = "paste key"
+        cloudKey.placeholderString = localised("paste key", "вставьте ключ")
         cloudKey.font = SetupLayout.detailFont
         cloudKey.delegate = self
         cloudKey.widthAnchor.constraint(equalToConstant: 220).isActive = true
@@ -294,7 +314,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// whether it wanted `ru`, `rus` or `ru-RU`, and a typo went to stderr,
     /// where nobody was reading. What is stored is still the code.
     private func languageRow() -> NSView {
-        let label = NSTextField(labelWithString: "Meetings are mostly in")
+        let label = NSTextField(labelWithString: localised(
+            "Meetings are mostly in", "Чаще всего встречи на языке"))
         label.font = .systemFont(ofSize: 13)
         label.textColor = .secondaryLabelColor
 
@@ -325,7 +346,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// be reordered without a table of indices to keep in step with it.
     private func buildLanguageMenu() {
         let menu = NSMenu()
-        let detect = NSMenuItem(title: "Detect automatically", action: nil, keyEquivalent: "")
+        let detect = NSMenuItem(
+            title: localised("Detect automatically", "Определять автоматически"),
+            action: nil, keyEquivalent: "")
         menu.addItem(detect)
         menu.addItem(.separator())
         for (index, choice) in MeetingLanguages.menu.enumerated() {
@@ -350,10 +373,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         return SetupLayout.row(
             leading: liveTranscription,
-            title: SetupLayout.title("I want a live transcript during meetings"),
+            title: SetupLayout.title(localised(
+                "I want a live transcript during meetings",
+                "Показывать расшифровку прямо во время встречи")),
             detail: SetupLayout.detail(
-                "A 600 MB NVIDIA model downloads once. Nothing leaves this Mac, "
-                    + "and the final transcript is still parakeet's.",
+                localised(
+                    "A 600 MB NVIDIA model downloads once. Nothing leaves this Mac, "
+                        + "and the final transcript is still parakeet's.",
+                    "Один раз скачается модель NVIDIA, 600 МБ. С мака ничего не уходит, "
+                        + "итоговую расшифровку всё равно делает parakeet."),
                 lines: 2, width: 520),
             trailing: [liveStatus])
     }
@@ -369,9 +397,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             symbol: "folder",
             title: recordingsPath,
             detail: SetupLayout.detail(
-                "Outside Documents and Desktop, so macOS never has to ask.", lines: 1),
+                localised(
+                    "Outside Documents and Desktop, so macOS never has to ask.",
+                    "Вне Документов и Рабочего стола — macOS не будет спрашивать."),
+                lines: 1),
             trailing: [SetupLayout.actionButton(
-                "Choose…", target: self, action: #selector(chooseFolder))])
+                localised("Choose…", "Выбрать…"),
+                target: self, action: #selector(chooseFolder))])
     }
 
     @objc private func chooseFolder() {
@@ -381,7 +413,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = Config.resolveRoot(cliOverride: nil)
-        panel.prompt = "Use folder"
+        panel.prompt = localised("Use folder", "Выбрать папку")
         guard panel.runModal() == .OK, let chosen = panel.url else { return }
 
         // Store it the way a person would write it: a path under the home
@@ -403,7 +435,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keepAudio.action = #selector(keepAudioChanged)
         return SetupLayout.row(
             symbol: "waveform",
-            title: SetupLayout.title("Keep the audio after transcribing"),
+            title: SetupLayout.title(localised(
+                "Keep the audio after transcribing", "Оставлять звук после расшифровки")),
             trailing: [keepAudio])
     }
 
@@ -411,13 +444,21 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let claude = ChoiceCard(
             id: "claude-cli",
             title: "Claude Code",
-            detail: "On the subscription you're already signed into. No key.",
-            accessories: [link("Install it", "https://claude.com/product/claude-code")])
+            detail: localised(
+                "On the subscription you're already signed into. No key.",
+                "По подписке, в которую вы уже вошли. Ключ не нужен."),
+            accessories: [link(
+                localised("Install it", "Установить"),
+                "https://claude.com/product/claude-code")])
         let codex = ChoiceCard(
             id: "codex-cli",
             title: "Codex",
-            detail: "Same deal, on your OpenAI subscription.",
-            accessories: [link("Install it", "https://developers.openai.com/codex/cli/")])
+            detail: localised(
+                "Same deal, on your OpenAI subscription.",
+                "То же самое, но по подписке OpenAI."),
+            accessories: [link(
+                localised("Install it", "Установить"),
+                "https://developers.openai.com/codex/cli/")])
 
         // Without this the switch still slides when you push it — NSSwitch
         // animates itself — while nothing at all happens: the choice is never
@@ -440,8 +481,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         summaryKeyStatus.maximumNumberOfLines = 2
         let key = ChoiceCard(
             id: "api-key",
-            title: "My own key",
-            detail: "Billed per meeting, needs no CLI.",
+            title: localised("My own key", "Свой ключ"),
+            detail: localised(
+                "Billed per meeting, needs no CLI.",
+                "Оплата за встречу, без CLI."),
             accessories: [keyProvider, summaryKey, summaryKeyStatus, summaryKeyLink])
 
         // Ollama is a fallback, not a fourth peer: a whole card beside the
@@ -450,8 +493,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let ollama = ChoiceCard(
             id: "ollama",
             title: "Ollama",
-            detail: "No account, no network. Weaker summaries.",
-            accessories: [link("Install Ollama", "https://ollama.com/download/mac")],
+            detail: localised(
+                "No account, no network. Weaker summaries.",
+                "Без аккаунта и без сети. Саммари слабее."),
+            accessories: [link(
+                localised("Install Ollama", "Установить Ollama"),
+                "https://ollama.com/download/mac")],
             compact: true)
 
         summaryCards.adopt([claude, codex, key, ollama])
@@ -471,9 +518,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         autoRecord.action = #selector(autoRecordToggled)
         return SetupLayout.row(
             leading: autoRecord,
-            title: SetupLayout.title("Start recording automatically when a call app takes the mic"),
+            title: SetupLayout.title(localised(
+                "Start recording automatically when a call app takes the mic",
+                "Начинать запись, когда приложение звонка берёт микрофон")),
             detail: SetupLayout.detail(
-                "And stop when it lets go. Recordings shorter than a minute are thrown away.",
+                localised(
+                    "And stop when it lets go. Recordings shorter than a minute are thrown away.",
+                    "И заканчивать, когда отпустит. Записи короче минуты выбрасываются."),
                 lines: 2, width: 520))
     }
 
@@ -485,6 +536,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// to sit beside a row title.
     private static let day: DateFormatter = {
         let formatter = DateFormatter()
+        // The window's language, on the Mac's own region: a Russian window
+        // saying "heard the tone · 19 Aug" is two languages in one line, and
+        // a locale built from the language alone would take the day and month
+        // out of the order this Mac writes them in as well.
+        var locale = Locale.Components(locale: .current)
+        locale.languageComponents.languageCode = .init(InterfaceLanguage.current.rawValue)
+        formatter.locale = Locale(components: locale)
         formatter.setLocalizedDateFormatFromTemplate("d MMM")
         return formatter
     }()
@@ -585,27 +643,34 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard !liveDownloading else { return }
         let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: prompt) {
-            liveStatus.stringValue = "downloaded"
+            liveStatus.stringValue = localised("downloaded", "скачана")
             refresh()
             return
         }
         liveDownloading = true
-        liveStatus.stringValue = "preparing download…"
+        liveStatus.stringValue = localised("preparing download…", "готовлюсь скачивать…")
         refresh()
         liveDownloadTask = Task { [weak self] in
             guard let self else { return }
             do {
                 _ = try await liveModelStore.download(language: prompt) { [weak self] fraction in
                     Task { @MainActor in
-                        self?.liveStatus.stringValue = "downloading — \(Int(fraction * 100))% of about 600 MB"
+                        self?.liveStatus.stringValue = localised(
+                            "downloading — \(Int(fraction * 100))% of about 600 MB",
+                            "скачивание — \(Int(fraction * 100))% из примерно 600 МБ")
                     }
                 }
                 liveStatus.stringValue = liveModelStore.isReady(language: prompt)
-                    ? "downloaded" : "download incomplete — turn off and on to retry"
+                    ? localised("downloaded", "скачана")
+                    : localised(
+                        "download incomplete — turn off and on to retry",
+                        "скачалось не всё — выключите и включите, чтобы повторить")
             } catch is CancellationError {
-                liveStatus.stringValue = "download paused"
+                liveStatus.stringValue = localised("download paused", "скачивание остановлено")
             } catch {
-                liveStatus.stringValue = "download failed: \(error.localizedDescription)"
+                liveStatus.stringValue =
+                    localised("download failed: ", "не удалось скачать: ")
+                        + error.localizedDescription
             }
             liveDownloading = false
             liveDownloadTask = nil
@@ -654,7 +719,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// Register with Login Items, the way every other application does.
     private func startAtLogin() {
         if isRecording?() == true {
-            report(launchRow, "not while a recording is running — stop it and try again")
+            report(launchRow, localised(
+                "not while a recording is running — stop it and try again",
+                "не сейчас: идёт запись — остановите её и попробуйте снова"))
             return
         }
         do {
@@ -663,7 +730,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             // only place they can is System Settings.
             if state == .needsApproval { LoginItem.openSettings() }
         } catch {
-            report(launchRow, "couldn't register at login: \(error.localizedDescription)")
+            report(launchRow, localised("couldn't register at login: ", "не удалось включить: ")
+                + error.localizedDescription)
         }
         refresh()
     }
@@ -688,7 +756,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private var calendarGrant: SetupPermissions.State?
 
     private func testSystemAudio() async {
-        audioRow.working("playing a tone…")
+        audioRow.working(localised("playing a tone…", "играет тон…"))
         let result = await SetupPermissions.testSystemAudio()
         systemAudio = result
         if result == .heard { SetupState.rememberSystemAudioHeard() }
@@ -719,7 +787,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             do {
                 _ = try await AsrModels.downloadAndLoad(version: version)
             } catch {
-                parakeetStatus.stringValue = "download failed: \(error)"
+                parakeetStatus.stringValue =
+                    localised("download failed: ", "не удалось скачать: ") + "\(error)"
             }
             parakeetProgress?.invalidate()
             parakeetProgress = nil
@@ -740,8 +809,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             MainActor.assumeIsolated {
                 let mb = Self.megabytes(of: cache)
                 self?.parakeetBar.doubleValue = Double(mb)
-                self?.parakeetStatus.stringValue =
-                    "\(mb) of about \(Self.parakeetMegabytes) MB"
+                self?.parakeetStatus.stringValue = localised(
+                    "\(mb) of about \(Self.parakeetMegabytes) MB",
+                    "\(mb) из примерно \(Self.parakeetMegabytes) МБ")
             }
         }
     }
@@ -800,12 +870,27 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// language the second slot would have added anyway.
     private static func note(forLanguage code: String?) -> String {
         guard let code else {
-            return "Both engines work it out from the audio. Naming a language "
-                + "keeps a short or noisy meeting from being taken for another one."
+            return localised(
+                "Both engines work it out from the audio. Naming a language "
+                    + "keeps a short or noisy meeting from being taken for another one.",
+                "Оба движка определяют язык по звуку. Названный язык не даст принять "
+                    + "короткую или шумную встречу за другую.")
         }
         guard code != "en" else { return "" }
-        return "English meetings are recognised too — nothing to switch."
+        return localised(
+            "English meetings are recognised too — nothing to switch.",
+            "Встречи на английском тоже распознаются — переключать ничего не надо.")
     }
+
+    /// What a key field says while the provider is being asked.
+    ///
+    /// Named rather than written out at each of the three places that need
+    /// it, because one of them needs it by *comparison* — the redraw clears a
+    /// stale "checking…" and leaves anything else alone. Two literals agree
+    /// in one language and stop agreeing in the other, which would leave a
+    /// Russian window saying it was still checking a key it had finished
+    /// with.
+    private static var checkingKey: String { localised("checking…", "проверяю…") }
 
     /// Check first, write second.
     ///
@@ -817,26 +902,29 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let target = pendingProvider ?? provider
         let key = cloudKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        cloudKeyStatus.stringValue = "checking…"
+        cloudKeyStatus.stringValue = Self.checkingKey
 
         let accepted = target == "openai"
             ? await SummaryKeyProbe.works(provider: .openAI, key: key)
             : await Self.assemblyKeyWorks(key)
         guard accepted else {
             cloudKeyStatus.stringValue = hasKey(for: target)
-                ? "that key was refused — the saved one is untouched"
-                : "that key was refused"
+                ? localised(
+                    "that key was refused — the saved one is untouched",
+                    "этот ключ не приняли — сохранённый не тронут")
+                : localised("that key was refused", "этот ключ не приняли")
             return
         }
         let path = target == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
         do {
             try Self.writeSecret(key, to: path)
         } catch {
-            cloudKeyStatus.stringValue = "couldn't save the key: \(error)"
+            cloudKeyStatus.stringValue =
+                localised("couldn't save the key: ", "не удалось сохранить ключ: ") + "\(error)"
             return
         }
         cloudKey.stringValue = ""
-        cloudKeyStatus.stringValue = "key works"
+        cloudKeyStatus.stringValue = localised("key works", "ключ работает")
         // A key that works is the answer to the question the switch asked, so
         // it turns the cloud on rather than making the person click twice.
         provider = target
@@ -853,19 +941,22 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let path = backend == "anthropic-api"
             ? Config.anthropicKeyPath
             : Config.openAIKeyPath
-        summaryKeyStatus.stringValue = "checking…"
+        summaryKeyStatus.stringValue = Self.checkingKey
         guard await SummaryKeyProbe.works(provider: provider, key: key) else {
-            summaryKeyStatus.stringValue = "that key was refused — nothing was overwritten"
+            summaryKeyStatus.stringValue = localised(
+                "that key was refused — nothing was overwritten",
+                "этот ключ не приняли — ничего не перезаписано")
             return
         }
         do {
             try Self.writeSecret(key, to: path)
         } catch {
-            summaryKeyStatus.stringValue = "couldn't save the key: \(error)"
+            summaryKeyStatus.stringValue =
+                localised("couldn't save the key: ", "не удалось сохранить ключ: ") + "\(error)"
             return
         }
         summaryKey.stringValue = ""
-        summaryKeyStatus.stringValue = "key works"
+        summaryKeyStatus.stringValue = localised("key works", "ключ работает")
         Config.update(path: ["summary", "backend"], value: backend)
         refresh()
     }
@@ -913,15 +1004,25 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let ollama = await Task.detached { Tooling.probe("ollama") }.value
         let models = await Tooling.ollamaModels()
 
-        summaryCards.card("claude-cli")?.status = Self.describe(claude)
-        summaryCards.card("codex-cli")?.status = Self.describe(codex)
-        summaryCards.card("claude-cli")?.showLink(claude == nil)
-        summaryCards.card("codex-cli")?.showLink(codex == nil)
+        for (id, tool) in [("claude-cli", claude), ("codex-cli", codex)] {
+            summaryCards.card(id)?.report(Self.describe(tool), good: tool?.version != nil)
+            summaryCards.card(id)?.showLink(tool == nil)
+        }
 
-        summaryCards.card("ollama")?.status = models.map {
-            $0.isEmpty ? "running, no models" : "running · \($0.prefix(2).joined(separator: ", "))"
-        } ?? (ollama == nil ? "not here" : "installed, not running")
-        summaryCards.card("ollama")?.showLink(ollama == nil)
+        let ollamaCard = summaryCards.card("ollama")
+        if let models {
+            ollamaCard?.report(
+                models.isEmpty
+                    ? localised("running, no models", "работает, моделей нет")
+                    : localised("running · ", "работает · ")
+                        + models.prefix(2).joined(separator: ", "),
+                good: true)
+        } else {
+            ollamaCard?.report(ollama == nil
+                ? localised("not here", "не установлена")
+                : localised("installed, not running", "установлена, но не запущена"))
+        }
+        ollamaCard?.showLink(ollama == nil)
 
         summaryToolRuns = [
             "claude-cli": claude?.runs == true,
@@ -932,11 +1033,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private static func describe(_ tool: Tooling.Found?) -> String {
-        guard let tool else { return "not here" }
+        guard let tool else { return localised("not here", "не установлен") }
         guard let version = tool.version else {
-            return "found but it doesn't run from here"
+            return localised(
+                "found but it doesn't run from here", "нашёлся, но отсюда не запускается")
         }
-        return "answers · \(version)"
+        return localised("answers · ", "отвечает · ") + version
     }
 
     /// Whether the local model is on this Mac. A Mac that cannot run it at
@@ -993,18 +1095,23 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     func refresh() {
         switch LoginItem.status() {
         case .enabled:
-            launchRow.update(.granted, note: "on")
+            launchRow.update(.granted, note: localised("on", "включено"))
         case .needsApproval:
             launchRow.update(
                 .denied,
-                detail: "macOS wants this allowed in Login Items.",
-                action: "Open Settings")
+                detail: localised(
+                    "macOS wants this allowed in Login Items.",
+                    "macOS хочет, чтобы это разрешили в объектах входа."),
+                action: localised("Open Settings", "Открыть настройки"))
         case .notRegistered:
-            launchRow.update(.notAsked, detail: "So a meeting is never missed.")
+            launchRow.update(.notAsked, detail: localised(
+                "So a meeting is never missed.", "Чтобы ни одна встреча не пропала."))
         case .unavailable:
             launchRow.update(
                 .notAsked,
-                detail: "Only Amanu.app can register itself; this is a bare build.")
+                detail: localised(
+                    "Only Amanu.app can register itself; this is a bare build.",
+                    "Зарегистрировать себя может только Amanu.app, а это голая сборка."))
         }
         micRow.update(SetupPermissions.microphone())
         calendarRow.update(calendarGrant ?? SetupPermissions.calendar())
@@ -1014,10 +1121,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             audioRow.update(
                 .granted,
                 note: SetupState.systemAudioHeardAt().map {
-                    "heard the tone · \(Self.day.string(from: $0))"
-                } ?? "heard the tone",
-                action: "Test again")
-        case .silent: audioRow.update(.denied, detail: "Recorded silence. Check the grant, or turn the volume up, and test again.")
+                    localised("heard the tone · ", "тон услышан · ")
+                        + Self.day.string(from: $0)
+                } ?? localised("heard the tone", "тон услышан"),
+                action: localised("Test again", "Проверить ещё раз"))
+        case .silent:
+            audioRow.update(.denied, detail: localised(
+                "Recorded silence. Check the grant, or turn the volume up, and test again.",
+                "Записалась тишина. Проверьте разрешение или прибавьте громкость и "
+                    + "попробуйте снова."))
         case .refused(let why): audioRow.update(.denied, detail: why)
         case nil: audioRow.update(.notAsked)
         }
@@ -1038,12 +1150,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
         let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: livePrompt) {
-            liveStatus.stringValue = "downloaded"
+            liveStatus.stringValue = localised("downloaded", "скачана")
             liveStatus.textColor = .systemGreen
         } else if !liveDownloading, Config.liveTranscriptionEnabled(), liveStatus.stringValue.isEmpty {
-            liveStatus.stringValue = "about 600 MB — downloads when switched on"
+            liveStatus.stringValue = localised(
+                "about 600 MB — downloads when switched on",
+                "около 600 МБ — скачается при включении")
         } else if !Config.liveTranscriptionEnabled() {
-            liveStatus.stringValue = "optional"
+            liveStatus.stringValue = localised("optional", "по желанию")
         }
 
         let root = Config.resolveRoot(cliOverride: nil).path
@@ -1083,29 +1197,35 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         for card in providerCards.cards {
             let known = hasKey(for: card.id)
-            card.status = known ? "key works" : "no key yet"
+            card.report(
+                known
+                    ? localised("key works", "ключ работает")
+                    : localised("no key yet", "ключа ещё нет"),
+                good: known)
             card.showLink(!known)
         }
         cloudKey.placeholderString = (pendingProvider ?? provider) == "openai"
-            ? "sk-…" : "paste key"
+            ? "sk-…" : localised("paste key", "вставьте ключ")
         // Written on every pass rather than only into an empty label: a line
         // left over from the last question describes the wrong one.
         if let prompt = TranscriptionChoice.keyPrompt(
             pending: pendingProvider, inForce: provider, cloudOn: choice.cloud) {
             cloudKeyStatus.stringValue = prompt
-        } else if cloudKeyStatus.stringValue == "checking…" {
+        } else if cloudKeyStatus.stringValue == Self.checkingKey {
             cloudKeyStatus.stringValue = ""
         }
         // The cards below carry the price and the key state, so the row speaks
         // only when a missing key is what holds the switch down.
         cloudStatus.stringValue = TranscriptionChoice.rowNeedsKey(
-            pending: pendingProvider, cloudOn: choice.cloud) ? "needs a key" : ""
+            pending: pendingProvider, cloudOn: choice.cloud)
+            ? localised("needs a key", "нужен ключ") : ""
         keyLine.isHidden = pendingProvider == nil && hasKey(for: provider)
 
         localSwitch.isEnabled = Platform.supportsLocalModels
         localSwitch.state = choice.local ? .on : .off
         if !Platform.supportsLocalModels {
-            parakeetStatus.stringValue = "needs Apple Silicon"
+            parakeetStatus.stringValue = localised(
+                "needs Apple Silicon", "нужен Apple Silicon")
             parakeetStatus.textColor = .secondaryLabelColor
             parakeetBar.isHidden = true
         } else {
@@ -1113,12 +1233,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             let downloaded = AsrModels.modelsExist(
                 at: AsrModels.defaultCacheDirectory(for: version), version: version)
             if downloaded {
-                parakeetStatus.stringValue = "downloaded"
+                parakeetStatus.stringValue = localised("downloaded", "скачана")
                 parakeetStatus.textColor = .systemGreen
                 parakeetBar.isHidden = true
             } else if parakeetProgress == nil {
-                parakeetStatus.stringValue =
-                    choice.local ? "about \(Self.parakeetMegabytes) MB" : "free"
+                parakeetStatus.stringValue = choice.local
+                    ? localised(
+                        "about \(Self.parakeetMegabytes) MB",
+                        "около \(Self.parakeetMegabytes) МБ")
+                    : localised("free", "бесплатно")
                 parakeetStatus.textColor = .secondaryLabelColor
             }
         }
@@ -1172,20 +1295,51 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// What the machine still owes, in the order it has to be dealt with.
     /// The setup window's footer is this list in a sentence and its button is
     /// `nextAction`; all three are here so they cannot disagree.
-    var outstanding: [String] {
-        var left: [String] = []
-        if SetupPermissions.needsStartAtLogin { left.append("start at login") }
-        if SetupPermissions.microphone() != .granted { left.append("microphone") }
-        if systemAudio != .heard { left.append("system audio") }
-        if parakeetIsWantedAndMissing { left.append("parakeet") }
+    var outstanding: [Missing] {
+        var left: [Missing] = []
+        if SetupPermissions.needsStartAtLogin { left.append(.startAtLogin) }
+        if SetupPermissions.microphone() != .granted { left.append(.microphone) }
+        if systemAudio != .heard { left.append(.systemAudio) }
+        if parakeetIsWantedAndMissing { left.append(.parakeet) }
         if Config.liveTranscriptionEnabled() {
             let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
-            if !liveModelStore.isReady(language: prompt) { left.append("live model") }
+            if !liveModelStore.isReady(language: prompt) { left.append(.liveModel) }
         }
         // The window used to say everything was granted while the card it had
         // chosen to write the summaries said "not here" three inches above.
-        if chosenSummaryIsMissing { left.append("something to summarise with") }
+        if chosenSummaryIsMissing { left.append(.summaryTool) }
         return left
+    }
+
+    /// One thing the machine still owes.
+    ///
+    /// A case rather than the words for it, because the words are read by a
+    /// person and the case is read by the program: the footer button asks
+    /// whether parakeet is on this list, and it asked by comparing against the
+    /// string the window was showing. That worked while there was one language
+    /// to show it in.
+    enum Missing: Sendable, Equatable {
+        case startAtLogin
+        case microphone
+        case systemAudio
+        case parakeet
+        case liveModel
+        /// Summaries are on, and whatever was chosen to write them isn't here.
+        case summaryTool
+
+        var described: String {
+            switch self {
+            case .startAtLogin: return localised("start at login", "запуск при входе")
+            case .microphone: return localised("microphone", "микрофон")
+            case .systemAudio: return localised("system audio", "звук системы")
+            // A name, and names are not translated.
+            case .parakeet: return "parakeet"
+            case .liveModel:
+                return localised("live model", "модель для расшифровки на ходу")
+            case .summaryTool:
+                return localised("something to summarise with", "чем писать саммари")
+            }
+        }
     }
 
     /// The same list in a sentence, for whatever is showing it.
@@ -1201,11 +1355,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// Separate from the machine, and `nonisolated` to say so: it reads no
     /// permission and no file, which is what lets the three shapes of it be
     /// tested without granting or revoking anything.
-    nonisolated static func sentence(for outstanding: [String]) -> String {
-        switch outstanding.count {
-        case 0: return "Everything amanu needs is granted."
-        case 1: return "One thing left: \(outstanding[0])"
-        default: return "Left: \(outstanding.joined(separator: ", "))"
+    nonisolated static func sentence(for outstanding: [Missing]) -> String {
+        let named = outstanding.map(\.described)
+        switch named.count {
+        case 0:
+            return localised(
+                "Everything amanu needs is granted.", "Всё, что нужно amanu, разрешено.")
+        case 1:
+            return localised("One thing left: ", "Осталось одно: ") + named[0]
+        default:
+            return localised("Left: ", "Осталось: ") + named.joined(separator: ", ")
         }
     }
 
@@ -1217,20 +1376,32 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     var nextActionTitle: String {
         if SetupPermissions.needsStartAtLogin {
             return LoginItem.status() == .needsApproval
-                ? "Open Login Items"
-                : "Start at login"
+                ? localised("Open Login Items", "Открыть объекты входа")
+                : localised("Start at login", "Запускать при входе")
         }
-        if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }
-        if SetupPermissions.needsSystemAudioTest(systemAudio) { return "Allow and test" }
+        if SetupPermissions.microphone() == .notAsked {
+            return localised("Allow microphone", "Разрешить микрофон")
+        }
+        if SetupPermissions.needsSystemAudioTest(systemAudio) {
+            return localised("Allow and test", "Разрешить и проверить")
+        }
         // Named separately from the live model because the two downloads
         // can be outstanding at once, and a button that says "Download
         // parakeet" while parakeet is downloading has nothing left to do
         // but close the window under the person reading it.
-        if parakeetProgress != nil { return "Downloading parakeet…" }
-        if outstanding.contains("parakeet") { return "Download parakeet" }
-        if liveDownloading { return "Downloading live model…" }
-        if outstanding.contains("live model") { return "Download live model" }
-        return "Done"
+        if parakeetProgress != nil {
+            return localised("Downloading parakeet…", "Скачивается parakeet…")
+        }
+        if outstanding.contains(.parakeet) {
+            return localised("Download parakeet", "Скачать parakeet")
+        }
+        if liveDownloading {
+            return localised("Downloading live model…", "Скачивается модель…")
+        }
+        if outstanding.contains(.liveModel) {
+            return localised("Download live model", "Скачать модель")
+        }
+        return localised("Done", "Готово")
     }
     private func report(_ row: AccessRow, _ message: String) {
         row.update(.denied, detail: message)
@@ -1260,7 +1431,7 @@ final class AccessRow: NSView, LayerTinted {
     private let isOptional: Bool
 
     init(title: String, detail: String, action: String,
-         grantedNote: String = "granted", optional: Bool = false) {
+         grantedNote: String = localised("granted", "разрешено"), optional: Bool = false) {
         self.title = NSTextField(labelWithString: title)
         self.detail = NSTextField(labelWithString: detail)
         self.defaultDetail = detail
@@ -1353,7 +1524,8 @@ final class AccessRow: NSView, LayerTinted {
         if on {
             mark.image = NSImage(
                 systemSymbolName: "exclamationmark.circle",
-                accessibilityDescription: "needs your attention")
+                accessibilityDescription: localised(
+                    "needs your attention", "требует внимания"))
             mark.contentTintColor = .systemOrange
         }
     }
@@ -1383,7 +1555,8 @@ final class AccessRow: NSView, LayerTinted {
         note.stringValue = noteOverride ?? {
             switch state {
             case .granted: return grantedNote
-            case .notAsked, .unknown: return isOptional ? "optional" : ""
+            case .notAsked, .unknown:
+                return isOptional ? localised("optional", "не обязательно") : ""
             case .denied: return ""
             }
         }()
@@ -1392,18 +1565,21 @@ final class AccessRow: NSView, LayerTinted {
         switch state {
         case .granted:
             mark.image = NSImage(
-                systemSymbolName: "checkmark.circle", accessibilityDescription: "granted")
+                systemSymbolName: "checkmark.circle",
+                accessibilityDescription: localised("granted", "разрешено"))
             mark.contentTintColor = .systemGreen
             button.isHidden = actionTitle == nil
         case .denied:
             mark.image = NSImage(
-                systemSymbolName: "exclamationmark.circle", accessibilityDescription: "denied")
+                systemSymbolName: "exclamationmark.circle",
+                accessibilityDescription: localised("denied", "запрещено"))
             mark.contentTintColor = .systemOrange
             button.isHidden = false
-            button.title = "Open Settings"
+            button.title = localised("Open Settings", "Открыть настройки")
         case .notAsked, .unknown:
             mark.image = NSImage(
-                systemSymbolName: "circle.dashed", accessibilityDescription: "not asked")
+                systemSymbolName: "circle.dashed",
+                accessibilityDescription: localised("not asked", "не спрашивали"))
             mark.contentTintColor = .tertiaryLabelColor
             button.isHidden = false
         }
@@ -1424,17 +1600,28 @@ final class ChoiceCard: NSView, LayerTinted {
     private var linkButton: NSButton?
     private var selected = false
 
-    var status: String {
-        get { statusLabel.stringValue }
-        set {
-            statusLabel.stringValue = newValue
-            statusLabel.isHidden = newValue.isEmpty
-            // "answers", "downloaded", "key works" are the states worth
-            // seeing across the window; everything else is a note.
-            let good = ["answers", "downloaded", "key works", "running"]
-            works = good.contains(where: newValue.hasPrefix)
+    /// What the machine last said about this card. Set through `report`,
+    /// which is also told whether that was good news.
+    private(set) var status: String = "" {
+        didSet {
+            statusLabel.stringValue = status
+            statusLabel.isHidden = status.isEmpty
             colourStatus()
         }
+    }
+
+    /// Say what the machine answered, and whether it was the answer somebody
+    /// wanted.
+    ///
+    /// Good news used to be recognised by matching the words — anything
+    /// starting with "answers", "downloaded", "key works" or "running" was
+    /// green. That is a rule that only reads one language: translate the
+    /// statuses and every card in the window goes grey, which is a defect
+    /// nothing would have failed on. The caller knows the answer it just got;
+    /// it says so.
+    func report(_ text: String, good: Bool = false) {
+        works = good
+        status = text
     }
 
     /// Whether the last thing the machine said about this card was good news.
@@ -1460,7 +1647,9 @@ final class ChoiceCard: NSView, LayerTinted {
             selected = newValue
             radio.image = NSImage(
                 systemSymbolName: newValue ? "largecircle.fill.circle" : "circle",
-                accessibilityDescription: newValue ? "chosen" : "not chosen")
+                accessibilityDescription: newValue
+                    ? localised("chosen", "выбрано")
+                    : localised("not chosen", "не выбрано"))
             radio.contentTintColor = newValue ? .controlAccentColor : .tertiaryLabelColor
             layer?.borderWidth = newValue ? 1.5 : 1
             retint()

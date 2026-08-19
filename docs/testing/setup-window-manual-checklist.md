@@ -1,7 +1,8 @@
 # Setup window: manual verification
 
 Last run 19 August 2026, against `Amanu.app` 0.2.0; the settings-window
-section below was added when the form moved into Settings and has not been run
+section below was added when the form moved into Settings, and the language
+section at the end when the interface learned Russian — neither has been run
 against a build yet. Most of it can be driven
 without hands — a real click at a screen point plus `~/.config/amanu/config.json`
 answers nearly every question here — and that is how it was run. The items that
@@ -297,6 +298,36 @@ checking by hand is only the seam between them.
   something the tests may do.
 - Confirm the Setup tab has no **Later** or **Done**: those belong to the
   first run, and setup is marked completed by that window, not by this one.
+
+## The language of the windows
+
+Nothing here needs a recording, but all of it needs a restart: the language is
+read once at startup, which is what the row under it says.
+
+- On a Mac set to Russian, confirm every window comes up in Russian without
+  anything being set. On an English Mac, in English. This is the whole of what
+  most people will ever do about it.
+- Set **Advanced → Интерфейс → Язык окон amanu** to `ru`. Confirm the notice
+  under the tab says it applies the next time amanu starts, that the open
+  windows do **not** change under you, and that after a restart every window,
+  both menus, and the next banner a recording posts are Russian.
+- Confirm the three settings with "language" in the name stay apart: **Язык
+  окон amanu** (Interface) is amanu's own, **Язык встреч** (Transcription) is
+  what meetings are held in, **Язык саммари** (Summaries) is what summaries
+  are written in. Changing any one must leave the other two alone in
+  `config.json`.
+- Confirm the **Чаще всего встречи на языке** menu is *not* translated:
+  English, Русский, Deutsch, each named in itself, the same list in both
+  interface languages. The line under it *is* translated, in all three of its
+  states — empty for English, the promise about English meetings for anything
+  else, and the note about short or noisy meetings for **Определять
+  автоматически**.
+- Confirm `amanu doctor`, `amanu sessions` and `--help` stay English whatever
+  `interface_language` says.
+- Put a language amanu does not have into the file — `"interface_language":
+  "kz"` — start it from a terminal, and confirm it says so on stderr and falls
+  back to the Mac's own language rather than refusing to start or showing
+  empty labels.
 
 ## Setup is offered only while there is a first run to finish
 

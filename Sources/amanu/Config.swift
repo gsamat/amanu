@@ -366,6 +366,23 @@ enum Config {
         load()?["window"] as? Bool ?? true
     }
 
+    /// What language amanu's own windows are written in: `auto` (default,
+    /// meaning the Mac's own languages decide), `en` or `ru`.
+    ///
+    /// Named at length rather than as `language`, because two settings called
+    /// language already exist and answer different questions —
+    /// `transcription.language` is what meetings are held in and
+    /// `summary.language` is what summaries are written in. A bare `language`
+    /// in this file would read as a third member of that family instead of as
+    /// the one setting here that is about amanu's own words. See
+    /// `InterfaceLanguage`.
+    static func interfaceLanguage() -> String? {
+        guard let value = load()?["interface_language"] as? String, !value.isEmpty else {
+            return nil
+        }
+        return value
+    }
+
     /// Whether the audio outlives the transcript it was recorded for.
     ///
     /// Off by default, and that is a real trade rather than a tidy-up: a

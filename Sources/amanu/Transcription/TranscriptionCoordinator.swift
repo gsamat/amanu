@@ -157,7 +157,7 @@ actor TranscriptionCoordinator {
             try await transcribe(dir)
         }
         notifyUser(
-            title: "amanu — transcript ready",
+            title: localised("amanu — transcript ready", "amanu — расшифровка готова"),
             body: dir.lastPathComponent,
             opening: dir)
         runHook(for: dir)
@@ -207,16 +207,21 @@ actor TranscriptionCoordinator {
                 ? "giving up: \(error) — retrying cannot change this"
                 : "giving up after \(attempts) attempts")
             notifyUser(
-                title: "amanu — transcription gave up",
-                body: "\(dir.lastPathComponent) — audio kept, see transcribe.log",
+                title: localised(
+                    "amanu — transcription gave up", "amanu — расшифровка не вышла"),
+                body: dir.lastPathComponent + localised(
+                    " — audio kept, see transcribe.log",
+                    " — звук сохранён, подробности в transcribe.log"),
                 opening: dir
             )
             TrackCompressor.compress(sessionDir: dir)
         } else {
             SessionState.update(dir, with: fields)
             notifyUser(
-                title: "amanu — transcription failed",
-                body: "\(dir.lastPathComponent) — see transcribe.log",
+                title: localised(
+                    "amanu — transcription failed", "amanu — расшифровка не удалась"),
+                body: dir.lastPathComponent + localised(
+                    " — see transcribe.log", " — подробности в transcribe.log"),
                 opening: dir
             )
         }

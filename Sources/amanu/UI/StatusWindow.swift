@@ -22,15 +22,19 @@ final class StatusWindow {
 
     private let panel: NSWindow
     private let icon = NSImageView()
-    private let stateLabel = NSTextField(labelWithString: "idle")
+    private let stateLabel = NSTextField(labelWithString: localised("idle", "не записывает"))
     private let transcriptionLabel = NSTextField(labelWithString: "")
-    private let toggleButton = NSButton(title: "Start recording", target: nil, action: nil)
-    private let pauseButton = NSButton(title: "Pause", target: nil, action: nil)
-    private let autoRecordCheckbox = NSButton(checkboxWithTitle: "Record meetings automatically",
-                                              target: nil, action: nil)
+    private let toggleButton = NSButton(
+        title: localised("Start recording", "Начать запись"), target: nil, action: nil)
+    private let pauseButton = NSButton(
+        title: localised("Pause", "Пауза"), target: nil, action: nil)
+    private let autoRecordCheckbox = NSButton(
+        checkboxWithTitle: localised("Record meetings automatically", "Записывать встречи сама"),
+        target: nil, action: nil)
     private let decisionLabel = NSTextField(labelWithString: "")
     private let liveCheckbox = NSButton(
-        checkboxWithTitle: "Live transcript", target: nil, action: nil)
+        checkboxWithTitle: localised("Live transcript", "Расшифровка на ходу"),
+        target: nil, action: nil)
     private let liveStatus = NSTextField(labelWithString: "")
     private let liveText = NSTextView()
     private let liveScroll = NSScrollView()
@@ -126,12 +130,14 @@ final class StatusWindow {
         // back off — hidden instead, and the window stays compact.
         liveSection.isHidden = !Platform.supportsLocalModels
 
-        let openFolder = NSButton(title: "Open recordings folder", target: self,
-                                  action: #selector(openFolderClicked))
+        let openFolder = NSButton(
+            title: localised("Open recordings folder", "Открыть папку записей"),
+            target: self, action: #selector(openFolderClicked))
         openFolder.bezelStyle = .rounded
 
-        let manage = NSButton(title: "Manage recordings…", target: self,
-                              action: #selector(showRecordingsClicked))
+        let manage = NSButton(
+            title: localised("Manage recordings…", "Управление записями…"),
+            target: self, action: #selector(showRecordingsClicked))
         manage.bezelStyle = .rounded
 
         let header = NSStackView(views: [icon, stateLabel])
@@ -201,22 +207,24 @@ final class StatusWindow {
         )
         switch state {
         case .idle:
-            stateLabel.stringValue = "idle"
+            stateLabel.stringValue = localised("idle", "не записывает")
             stateLabel.textColor = .labelColor
-            toggleButton.title = "Start recording"
-            pauseButton.title = "Pause"
+            toggleButton.title = localised("Start recording", "Начать запись")
+            pauseButton.title = localised("Pause", "Пауза")
             pauseButton.isEnabled = false
         case .recording:
-            stateLabel.stringValue = "● recording · \(elapsed ?? "0:00")"
+            stateLabel.stringValue =
+                localised("● recording · ", "● запись · ") + (elapsed ?? "0:00")
             stateLabel.textColor = .systemRed
-            toggleButton.title = "Stop recording"
-            pauseButton.title = "Pause"
+            toggleButton.title = localised("Stop recording", "Остановить запись")
+            pauseButton.title = localised("Pause", "Пауза")
             pauseButton.isEnabled = true
         case .paused:
-            stateLabel.stringValue = "❙❙ paused · \(elapsed ?? "0:00")"
+            stateLabel.stringValue =
+                localised("❙❙ paused · ", "❙❙ пауза · ") + (elapsed ?? "0:00")
             stateLabel.textColor = .systemOrange
-            toggleButton.title = "Stop recording"
-            pauseButton.title = "Resume"
+            toggleButton.title = localised("Stop recording", "Остановить запись")
+            pauseButton.title = localised("Resume", "Продолжить")
             pauseButton.isEnabled = true
         }
     }
@@ -238,12 +246,13 @@ final class StatusWindow {
         }
         liveStatus.stringValue = switch snapshot.status {
         case .idle: ""
-        case .paused: "off"
-        case .loading: "loading model…"
-        case .live: "on this Mac"
-        case .modelMissing: "model not downloaded"
-        case .overloaded: "stopped — Mac couldn't keep up"
-        case .error(let message): "stopped — \(message)"
+        case .paused: localised("off", "выключена")
+        case .loading: localised("loading model…", "загружаю модель…")
+        case .live: localised("on this Mac", "на этом маке")
+        case .modelMissing: localised("model not downloaded", "модель не скачана")
+        case .overloaded:
+            localised("stopped — Mac couldn't keep up", "остановлена — мак не успевает")
+        case .error(let message): localised("stopped — ", "остановлена — ") + message
         }
 
         let rendered = NSMutableAttributedString()
@@ -251,7 +260,9 @@ final class StatusWindow {
             switch entry {
             case .resumed:
                 rendered.append(NSAttributedString(
-                    string: "\n— live transcript resumed —\n\n",
+                    string: localised(
+                        "\n— live transcript resumed —\n\n",
+                        "\n— расшифровка продолжена —\n\n"),
                     attributes: [
                         .font: NSFont.systemFont(ofSize: 11),
                         .foregroundColor: NSColor.secondaryLabelColor,

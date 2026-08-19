@@ -323,7 +323,9 @@ final class RecordingSession {
                 "recovered \(recovered.count) interrupted recording(s)\n".utf8
             ))
             notifyUser(
-                title: "amanu — interrupted recording recovered",
+                title: localised(
+                    "amanu — interrupted recording recovered",
+                    "amanu — прерванная запись восстановлена"),
                 body: recovered.map { $0.lastPathComponent }.joined(separator: ", ")
             )
         }
@@ -386,8 +388,12 @@ final class RecordingSession {
                 trackLastGrew[name] = now
                 if trackStalled.remove(name) != nil {
                     notifyUser(
-                        title: "amanu: \(name) track recovered",
-                        body: "\(name) audio is being written again.",
+                        title: localised(
+                            "amanu: \(name) track recovered",
+                            "amanu: дорожка \(name) снова пишется"),
+                        body: localised(
+                            "\(name) audio is being written again.",
+                            "Звук \(name) снова записывается."),
                         opening: dir
                     )
                 }
@@ -396,8 +402,11 @@ final class RecordingSession {
                 trackStalled.insert(name)
                 trackEverStalled.insert(name)
                 notifyUser(
-                    title: "amanu: \(name) track stalled",
-                    body: "No \(name) audio written for \(Int(now.timeIntervalSince(last)))s"
+                    title: localised(
+                        "amanu: \(name) track stalled", "amanu: дорожка \(name) встала"),
+                    body: localised(
+                        "No \(name) audio written for \(Int(now.timeIntervalSince(last)))s",
+                        "Звук \(name) не пишется уже \(Int(now.timeIntervalSince(last))) с")
                         + " — the recording may be incomplete.",
                     opening: dir
                 )
@@ -443,9 +452,13 @@ final class RecordingSession {
         guard youSpokeRecently, farEndSilentFor > 300 else { return }
         farEndWarningShown = true
         notifyUser(
-            title: "amanu: nothing from the far end",
-            body: "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent"
-                + " for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong."
+            title: localised(
+                "amanu: nothing from the far end", "amanu: от дальней стороны ничего нет"),
+            body: localised(
+                "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent"
+                    + " for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong.",
+                "Пишется только \(tapFamilies.joined(separator: ", ")), и там тихо уже"
+                    + " \(Int(farEndSilentFor / 60)) мин. Если это неверно, поставьте system_audio в \"all\".")
         )
     }
 }

@@ -64,34 +64,57 @@ enum SettingsSchema {
     private static var localModelEntries: [Entry] {
         guard Platform.supportsLocalModels else {
             return [
-                Entry(["transcription", "engine"], "Engine",
-                      "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
+                Entry(["transcription", "engine"], localised("Engine", "Движок"),
+                      localised(
+                          "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
+                          "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
                       .choice(["auto", "assemblyai", "openai"]), default: "auto"),
-                Entry(["transcription", "cloud"], "Cloud engine",
-                      "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+                Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
+                      localised(
+                          "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+                          "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
                       .choice(["assemblyai", "openai"]), default: "assemblyai"),
-                Entry(["transcription", "language"], "Language",
-                      "Two-letter code for what meetings are mostly in. English is expected "
-                          + "alongside it; the engine still decides which it heard.",
-                      .text, default: "detected from any language"),
+                Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
+                      localised(
+                          "Two-letter code for what meetings are mostly in. English is expected "
+                              + "alongside it; the engine still decides which it heard.",
+                          "Двухбуквенный код языка, на котором в основном идут встречи. Вместе с ним "
+                              + "ожидается английский, а какой язык прозвучал, решает сам движок."),
+                      .text,
+                      default: localised(
+                          "detected from any language", "определяется, язык любой")),
             ]
         }
         return [
-            Entry(["live_transcription", "enabled"], "Show a live transcript",
-                  "Uses an additional local NVIDIA model while a meeting is being recorded.",
+            Entry(["live_transcription", "enabled"],
+                  localised("Show a live transcript", "Показывать расшифровку по ходу встречи"),
+                  localised(
+                      "Uses an additional local NVIDIA model while a meeting is being recorded.",
+                      "Пока идёт запись, работает ещё одна местная модель NVIDIA."),
                   .toggle, default: false),
-            Entry(["transcription", "engine"], "Engine",
-                  "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
+            Entry(["transcription", "engine"], localised("Engine", "Движок"),
+                  localised(
+                      "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
+                      "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
                   .choice(["auto", "assemblyai", "openai", "parakeet"]), default: "auto"),
-            Entry(["transcription", "cloud"], "Cloud engine",
-                  "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+            Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
+                  localised(
+                      "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+                      "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
                   .choice(["assemblyai", "openai"]), default: "assemblyai"),
-            Entry(["transcription", "language"], "Language",
-                  "Two-letter code for what meetings are mostly in. English is expected "
-                      + "alongside it; both engines still decide which they heard.",
-                  .text, default: "detected from any language"),
-            Entry(["transcription", "model"], "Parakeet model",
-                  "v3 covers 25 European languages; v2 is English-only.",
+            Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
+                  localised(
+                      "Two-letter code for what meetings are mostly in. English is expected "
+                          + "alongside it; both engines still decide which they heard.",
+                      "Двухбуквенный код языка, на котором в основном идут встречи. Вместе с ним "
+                          + "ожидается английский, а какой язык прозвучал, решают сами движки."),
+                  .text,
+                  default: localised(
+                      "detected from any language", "определяется, язык любой")),
+            Entry(["transcription", "model"], localised("Parakeet model", "Модель parakeet"),
+                  localised(
+                      "v3 covers 25 European languages; v2 is English-only.",
+                      "v3 знает 25 европейских языков, v2 — только английский."),
                   .choice(["v3", "v2"]), default: "v3"),
         ]
     }
@@ -100,130 +123,263 @@ enum SettingsSchema {
     // defaults for display, which a global constant can't be under strict
     // concurrency checking, and building the list is free.
     static var sections: [Section] { [
-        Section(title: "Recording by itself", entries: [
-            Entry(["auto_record", "enabled"], "Record meetings automatically",
-                  "Start and stop on their own when a call begins and ends.",
+        Section(title: localised("Recording by itself", "Запись сама по себе"), entries: [
+            Entry(["auto_record", "enabled"],
+                  localised("Record meetings automatically", "Записывать встречи сама"),
+                  localised(
+                      "Start and stop on their own when a call begins and ends.",
+                      "Запись начинается и заканчивается сама, вместе со звонком."),
                   .toggle, default: true),
-            Entry(["auto_record", "mic_activity"], "Start when a call app takes the mic",
-                  "Fires for Zoom, Teams, Meet in a browser tab, Telegram — no per-app setup.",
+            Entry(["auto_record", "mic_activity"],
+                  localised("Start when a call app takes the mic", "Начинать по микрофону"),
+                  localised(
+                      "Fires for Zoom, Teams, Meet in a browser tab, Telegram — no per-app setup.",
+                      "Срабатывает на Zoom, Teams, Meet во вкладке браузера, Telegram — настраивать "
+                          + "каждое приложение не нужно."),
                   .toggle, default: true),
-            Entry(["auto_record", "calendar"], "Start from calendar events",
-                  "Events with other attendees or a conference link. Needs calendar access.",
+            Entry(["auto_record", "calendar"],
+                  localised("Start from calendar events", "Начинать по событиям календаря"),
+                  localised(
+                      "Events with other attendees or a conference link. Needs calendar access.",
+                      "События с другими участниками или ссылкой на созвон. Нужен доступ к календарю."),
                   .toggle, default: false, needsRestart: true),
-            Entry(["auto_record", "start_delay_seconds"], "Wait before starting",
-                  "How long a call app must hold the microphone before this counts as a meeting.",
-                  .number(unit: "seconds"), default: 12),
-            Entry(["auto_record", "stop_delay_seconds"], "Wait before stopping",
-                  "How long nobody may hold the mic, and the far end stay quiet, before it ends.",
-                  .number(unit: "seconds"), default: 90),
-            Entry(["auto_record", "min_duration_seconds"], "Discard recordings shorter than",
-                  "A mic that opened for a few seconds was never a meeting. Automatic recordings only.",
-                  .number(unit: "seconds"), default: 45),
-            Entry(["auto_record", "silence_stop_minutes"], "Stop after silence on both tracks",
-                  "The backstop against an app that never releases the microphone.",
-                  .number(unit: "minutes"), default: 10),
-            Entry(["auto_record", "max_duration_minutes"], "Hard duration ceiling",
-                  "Applies to manual recordings too — whatever this is, it stopped being a meeting.",
-                  .number(unit: "minutes"), default: 300),
-            Entry(["auto_record", "apps"], "Call apps",
-                  "Bundle-id prefixes that count as a call. Empty means any app that opens the mic.",
-                  .list, default: "known call apps and browsers"),
-            Entry(["auto_record", "ignore_apps"], "Never count these",
-                  "Bundle ids or app names that never start a recording, whatever they do with the mic.",
-                  .list, default: "empty"),
+            Entry(["auto_record", "start_delay_seconds"],
+                  localised("Wait before starting", "Ждать перед началом"),
+                  localised(
+                      "How long a call app must hold the microphone before this counts as a meeting.",
+                      "Сколько приложение звонка должно держать микрофон, чтобы это считалось встречей."),
+                  .number(unit: localised("seconds", "с")), default: 12),
+            Entry(["auto_record", "stop_delay_seconds"],
+                  localised("Wait before stopping", "Ждать перед остановкой"),
+                  localised(
+                      "How long nobody may hold the mic, and the far end stay quiet, before it ends.",
+                      "Сколько никто не держит микрофон и молчит дальняя сторона, прежде чем встреча "
+                          + "кончится."),
+                  .number(unit: localised("seconds", "с")), default: 90),
+            Entry(["auto_record", "min_duration_seconds"],
+                  localised("Discard recordings shorter than", "Выбрасывать записи короче"),
+                  localised(
+                      "A mic that opened for a few seconds was never a meeting. Automatic recordings only.",
+                      "Микрофон, открытый на несколько секунд, встречей не был. Только для "
+                          + "автоматических записей."),
+                  .number(unit: localised("seconds", "с")), default: 45),
+            Entry(["auto_record", "silence_stop_minutes"],
+                  localised("Stop after silence on both tracks", "Останавливать после тишины на обеих дорожках"),
+                  localised(
+                      "The backstop against an app that never releases the microphone.",
+                      "Страховка от приложения, которое так и не отпускает микрофон."),
+                  .number(unit: localised("minutes", "мин")), default: 10),
+            Entry(["auto_record", "max_duration_minutes"],
+                  localised("Hard duration ceiling", "Жёсткий предел длительности"),
+                  localised(
+                      "Applies to manual recordings too — whatever this is, it stopped being a meeting.",
+                      "Касается и ручных записей: что бы это ни было, встречей оно быть перестало."),
+                  .number(unit: localised("minutes", "мин")), default: 300),
+            Entry(["auto_record", "apps"], localised("Call apps", "Приложения для звонков"),
+                  localised(
+                      "Bundle-id prefixes that count as a call. Empty means any app that opens the mic.",
+                      "Префиксы bundle id, которые считаются звонком. Пусто — любое приложение, "
+                          + "открывшее микрофон."),
+                  .list,
+                  default: localised(
+                      "known call apps and browsers", "известные звонилки и браузеры")),
+            Entry(["auto_record", "ignore_apps"],
+                  localised("Never count these", "Никогда не считать звонком"),
+                  localised(
+                      "Bundle ids or app names that never start a recording, whatever they do with the mic.",
+                      "Bundle id или имена приложений, которые не начинают запись, что бы они ни "
+                          + "делали с микрофоном."),
+                  .list, default: localised("empty", "пусто")),
         ]),
 
-        Section(title: "Audio", entries: [
-            Entry(["system_audio"], "Record system audio from",
-                  "app: only the call app's output. all: everything the Mac plays, music and notifications included.",
+        Section(title: localised("Audio", "Звук"), entries: [
+            Entry(["system_audio"],
+                  localised("Record system audio from", "Записывать звук системы"),
+                  localised(
+                      "app: only the call app's output. all: everything the Mac plays, music and notifications included.",
+                      "app — только вывод приложения звонка. all — всё, что играет мак, вместе с "
+                          + "музыкой и уведомлениями."),
                   .choice(["app", "all"]), default: "app"),
-            Entry(["mic_voice_processing"], "Cancel echo on the mic",
-                  "For meetings played through speakers, so the far end isn't recorded onto your track as well. Ducks other playback while active; pointless on headphones.",
+            Entry(["mic_voice_processing"],
+                  localised("Cancel echo on the mic", "Гасить эхо на микрофоне"),
+                  localised(
+                      "For meetings played through speakers, so the far end isn't recorded onto your track as well. Ducks other playback while active; pointless on headphones.",
+                      "Для встреч через колонки, чтобы дальняя сторона не попадала ещё и на вашу "
+                          + "дорожку. Пока работает, приглушает остальной звук; в наушниках бесполезно."),
                   .toggle, default: true),
-            Entry(["keep_audio"], "Keep the audio after transcribing",
-                  "Saves one stereo M4A: your mic on the left, the other side on the right. A recording that never got a transcript is kept either way.",
+            Entry(["keep_audio"],
+                  localised("Keep the audio after transcribing", "Оставлять звук после расшифровки"),
+                  localised(
+                      "Saves one stereo M4A: your mic on the left, the other side on the right. A recording that never got a transcript is kept either way.",
+                      "Сохраняет один стереофайл M4A: ваш микрофон слева, дальняя сторона справа. "
+                          + "Запись, которая так и не получила расшифровку, остаётся в любом случае."),
                   .toggle, default: false),
-            Entry(["recordings_dir"], "Recordings folder",
-                  "Where sessions land.",
+            Entry(["recordings_dir"], localised("Recordings folder", "Папка записей"),
+                  localised("Where sessions land.", "Куда складываются встречи."),
                   .text, default: "~/Recordings", needsRestart: true),
         ]),
 
-        Section(title: "Transcription", entries: [
-            Entry(["transcription", "enabled"], "Transcribe recordings",
-                  "Off means record only; the on_stop hook still fires.",
+        Section(title: localised("Transcription", "Расшифровка"), entries: [
+            Entry(["transcription", "enabled"],
+                  localised("Transcribe recordings", "Расшифровывать записи"),
+                  localised(
+                      "Off means record only; the on_stop hook still fires.",
+                      "Выключено — только запись; хук on_stop всё равно срабатывает."),
                   .toggle, default: true),
         ] + localModelEntries + [
-            Entry(["transcript_echo_filter"], "Drop echoed speech",
-                  "Removes mic segments duplicating system audio — the far end coming back through the speakers.",
+            Entry(["transcript_echo_filter"],
+                  localised("Drop echoed speech", "Убирать отражённую речь"),
+                  localised(
+                      "Removes mic segments duplicating system audio — the far end coming back through the speakers.",
+                      "Убирает куски с микрофона, повторяющие звук системы, — дальнюю сторону, "
+                          + "вернувшуюся через колонки."),
                   .toggle, default: true),
-            Entry(["transcription", "assemblyai", "api_key_path"], "AssemblyAI key file",
-                  "Where the cloud engine's key is read from. ASSEMBLYAI_API_KEY wins over it.",
+            Entry(["transcription", "assemblyai", "api_key_path"],
+                  localised("AssemblyAI key file", "Файл ключа AssemblyAI"),
+                  localised(
+                      "Where the cloud engine's key is read from. ASSEMBLYAI_API_KEY wins over it.",
+                      "Откуда читается ключ облачного движка. ASSEMBLYAI_API_KEY важнее."),
                   .text, default: "~/.config/amanu/keys/assemblyai"),
-            Entry(["transcription", "assemblyai", "speech_model"], "AssemblyAI speech model",
-                  "Empty sends nothing and lets the API pick its own default.",
-                  .text, default: "the API's own default"),
-            Entry(["transcription", "openai", "model"], "OpenAI model",
-                  "The default is the only OpenAI model that returns both timings and speakers.",
+            Entry(["transcription", "assemblyai", "speech_model"],
+                  localised("AssemblyAI speech model", "Модель речи AssemblyAI"),
+                  localised(
+                      "Empty sends nothing and lets the API pick its own default.",
+                      "Пусто — ничего не отправляется, и API выбирает сам."),
+                  .text, default: localised("the API's own default", "выбор самого API")),
+            Entry(["transcription", "openai", "model"], localised("OpenAI model", "Модель OpenAI"),
+                  localised(
+                      "The default is the only OpenAI model that returns both timings and speakers.",
+                      "По умолчанию стоит единственная модель OpenAI, которая возвращает и время, "
+                          + "и говорящих."),
                   .text, default: "gpt-4o-transcribe-diarize"),
         ]),
 
-        Section(title: "Summaries", entries: [
-            Entry(["summary", "enabled"], "Write a summary",
-                  "Topic, key points, decisions, action items, open questions.",
+        Section(title: localised("Summaries", "Саммари"), entries: [
+            Entry(["summary", "enabled"],
+                  localised("Write a summary", "Писать саммари"),
+                  localised(
+                      "Topic, key points, decisions, action items, open questions.",
+                      "Тема, главное, решения, задачи, открытые вопросы."),
                   .toggle, default: true),
-            Entry(["summary", "backend"], "Which model to ask",
-                  "auto walks the chain: claude CLI, Anthropic API, codex CLI, OpenAI API, ollama — subscriptions before metered keys. none skips summarizing without turning off the rest.",
+            Entry(["summary", "backend"],
+                  localised("Which model to ask", "У какой модели спрашивать"),
+                  localised(
+                      "auto walks the chain: claude CLI, Anthropic API, codex CLI, OpenAI API, ollama — subscriptions before metered keys. none skips summarizing without turning off the rest.",
+                      "auto идёт по цепочке: claude CLI, Anthropic API, codex CLI, OpenAI API, "
+                          + "ollama — сначала подписки, потом платные ключи. none пропускает саммари, "
+                          + "не выключая всего остального."),
                   .choice(["auto", "claude-cli", "anthropic-api", "codex-cli", "openai-api", "ollama", "none"]),
                   default: "auto"),
-            Entry(["summary", "model"], "Anthropic model",
-                  "Used on the API path. The CLI uses whatever model Claude Code is set to.",
+            Entry(["summary", "model"],
+                  localised("Anthropic model", "Модель Anthropic"),
+                  localised(
+                      "Used on the API path. The CLI uses whatever model Claude Code is set to.",
+                      "Для пути через API. CLI берёт ту модель, на которую настроен Claude Code."),
                   .text, default: "claude-opus-5"),
-            Entry(["summary", "openai_model"], "OpenAI model",
-                  "Used by the codex CLI and the OpenAI API.",
+            Entry(["summary", "openai_model"],
+                  localised("OpenAI model", "Модель OpenAI"),
+                  localised(
+                      "Used by the codex CLI and the OpenAI API.",
+                      "Для codex CLI и для OpenAI API."),
                   .text, default: "gpt-5"),
-            Entry(["summary", "ollama_model"], "Local model",
-                  "The fully-offline fallback.",
+            Entry(["summary", "ollama_model"],
+                  localised("Local model", "Местная модель"),
+                  localised("The fully-offline fallback.", "Запасной вариант, целиком без сети."),
                   .text, default: "qwen3:8b"),
-            Entry(["summary", "language"], "Summary language",
-                  "Leave empty to write in whichever language the meeting was held in.",
-                  .text, default: "the language of the meeting"),
-            Entry(["summary", "api_key_path"], "Anthropic key file",
-                  "Where the Anthropic key is read from. ANTHROPIC_API_KEY wins over it.",
+            Entry(["summary", "language"],
+                  localised("Summary language", "Язык саммари"),
+                  localised(
+                      "Leave empty to write in whichever language the meeting was held in.",
+                      "Пусто — саммари пишется на языке самой встречи."),
+                  .text, default: localised("the language of the meeting", "язык встречи")),
+            Entry(["summary", "api_key_path"],
+                  localised("Anthropic key file", "Файл ключа Anthropic"),
+                  localised(
+                      "Where the Anthropic key is read from. ANTHROPIC_API_KEY wins over it.",
+                      "Откуда читается ключ Anthropic. ANTHROPIC_API_KEY важнее."),
                   .text, default: "~/.config/amanu/keys/anthropic"),
-            Entry(["summary", "openai_api_key_path"], "OpenAI key file",
-                  "Where the OpenAI key is read from. OPENAI_API_KEY wins over it.",
+            Entry(["summary", "openai_api_key_path"],
+                  localised("OpenAI key file", "Файл ключа OpenAI"),
+                  localised(
+                      "Where the OpenAI key is read from. OPENAI_API_KEY wins over it.",
+                      "Откуда читается ключ OpenAI. OPENAI_API_KEY важнее."),
                   .text, default: "~/.config/amanu/keys/openai"),
         ]),
 
-        Section(title: "Calendar and naming", entries: [
-            Entry(["calendar"], "Read the calendar",
-                  "Names sessions after the meeting and records attendees. Separate from starting recordings from events.",
+        Section(title: localised("Calendar and naming", "Календарь и имена"), entries: [
+            Entry(["calendar"],
+                  localised("Read the calendar", "Читать календарь"),
+                  localised(
+                      "Names sessions after the meeting and records attendees. Separate from starting recordings from events.",
+                      "Называет встречу по событию и запоминает участников. Это не то же самое, что "
+                          + "начинать запись по событию."),
                   .toggle, default: true, needsRestart: true),
-            Entry(["speaker_names", "enabled"], "Put names to speakers",
-                  "Works out who \"them A\" was from the invitees and from people addressing each other, and applies it only when the transcript proves it.",
+            Entry(["speaker_names", "enabled"],
+                  localised("Put names to speakers", "Подставлять имена говорящих"),
+                  localised(
+                      "Works out who \"them A\" was from the invitees and from people addressing each other, and applies it only when the transcript proves it.",
+                      "Догадывается, кто такой «them A», по участникам события и по тому, как люди "
+                          + "обращаются друг к другу, и подставляет имя, только когда расшифровка это "
+                          + "подтверждает."),
                   .toggle, default: true),
-            Entry(["user_name"], "Your name",
-                  "Used instead of \"me\". Empty falls back to the account's full name, and to \"me\" if that isn't a person's name.",
-                  .text, default: "the account's full name"),
-            Entry(["speaker_names", "backend"], "Which model to ask",
-                  "Same chain as summaries. auto walks it until one answers.",
+            Entry(["user_name"],
+                  localised("Your name", "Ваше имя"),
+                  localised(
+                      "Used instead of \"me\". Empty falls back to the account's full name, and to \"me\" if that isn't a person's name.",
+                      "Ставится вместо «me». Пусто — берётся полное имя учётной записи, а если оно не "
+                          + "похоже на имя человека, остаётся «me»."),
+                  .text,
+                  default: localised(
+                      "the account's full name", "полное имя учётной записи")),
+            Entry(["speaker_names", "backend"],
+                  localised("Which model to ask", "У какой модели спрашивать"),
+                  localised(
+                      "Same chain as summaries. auto walks it until one answers.",
+                      "Та же цепочка, что у саммари. auto идёт по ней, пока кто-нибудь не ответит."),
                   .choice(["auto", "claude-cli", "anthropic-api", "codex-cli", "openai-api", "ollama"]),
                   default: "auto"),
-            Entry(["speaker_names", "model"], "Anthropic model for naming",
-                  "Naming is an easier job than summarizing; empty uses the summary's model.",
-                  .text, default: "the summary's model"),
+            Entry(["speaker_names", "model"],
+                  localised("Anthropic model for naming", "Модель Anthropic для имён"),
+                  localised(
+                      "Naming is an easier job than summarizing; empty uses the summary's model.",
+                      "Имена — работа проще саммари; пусто — та же модель, что у саммари."),
+                  .text, default: localised("the summary's model", "модель саммари")),
         ]),
 
-        Section(title: "Interface", entries: [
-            Entry(["dock_icon"], "Show in the Dock",
-                  "Off makes amanu a menu-bar-only accessory — which the menu bar hides when it runs out of room.",
+        Section(title: localised("Interface", "Интерфейс"), entries: [
+            // The one setting on this list that changes the words the rest of
+            // it is written in. It is named at length because two other
+            // settings are called language and mean other people's words —
+            // see `InterfaceLanguage`.
+            Entry(["interface_language"],
+                  localised("Language of amanu's own windows", "Язык окон amanu"),
+                  localised(
+                      "auto follows the Mac. Not the language of your meetings, and not the one "
+                          + "summaries are written in — those are settings of their own.",
+                      "auto — как на маке. Это не язык встреч и не язык саммари: у тех есть "
+                          + "собственные настройки."),
+                  .choice(InterfaceLanguage.configuredValues),
+                  default: InterfaceLanguage.automatic, needsRestart: true),
+            Entry(["dock_icon"],
+                  localised("Show in the Dock", "Показывать в доке"),
+                  localised(
+                      "Off makes amanu a menu-bar-only accessory — which the menu bar hides when it runs out of room.",
+                      "Выключено — amanu живёт только в строке меню, а строка меню прячет значок, "
+                          + "когда ей не хватает места."),
                   .toggle, default: true, needsRestart: true),
-            Entry(["window"], "Open the window at launch",
-                  "The Dock icon opens it either way.",
+            Entry(["window"],
+                  localised("Open the window at launch", "Открывать окно при запуске"),
+                  localised(
+                      "The Dock icon opens it either way.",
+                      "Значок в доке открывает его в любом случае."),
                   .toggle, default: true, needsRestart: true),
-            Entry(["on_stop"], "Run after each session",
-                  "A shell command, given the session folder as its argument, after the transcript and summary are written.",
-                  .text, default: "nothing"),
+            Entry(["on_stop"],
+                  localised("Run after each session", "Запускать после каждой встречи"),
+                  localised(
+                      "A shell command, given the session folder as its argument, after the transcript and summary are written.",
+                      "Команда оболочки; получает папку встречи аргументом после того, как записаны "
+                          + "расшифровка и саммари."),
+                  .text, default: localised("nothing", "ничего")),
         ]),
     ] }
 
@@ -236,7 +392,9 @@ enum SettingsSchema {
     static func describeDefault(_ entry: Entry) -> String {
         switch entry.kind {
         case .toggle:
-            return entry.defaultValue as? Bool == true ? "on" : "off"
+            return entry.defaultValue as? Bool == true
+                ? localised("on", "включено")
+                : localised("off", "выключено")
         case .number(let unit):
             return "\(entry.defaultValue) \(unit)"
         default:

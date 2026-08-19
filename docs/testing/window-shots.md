@@ -15,6 +15,16 @@ mkdir -p /tmp/shots && AMANU_SHOTS=/tmp/shots swift test --filter WindowShots
 The directory has to exist: the suite writes into it rather than creating it,
 so a first run without the `mkdir` fails on the first PNG.
 
+`AMANU_SHOTS_LANGUAGE=ru` builds the windows in Russian instead. Everything
+else about the run is the same, filenames included, so give it a directory of
+its own:
+
+```sh
+mkdir -p /tmp/shots-en /tmp/shots-ru
+AMANU_SHOTS=/tmp/shots-en swift test --filter WindowShots
+AMANU_SHOTS_LANGUAGE=ru AMANU_SHOTS=/tmp/shots-ru swift test --filter WindowShots
+```
+
 `AMANU_SHOTS` both switches the suite on and says where to write; without it
 `swift test` skips the whole thing, which is why it can live in the test target
 without lengthening the suite. It is in the test target because that is the only
@@ -41,6 +51,15 @@ resolved number rather than a living rule (`docs/pitfalls.md`, *A `CGColor` is a
 number, not a colour*), so a window can go on wearing the appearance it was born
 in. Compare each `*switched*` file against the file for the appearance it ended
 in: they should be **identical to the pixel**. Any difference is that bug.
+
+**Compare the two languages against each other, not against yesterday.**
+Russian runs about a fifth longer than English, and the labels in these
+windows have both a wrapping width and a line limit: past the limit a row
+either truncates or grows and pushes everything under it down. Neither shows
+in one picture — a row looks like a row. The pair from one run shows it at
+once, and the two `tree.txt` files settle it: every frame in the two listings
+should match, and a row that has grown is a translation to shorten rather than
+a line limit to raise.
 
 **Do not read a switch's state off a picture.** An `NSSwitch` is drawn by
 SwiftUI and comes out in the off position offscreen whatever it is set to. Every

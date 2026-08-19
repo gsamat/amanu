@@ -101,6 +101,13 @@ struct Run: ParsableCommand {
             }
         }
 
+        // Settled before the first window is built, and never again: every
+        // label, menu item and banner reads it as it is created, so a language
+        // that changed underneath them would leave one window in each. It is
+        // the same promise the Dock icon and the startup window make — the
+        // setting takes effect at the next launch, and the window says so.
+        InterfaceLanguage.adoptFromSystem()
+
         let app = NSApplication.shared
         // .regular puts amanu in the Dock and in ⌘-Tab. That's the point: the
         // menu bar is not a dependable place for the only control surface of a
@@ -180,7 +187,7 @@ struct Run: ParsableCommand {
         // from the main menu — the status item's copy of it is live just
         // while that menu is open.
         let settings = NSMenuItem(
-            title: "Settings…",
+            title: localised("Settings…", "Настройки…"),
             action: #selector(AppDelegate.showSettingsClicked(_:)),
             keyEquivalent: ","
         )
@@ -189,7 +196,7 @@ struct Run: ParsableCommand {
         // Present only while there is a first run to finish; the delegate
         // keeps it so it can be taken away again. See `setupAvailable`.
         let setup = NSMenuItem(
-            title: "Setup…",
+            title: localised("Setup…", "Первая настройка…"),
             action: #selector(AppDelegate.showSetupClicked(_:)),
             keyEquivalent: ""
         )
@@ -202,7 +209,7 @@ struct Run: ParsableCommand {
         setup.isHidden = !SetupState.isPending
         appMenu.addItem(setup)
         let updates = NSMenuItem(
-            title: "Check for updates…",
+            title: localised("Check for updates…", "Проверить обновления…"),
             action: #selector(AppDelegate.checkForUpdatesClicked(_:)),
             keyEquivalent: ""
         )
@@ -211,17 +218,17 @@ struct Run: ParsableCommand {
         appMenu.addItem(.separator())
         // Quit routes through terminate so applicationWillTerminate runs and
         // a live recording is closed properly rather than truncated.
-        appMenu.addItem(withTitle: "Quit Amanu", action: #selector(NSApplication.terminate(_:)),
-                        keyEquivalent: "q")
+        appMenu.addItem(withTitle: localised("Quit Amanu", "Завершить amanu"),
+                        action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
 
         let windowItem = NSMenuItem()
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)),
-                           keyEquivalent: "w")
-        windowMenu.addItem(withTitle: "Minimise", action: #selector(NSWindow.performMiniaturize(_:)),
-                           keyEquivalent: "m")
+        let windowMenu = NSMenu(title: localised("Window", "Окно"))
+        windowMenu.addItem(withTitle: localised("Close", "Закрыть"),
+                           action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: localised("Minimise", "Убрать в Dock"),
+                           action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowItem.submenu = windowMenu
         main.addItem(windowItem)
 
@@ -573,14 +580,16 @@ final class AppController {
             ))
             if trigger != .manual {
                 notifyUser(
-                    title: "amanu — recording started",
+                    title: localised("amanu — recording started", "amanu — запись началась"),
                     body: context.folderSuffix ?? newSession.dir.lastPathComponent,
                     opening: newSession.dir
                 )
             }
         } catch {
             FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
-            notifyUser(title: "amanu — recording failed", body: "\(error)")
+            notifyUser(
+                title: localised("amanu — recording failed", "amanu — не удалось начать запись"),
+                body: "\(error)")
             return
         }
 

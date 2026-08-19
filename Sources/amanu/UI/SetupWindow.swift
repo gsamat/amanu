@@ -22,7 +22,8 @@ final class SetupWindow: NSObject, NSWindowDelegate {
     private let panel: NSWindow
     private let form = SetupForm()
     private let footerNote = NSTextField(labelWithString: "")
-    private let primary = NSButton(title: "Done", target: nil, action: nil)
+    private let primary = NSButton(
+        title: localised("Done", "Готово"), target: nil, action: nil)
 
     override init() {
         panel = NSWindow(
@@ -33,7 +34,7 @@ final class SetupWindow: NSObject, NSWindowDelegate {
         )
         super.init()
 
-        panel.title = "amanu setup"
+        panel.title = localised("amanu setup", "Первая настройка amanu")
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.minSize = NSSize(width: 640, height: 460)
@@ -44,7 +45,8 @@ final class SetupWindow: NSObject, NSWindowDelegate {
         footerNote.textColor = .secondaryLabelColor
         footerNote.lineBreakMode = .byTruncatingTail
 
-        let later = NSButton(title: "Later", target: self, action: #selector(laterClicked))
+        let later = NSButton(
+            title: localised("Later", "Позже"), target: self, action: #selector(laterClicked))
         later.bezelStyle = .rounded
         primary.bezelStyle = .rounded
         primary.keyEquivalent = "\r"

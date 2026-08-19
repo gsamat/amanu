@@ -45,7 +45,7 @@ final class RecordingsWindow: NSObject {
         )
         super.init()
 
-        panel.title = "Recordings"
+        panel.title = localised("Recordings", "Записи")
         panel.isReleasedWhenClosed = false
         panel.setFrameAutosaveName("amanu.recordings")
 
@@ -65,12 +65,14 @@ final class RecordingsWindow: NSObject {
     // MARK: - building
 
     private func buildTable() {
+        // The identifier is the program's name for a column and stays
+        // English; the title is what a person reads.
         let columns: [(String, String, CGFloat)] = [
-            ("when", "When", 130),
-            ("meeting", "Meeting", 250),
-            ("transcript", "Transcript", 150),
-            ("names", "Names", 110),
-            ("summary", "Summary", 90),
+            ("when", localised("When", "Когда"), 130),
+            ("meeting", localised("Meeting", "Встреча"), 250),
+            ("transcript", localised("Transcript", "Расшифровка"), 150),
+            ("names", localised("Names", "Имена"), 110),
+            ("summary", localised("Summary", "Саммари"), 90),
         ]
         for (id, title, width) in columns {
             let column = NSTableColumn(identifier: .init(id))
@@ -104,10 +106,11 @@ final class RecordingsWindow: NSObject {
         speakersStack.spacing = 6
 
         for (button, title, action) in [
-            (finishButton, "Finish processing", #selector(finishClicked)),
-            (retranscribeButton, "Re-transcribe", #selector(retranscribeClicked)),
-            (openFolderButton, "Open folder", #selector(openFolderClicked)),
-            (deleteButton, "Delete", #selector(deleteClicked)),
+            (finishButton, localised("Finish processing", "Доделать"), #selector(finishClicked)),
+            (retranscribeButton,
+             localised("Re-transcribe", "Расшифровать заново"), #selector(retranscribeClicked)),
+            (openFolderButton, localised("Open folder", "Открыть папку"), #selector(openFolderClicked)),
+            (deleteButton, localised("Delete", "Удалить"), #selector(deleteClicked)),
         ] as [(NSButton, String, Selector)] {
             button.title = title
             button.bezelStyle = .rounded
@@ -175,7 +178,9 @@ final class RecordingsWindow: NSObject {
             $0.removeFromSuperview()
         }
         guard let item = selected else {
-            detailTitle.stringValue = items.isEmpty ? "No recordings yet" : "Select a recording"
+            detailTitle.stringValue = items.isEmpty
+                ? localised("No recordings yet", "Записей пока нет")
+                : localised("Select a recording", "Выберите запись")
             openingLabel.stringValue = ""
             updateButtons()
             return
@@ -184,8 +189,10 @@ final class RecordingsWindow: NSObject {
         detailTitle.stringValue = item.title ?? item.name
         guard let transcript = PostProcessor.readTranscript(item.dir) else {
             openingLabel.stringValue = item.transcript == .pending
-                ? "Not transcribed yet."
-                : "No transcript — nothing to name."
+                ? localised("Not transcribed yet.", "Ещё не расшифровано.")
+                : localised(
+                    "No transcript — nothing to name.",
+                    "Расшифровки нет — некому давать имена.")
             updateButtons()
             return
         }
@@ -210,15 +217,16 @@ final class RecordingsWindow: NSObject {
         label.widthAnchor.constraint(equalToConstant: 80).isActive = true
 
         let field = NSTextField(string: sample.name ?? "")
-        field.placeholderString = "name"
+        field.placeholderString = localised("name", "имя")
         field.widthAnchor.constraint(equalToConstant: 160).isActive = true
         field.target = self
         field.action = #selector(nameEdited(_:))
         field.identifier = .init("\(dir.path)\n\(sample.label)")
 
+        let turns = localised("\(sample.turns) turns", "реплик: \(sample.turns)")
         let provenance = NSTextField(labelWithString: sample.source.map {
-            "\($0.rawValue) · \(sample.turns) turns"
-        } ?? "\(sample.turns) turns")
+            "\($0.rawValue) · " + turns
+        } ?? turns)
         provenance.font = .systemFont(ofSize: 10)
         provenance.textColor = .tertiaryLabelColor
 
@@ -227,9 +235,10 @@ final class RecordingsWindow: NSObject {
         head.spacing = 8
 
         let quotes = NSTextField(wrappingLabelWithString: [
-            sample.first.isEmpty ? nil : "first: \(sample.first)",
+            sample.first.isEmpty
+                ? nil : localised("first: ", "первая: ") + sample.first,
             sample.longest == sample.first || sample.longest.isEmpty
-                ? nil : "longest: \(sample.longest)",
+                ? nil : localised("longest: ", "самая длинная: ") + sample.longest,
         ].compactMap { $0 }.joined(separator: "\n"))
         quotes.font = .systemFont(ofSize: 11)
         quotes.textColor = .secondaryLabelColor
@@ -253,7 +262,7 @@ final class RecordingsWindow: NSObject {
         retranscribeButton.isEnabled = !working && (item?.hasAudio ?? false)
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
-        busyLabel.stringValue = working ? "working…" : ""
+        busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
     }
 
     // MARK: - actions
@@ -283,13 +292,20 @@ final class RecordingsWindow: NSObject {
     @objc private func retranscribeClicked() {
         guard let item = selected, item.hasAudio else { return }
         let alert = NSAlert()
-        alert.messageText = "Transcribe \(item.title ?? item.name) again?"
-        alert.informativeText = """
+        alert.messageText = localised(
+            "Transcribe \(item.title ?? item.name) again?",
+            "Расшифровать «\(item.title ?? item.name)» заново?")
+        alert.informativeText = localised(
+            """
             The current transcript, its speaker names and the summary are discarded \
             and made again from the audio, which is kept either way.
+            """,
             """
-        alert.addButton(withTitle: "Transcribe again")
-        alert.addButton(withTitle: "Cancel")
+            Нынешняя расшифровка, имена говорящих и саммари будут отброшены \
+            и сделаны заново из звука, который остаётся в любом случае.
+            """)
+        alert.addButton(withTitle: localised("Transcribe again", "Расшифровать заново"))
+        alert.addButton(withTitle: localised("Cancel", "Отмена"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         PostProcessor.markForRetranscription(item.dir)
@@ -308,10 +324,14 @@ final class RecordingsWindow: NSObject {
     @objc private func deleteClicked() {
         guard let item = selected else { return }
         let alert = NSAlert()
-        alert.messageText = "Move \(item.title ?? item.name) to the Trash?"
-        alert.informativeText = "The recording, its transcript and its summary go together."
-        alert.addButton(withTitle: "Move to Trash")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = localised(
+            "Move \(item.title ?? item.name) to the Trash?",
+            "Переместить «\(item.title ?? item.name)» в корзину?")
+        alert.informativeText = localised(
+            "The recording, its transcript and its summary go together.",
+            "Запись, её расшифровка и саммари уйдут вместе.")
+        alert.addButton(withTitle: localised("Move to Trash", "В корзину"))
+        alert.addButton(withTitle: localised("Cancel", "Отмена"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         NSWorkspace.shared.recycle([item.dir]) { [weak self] _, error in
@@ -344,17 +364,19 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate {
         case "when":
             return item.started.map { SessionInventory.Item.stamp.string(from: $0) } ?? item.name
         case "meeting":
-            let length = item.duration.map { " · \(Int($0 / 60))m" } ?? ""
+            let length = item.duration.map {
+                localised(" · \(Int($0 / 60))m", " · \(Int($0 / 60)) мин")
+            } ?? ""
             return (item.title ?? item.name) + length
         case "transcript":
-            return item.transcript.label + (item.engine.map { " (\($0))" } ?? "")
+            return item.transcript.described + (item.engine.map { " (\($0))" } ?? "")
         case "names":
             guard let counts = item.namedSpeakers, counts.total > 0 else {
-                return item.speakers.label
+                return item.speakers.described
             }
             return "\(counts.named)/\(counts.total)"
         case "summary":
-            return item.summary.label
+            return item.summary.described
         default:
             return nil
         }

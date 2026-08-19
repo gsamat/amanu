@@ -93,8 +93,11 @@ struct TranscriptionChoice: Equatable {
     /// cloud, or move it from the provider already running.
     static func keyPrompt(pending: String?, inForce: String, cloudOn: Bool) -> String? {
         guard let pending else { return nil }
-        if pending == inForce || !cloudOn { return "paste a key to switch this on" }
-        return "paste a key to move to \(displayName(pending))"
+        if pending == inForce || !cloudOn {
+            return localised("paste a key to switch this on", "вставьте ключ, чтобы включить")
+        }
+        return localised("paste a key to move to ", "вставьте ключ, чтобы перейти на ")
+            + displayName(pending)
     }
 
     /// Whether the cloud row itself should say a key is missing. Only when the

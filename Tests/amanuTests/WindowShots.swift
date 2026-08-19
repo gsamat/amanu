@@ -24,11 +24,25 @@ import Testing
 /// AMANU_SHOTS=/tmp/shots swift test --filter WindowShots
 /// ```
 ///
+/// `AMANU_SHOTS_LANGUAGE=ru` takes the same pictures of the Russian windows.
+/// The comparison worth making is one language against the other from the same
+/// run: the translation is the only thing that differs, and Russian is longer
+/// than English by a fifth, so a row that has run out of lines shows up in the
+/// pair rather than in either picture alone.
+///
 /// `docs/testing/window-shots.md` says what comes out and how to read it.
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["AMANU_SHOTS"] != nil))
 struct WindowShots {
     private var directory: String {
         ProcessInfo.processInfo.environment["AMANU_SHOTS"] ?? NSTemporaryDirectory()
+    }
+
+    /// The language to build the windows in. Nothing else in the suite ever
+    /// leaves English, so this is set and put back around each test rather
+    /// than once for the process.
+    private var language: InterfaceLanguage {
+        ProcessInfo.processInfo.environment["AMANU_SHOTS_LANGUAGE"]
+            .flatMap(InterfaceLanguage.init(rawValue:)) ?? .english
     }
 
     private var light: NSAppearance? { NSAppearance(named: .aqua) }
@@ -38,6 +52,9 @@ struct WindowShots {
     @MainActor
     func setupWindow() throws {
         _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
 
         var owners: [Any] = []
         defer { withExtendedLifetime(owners) {} }
@@ -69,6 +86,9 @@ struct WindowShots {
     @MainActor
     func settingsWindow() throws {
         _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
 
         var owners: [Any] = []
         defer { withExtendedLifetime(owners) {} }
@@ -106,6 +126,10 @@ struct WindowShots {
     @MainActor
     func viewTree() throws {
         _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
+
         var owners: [Any] = []
         defer { withExtendedLifetime(owners) {} }
 
@@ -132,7 +156,8 @@ struct WindowShots {
         var window: SetupWindow?
         appearance?.performAsCurrentDrawingAppearance { window = SetupWindow() }
         owners.append(try #require(window))
-        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let title = localised("amanu setup", "Первая настройка amanu")
+        let panel = try #require(NSApp.windows.last { $0.title == title })
         panel.appearance = appearance
         return panel
     }
@@ -145,7 +170,8 @@ struct WindowShots {
         var window: SettingsWindow?
         appearance?.performAsCurrentDrawingAppearance { window = SettingsWindow() }
         owners.append(try #require(window))
-        let panel = try #require(NSApp.windows.last { $0.title == "amanu settings" })
+        let title = localised("amanu settings", "Настройки amanu")
+        let panel = try #require(NSApp.windows.last { $0.title == title })
         panel.appearance = appearance
         return panel
     }

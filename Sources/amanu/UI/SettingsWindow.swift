@@ -66,7 +66,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         )
         super.init()
 
-        panel.title = "amanu settings"
+        panel.title = localised("amanu settings", "Настройки amanu")
         panel.level = .normal
         panel.hidesOnDeactivate = false
         // Closing hides; the menu reopens it. Same reasoning as the status
@@ -76,8 +76,11 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
         let tabs = NSTabView()
         tabs.translatesAutoresizingMaskIntoConstraints = false
-        tabs.addTabViewItem(tab("Setup", holding: setupTab()))
-        tabs.addTabViewItem(tab("Advanced", holding: SetupLayout.scroller(around: advancedForm())))
+        tabs.addTabViewItem(tab(
+            "Setup", localised("Setup", "Настройка"), holding: setupTab()))
+        tabs.addTabViewItem(tab(
+            "Advanced", localised("Advanced", "Дополнительно"),
+            holding: SetupLayout.scroller(around: advancedForm())))
 
         for label in [restartNotice, strayKeys] {
             label.font = .systemFont(ofSize: 11)
@@ -93,7 +96,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         path.textColor = .tertiaryLabelColor
         path.lineBreakMode = .byTruncatingMiddle
 
-        let reveal = NSButton(title: "Reveal config", target: self,
+        let reveal = NSButton(title: localised("Reveal config", "Показать файл"), target: self,
                               action: #selector(revealConfigClicked))
         reveal.bezelStyle = .rounded
         reveal.controlSize = .small
@@ -203,8 +206,11 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         outstanding.stringValue = setup.outstandingSentence
     }
 
-    private func tab(_ label: String, holding view: NSView) -> NSTabViewItem {
-        let item = NSTabViewItem(identifier: label)
+    /// The identifier stays English whatever the window is written in: it is
+    /// how the program finds a tab again, and a name that changes with the
+    /// language is not a name.
+    private func tab(_ identifier: String, _ label: String, holding view: NSView) -> NSTabViewItem {
+        let item = NSTabViewItem(identifier: identifier)
         item.label = label
         let host = NSView()
         host.addSubview(view)
@@ -271,7 +277,10 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         ])
 
         var helpText = entry.help
-        if entry.needsRestart { helpText += " Takes effect at the next launch." }
+        if entry.needsRestart {
+            helpText += localised(
+                " Takes effect at the next launch.", " Подействует при следующем запуске.")
+        }
         let help = NSTextField(labelWithString: helpText)
         help.font = .systemFont(ofSize: 11)
         help.textColor = .secondaryLabelColor
@@ -395,8 +404,9 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         }
 
         if entry.needsRestart {
-            restartNotice.stringValue =
-                "“\(entry.label)” applies the next time amanu starts."
+            restartNotice.stringValue = localised(
+                "“\(entry.label)” applies the next time amanu starts.",
+                "«\(entry.label)» подействует при следующем запуске amanu.")
             restartNotice.isHidden = false
         }
         // Clearing can change what a field should show — an emptied field goes
@@ -415,7 +425,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         let stray = SettingsSchema.strayKeys(in: config)
         strayKeys.stringValue = stray.isEmpty
             ? ""
-            : "Not read by this version: \(stray.joined(separator: ", "))"
+            : localised("Not read by this version: ", "Эта версия не читает: ")
+                + stray.joined(separator: ", ")
         strayKeys.isHidden = stray.isEmpty
     }
 

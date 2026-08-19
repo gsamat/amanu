@@ -1,0 +1,177 @@
+import AppKit
+import Foundation
+import Testing
+
+@testable import amanu
+
+/// How the windows decide what language to be in, and whether anything in
+/// them was left behind in the other one.
+///
+/// The suite is serialised and puts the language back where it found it: the
+/// language is one value for the whole program, and a test that changed it
+/// underneath another would fail the other one for reasons that have nothing
+/// to do with it.
+@Suite(.serialized)
+struct InterfaceLanguageTests {
+    /// Every branch of the decision, without a config file or a Mac set to
+    /// anything in particular.
+    @Test("The config decides, and where it says nothing the Mac does")
+    func choosing() {
+        // The Mac, when nothing overrules it.
+        #expect(InterfaceLanguage.choose(configured: nil, preferred: ["ru-RU"]) == .russian)
+        #expect(InterfaceLanguage.choose(configured: nil, preferred: ["en-GB"]) == .english)
+        #expect(InterfaceLanguage.choose(configured: "auto", preferred: ["ru"]) == .russian)
+
+        // A language amanu has no words for is passed over rather than being
+        // taken for English: the next one down the list may well be one it
+        // has, and that list is in order of preference for a reason.
+        #expect(InterfaceLanguage.choose(configured: nil, preferred: ["de-DE", "ru-RU"]) == .russian)
+        #expect(InterfaceLanguage.choose(configured: nil, preferred: ["ja-JP"]) == .english)
+        #expect(InterfaceLanguage.choose(configured: nil, preferred: []) == .english)
+
+        // The config overrules the Mac in both directions.
+        #expect(InterfaceLanguage.choose(configured: "ru", preferred: ["en-US"]) == .russian)
+        #expect(InterfaceLanguage.choose(configured: "en", preferred: ["ru-RU"]) == .english)
+
+        // Something hand-edited into the file is complained about and then
+        // ignored, which leaves the Mac's answer standing rather than a
+        // window nobody can read.
+        #expect(InterfaceLanguage.choose(configured: "klingon", preferred: ["ru-RU"]) == .russian)
+        #expect(InterfaceLanguage.choose(configured: "", preferred: ["ru-RU"]) == .russian)
+    }
+
+    /// The suite reads windows by the English they contain — "Keep the audio
+    /// after transcribing", "Setup…", "Meetings are mostly in" — and it finds
+    /// them on any Mac in any country because nothing in a test process ever
+    /// resolves the language from the machine. Said out loud, because it is
+    /// the sort of assumption that is only noticed when the suite fails
+    /// somewhere else.
+    @Test("A test process is in English, whatever the Mac it runs on is in")
+    func testsAreEnglish() {
+        #expect(InterfaceLanguage.current == .english)
+    }
+
+    /// The one that would actually catch a sentence left untranslated.
+    ///
+    /// A table of keys can only promise that every key has both columns; it
+    /// cannot promise that a window went through the table at all. So build
+    /// the form twice, once in each language, and walk it: every string a
+    /// person can read has to have changed, except the ones that are the same
+    /// in both languages on purpose — names, prices in dollars, paths, and
+    /// the meeting languages, which are named in themselves and never
+    /// translated.
+    @Test("Nothing in the setup form is left in English when the form is Russian")
+    @MainActor
+    func theFormIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) { Self.readable(SetupForm()) }
+        let russian = Self.inLanguage(.russian) { Self.readable(SetupForm()) }
+
+        #expect(english.count == russian.count, "the two forms are not the same form")
+        var untranslated: [String] = []
+        for (before, after) in zip(english, russian)
+        where before == after && !Self.sameInBothLanguages(before) {
+            untranslated.append(before)
+        }
+        #expect(untranslated.isEmpty, "still English in a Russian window: \(untranslated)")
+    }
+
+    /// And the same question of the Advanced tab, which is written from
+    /// `SettingsSchema` rather than by hand. No window needed: the schema is
+    /// the list, and the window renders it whole.
+    @Test("Every setting's label and description are translated too")
+    func theSchemaIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) { Self.readable(SettingsSchema.sections) }
+        let russian = Self.inLanguage(.russian) { Self.readable(SettingsSchema.sections) }
+
+        #expect(english.count == russian.count)
+        var untranslated: [String] = []
+        for (before, after) in zip(english, russian) where before == after {
+            untranslated.append(before)
+        }
+        #expect(untranslated.isEmpty, "still English under Advanced: \(untranslated)")
+    }
+
+    /// The footer sentence and the button under it, which are computed rather
+    /// than written into a view and would otherwise be missed by the walk
+    /// above.
+    @Test("What is outstanding is said in the window's own language")
+    @MainActor
+    func theOutstandingSentenceIsTranslated() {
+        #expect(Self.inLanguage(.english) { SetupForm.sentence(for: []) }
+            == "Everything amanu needs is granted.")
+        #expect(Self.inLanguage(.russian) { SetupForm.sentence(for: []) }
+            == "Всё, что нужно amanu, разрешено.")
+
+        // A name stays a name in either language; what surrounds it does not.
+        let left = Self.inLanguage(.russian) {
+            SetupForm.sentence(for: [.parakeet, .microphone])
+        }
+        #expect(left == "Осталось: parakeet, микрофон")
+    }
+
+    // MARK: - the machinery of the two above
+
+    private static func inLanguage<T>(_ language: InterfaceLanguage, _ body: () -> T) -> T {
+        let previous = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = previous }
+        return body()
+    }
+
+    /// Everything in the form a person can read, in the order the views are
+    /// in — which is the same order in both languages, because it is the same
+    /// form built twice.
+    @MainActor
+    private static func readable(_ form: SetupForm) -> [String] {
+        form.view.layoutSubtreeIfNeeded()
+        var found: [String] = [form.nextActionTitle, form.outstandingSentence]
+        for view in form.view.allDescendants {
+            switch view {
+            case let field as NSTextField:
+                found.append(field.stringValue)
+                found.append(field.placeholderString ?? "")
+            case let popup as NSPopUpButton:
+                found.append(contentsOf: popup.itemTitles)
+            case let segmented as NSSegmentedControl:
+                found.append(contentsOf: (0..<segmented.segmentCount).map {
+                    segmented.label(forSegment: $0) ?? ""
+                })
+            case let button as NSButton:
+                found.append(button.title)
+            default:
+                break
+            }
+        }
+        return found
+    }
+
+    private static func readable(_ sections: [SettingsSchema.Section]) -> [String] {
+        sections.flatMap { section in
+            [section.title] + section.entries.flatMap { [$0.label, $0.help] }
+        }
+    }
+
+    /// The strings that are deliberately the same in both languages.
+    private static func sameInBothLanguages(_ text: String) -> Bool {
+        if text.isEmpty { return true }
+        // Names of things, and the shape of a key nobody translates.
+        let names = [
+            "AssemblyAI", "OpenAI", "Anthropic", "Claude Code", "Codex", "Ollama",
+            "sk-ant-…", "sk-…", "amanu",
+        ]
+        if names.contains(text) { return true }
+        // The meeting languages are named in themselves — English, Русский,
+        // Deutsch — because that answers "what is spoken here", not "what is
+        // this window in". See `MeetingLanguages`.
+        if MeetingLanguages.menu.contains(where: { $0.name == text }) { return true }
+        // A path is a path.
+        if text.hasPrefix("~/") || text.hasPrefix("/") { return true }
+        return false
+    }
+}
+
+private extension NSView {
+    var allDescendants: [NSView] {
+        subviews + subviews.flatMap(\.allDescendants)
+    }
+}

@@ -128,6 +128,34 @@ Both paths have been run against the API for real — one request, and four —
 which is what `requestLimit` being an init parameter is for: proving the sliced
 path costs four minutes of audio rather than an hour of it.
 
+## The words are in the code, not in a bundle
+
+amanu speaks English and Russian, and both versions of every sentence sit side
+by side in the source, in `localised(_:_:)`. That is not a preference. A
+SwiftPM executable target has no resource bundle, and `swift run` and `swift
+test` have no bundle at all — the same absence that keeps banners quiet, below.
+`NSLocalizedString` there returns its own keys, so every test that finds a
+control by the words on it would be reading identifiers instead of reading the
+interface. And `.lproj` directories would need putting into the bundle by
+something, which is a second assembler of the bundle beside `make app`.
+
+Two things follow, and both have already caught something.
+
+The language is settled once, in `Run`, before the first window exists, and
+never afterwards. A test process therefore never resolves it and is always in
+English — which is what lets the suite look for *Keep the audio after
+transcribing* on a Mac set to any language at all. Anything that reads the
+language at some later moment is reading it after the windows were built.
+
+And nothing may decide anything by matching on the words. A `ChoiceCard`
+coloured its own status green by testing whether the text began with
+"answers", "downloaded", "key works" or "running"; translate the statuses and
+every card in the window goes grey, with no test failing and nothing in the
+code looking wrong. The caller knows what the machine answered and says so —
+`report(_:good:)`. The same trap was in `SetupForm.outstanding`, which returned
+the words the footer shows and was then asked whether it contained
+`"parakeet"`.
+
 ## Banners need a bundle
 
 `UNUserNotificationCenter` has nothing to post under in a bare build, so

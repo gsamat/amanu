@@ -23,6 +23,10 @@ enum SessionInventory {
 
         var isOutstanding: Bool { self == .pending || self == .deferred }
 
+        /// For a terminal listing, which stays in English along with the
+        /// rest of the command line — half of what it prints is the names of
+        /// things, and a report pasted into an issue is worth more in one
+        /// language than in the reader's.
         var label: String {
             switch self {
             case .done: return "done"
@@ -30,6 +34,18 @@ enum SessionInventory {
             case .deferred: return "deferred"
             case .failed: return "failed"
             case .off: return "off"
+            }
+        }
+
+        /// The same states for the recordings window, where a person is
+        /// reading rather than a log is being kept.
+        var described: String {
+            switch self {
+            case .done: return localised("done", "готово")
+            case .pending: return localised("pending", "в очереди")
+            case .deferred: return localised("deferred", "отложено")
+            case .failed: return localised("failed", "не вышло")
+            case .off: return localised("off", "выключено")
             }
         }
     }

@@ -218,6 +218,17 @@ answering "am I recording?" is the worst way it can fail.
 `dock_icon: false` returns amanu to a menu-bar-only accessory; `window: false`
 stops the window opening at launch.
 
+All three are in English or in Russian, following whichever your Mac is set
+to. `interface_language` in the config overrules that — it is under
+**Advanced** in Settings, and it is deliberately not in the setup form, where
+a second row about language beside *Meetings are mostly in* would be asking
+two different questions three centimetres apart. The names of the meeting
+languages in that menu are not translated either: English, Русский, Deutsch,
+each in itself, the way macOS lists them in Language & Region. `amanu doctor`
+and the rest of the command line stay English — half of what they print is the
+names of things, and a report pasted into an issue is worth more in one
+language than in its reader's.
+
 ## What's recorded, and what's still owed on it
 
 **Manage recordings…** — from the menu bar item, from the window, or as
@@ -591,6 +602,7 @@ Optional, at `~/.config/amanu/config.json`:
 {
   "recordings_dir": "~/Recordings",
   "keep_audio": false,
+  "interface_language": "auto",
   "transcription": {
     "enabled": true,
     "engine": "auto",
@@ -672,6 +684,14 @@ Optional, at `~/.config/amanu/config.json`:
 - `calendar` — read the calendar to name sessions after the meeting (default
   on; costs a one-time permission prompt). Independent of
   `auto_record.calendar`, which is about *starting* a recording from an event.
+- `interface_language` — what language amanu's own windows, menus and banners
+  are written in: `auto` (default — your Mac's language, when it is one amanu
+  speaks), `en` or `ru`. It is a different question from
+  `transcription.language`, which is what your *meetings* are in, and from
+  `summary.language`, which is what summaries are *written* in; those two are
+  about other people's words and this one is about amanu's. Read at startup,
+  so it takes effect the next time amanu runs. The command line stays English
+  whatever this says.
 - `dock_icon` — show amanu in the Dock and ⌘-Tab (default on). `false` makes
   it a menu-bar-only accessory again.
 - `window` — open the status window at launch (default on).

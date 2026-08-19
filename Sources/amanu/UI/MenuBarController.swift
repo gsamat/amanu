@@ -38,7 +38,8 @@ final class MenuBarController {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        stateLabel = NSMenuItem(title: "idle", action: nil, keyEquivalent: "")
+        stateLabel = NSMenuItem(
+            title: localised("idle", "не записывает"), action: nil, keyEquivalent: "")
         stateLabel.isEnabled = false
         menu.addItem(stateLabel)
 
@@ -50,14 +51,14 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         toggleItem = NSMenuItem(
-            title: "Start recording",
+            title: localised("Start recording", "Начать запись"),
             action: #selector(toggleClicked),
             keyEquivalent: "r"
         )
         menu.addItem(toggleItem)
 
         pauseItem = NSMenuItem(
-            title: "Pause",
+            title: localised("Pause", "Пауза"),
             action: #selector(pauseClicked),
             keyEquivalent: "p"
         )
@@ -67,7 +68,7 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         autoRecordItem = NSMenuItem(
-            title: "Record meetings automatically",
+            title: localised("Record meetings automatically", "Записывать встречи сама"),
             action: #selector(autoRecordClicked),
             keyEquivalent: ""
         )
@@ -85,14 +86,14 @@ final class MenuBarController {
         // The window is the reliable surface — this item is how you get it
         // back when the menu bar is where you happened to look first.
         let showWindow = NSMenuItem(
-            title: "Show Amanu window",
+            title: localised("Show Amanu window", "Показать окно amanu"),
             action: #selector(showWindowClicked),
             keyEquivalent: "w"
         )
         menu.addItem(showWindow)
 
         let openFolder = NSMenuItem(
-            title: "Open recordings folder",
+            title: localised("Open recordings folder", "Открыть папку записей"),
             action: #selector(openFolderClicked),
             keyEquivalent: "o"
         )
@@ -102,14 +103,14 @@ final class MenuBarController {
         // recording or opens a list depending on which item claimed it first
         // is worse than no shortcut.
         let recordings = NSMenuItem(
-            title: "Manage recordings…",
+            title: localised("Manage recordings…", "Управление записями…"),
             action: #selector(showRecordingsClicked),
             keyEquivalent: "l"
         )
         menu.addItem(recordings)
 
         let settings = NSMenuItem(
-            title: "Settings…",
+            title: localised("Settings…", "Настройки…"),
             action: #selector(showSettingsClicked),
             keyEquivalent: ","
         )
@@ -117,7 +118,7 @@ final class MenuBarController {
 
         // Hidden once the first run is over — see `setupAvailable`.
         setupItem = NSMenuItem(
-            title: "Setup…",
+            title: localised("Setup…", "Первая настройка…"),
             action: #selector(showSetupClicked),
             keyEquivalent: ""
         )
@@ -127,7 +128,7 @@ final class MenuBarController {
         // build has nothing to update, and an item that can only report
         // failure is worse than no item.
         updatesItem = NSMenuItem(
-            title: "Check for updates…",
+            title: localised("Check for updates…", "Проверить обновления…"),
             action: #selector(checkForUpdatesClicked),
             keyEquivalent: ""
         )
@@ -137,7 +138,7 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
-            title: "Quit Amanu",
+            title: localised("Quit Amanu", "Завершить amanu"),
             action: #selector(quitClicked),
             keyEquivalent: "q"
         )
@@ -190,28 +191,29 @@ final class MenuBarController {
     func update(state: State, elapsed: String?) {
         switch state {
         case .idle:
-            stateLabel.title = "idle"
-            toggleItem.title = "Start recording"
-            pauseItem.title = "Pause"
+            stateLabel.title = localised("idle", "не записывает")
+            toggleItem.title = localised("Start recording", "Начать запись")
+            pauseItem.title = localised("Pause", "Пауза")
             pauseItem.isEnabled = false
             statusItem.button?.image = Self.icon(color: nil)
             statusItem.button?.title = ""
         case .recording:
-            stateLabel.title = "● recording · \(elapsed ?? "0:00")"
-            toggleItem.title = "Stop recording"
-            pauseItem.title = "Pause"
+            stateLabel.title = localised("● recording · ", "● запись · ") + (elapsed ?? "0:00")
+            toggleItem.title = localised("Stop recording", "Остановить запись")
+            pauseItem.title = localised("Pause", "Пауза")
             pauseItem.isEnabled = true
             statusItem.button?.image = Self.icon(color: .systemRed)
             // The elapsed time next to the icon is the difference between
             // "something is recording" and "I know it's recording" at a glance.
             statusItem.button?.title = " \(elapsed ?? "0:00")"
         case .paused:
-            stateLabel.title = "❙❙ paused · \(elapsed ?? "0:00")"
-            toggleItem.title = "Stop recording"
-            pauseItem.title = "Resume"
+            stateLabel.title = localised("❙❙ paused · ", "❙❙ пауза · ") + (elapsed ?? "0:00")
+            toggleItem.title = localised("Stop recording", "Остановить запись")
+            pauseItem.title = localised("Resume", "Продолжить")
             pauseItem.isEnabled = true
             statusItem.button?.image = Self.icon(color: .systemOrange)
-            statusItem.button?.title = " \(elapsed ?? "0:00") paused"
+            statusItem.button?.title =
+                " " + (elapsed ?? "0:00") + localised(" paused", " пауза")
         }
     }
 

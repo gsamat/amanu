@@ -27,13 +27,15 @@ final class AutoRecordController {
 
     /// What the controller is thinking, for the menu. "Why didn't it record?"
     /// is otherwise a question you can only answer with a debugger.
-    private(set) var lastDecision = "waiting"
+    private(set) var lastDecision = localised("waiting", "жду")
 
     /// Runtime override from the menu bar, independent of the config file.
     /// Turning auto-record off in the menu must be instant and obvious.
     var enabled: Bool {
         didSet {
-            if !enabled { lastDecision = "auto-record off" }
+            if !enabled {
+                lastDecision = localised("auto-record off", "автозапись выключена")
+            }
             micActiveSince = nil
         }
     }
@@ -99,7 +101,7 @@ final class AutoRecordController {
     private func tick() {
         let settings = Config.autoRecord()
         guard enabled, settings.enabled else {
-            lastDecision = "auto-record off"
+            lastDecision = localised("auto-record off", "автозапись выключена")
             return
         }
 
@@ -132,7 +134,8 @@ final class AutoRecordController {
         mic: MicActivityMonitor.Result
     ) {
         if let until = cooldownUntil, now < until {
-            lastDecision = "paused after a manual stop"
+            lastDecision = localised(
+                "paused after a manual stop", "пауза после ручной остановки")
             return
         }
 
@@ -143,7 +146,8 @@ final class AutoRecordController {
             if let event = started.first(where: { !handledEventIDs.contains($0.id) }) {
                 handledEventIDs.insert(event.id)
                 currentEventEnd = event.end
-                lastDecision = "started from calendar: \(event.title)"
+                lastDecision =
+                    localised("started from calendar: ", "начала по календарю: ") + event.title
                 // The call app usually grabs the mic a moment after the event
                 // starts, so it may be nil here — the calendar carries the name.
                 startRecording?(.calendar, MeetingContext(
@@ -153,24 +157,30 @@ final class AutoRecordController {
         }
 
         guard settings.micActivity else {
-            lastDecision = "waiting for a calendar event"
+            lastDecision = localised("waiting for a calendar event", "жду события в календаре")
             return
         }
         guard let since = micActiveSince else {
             lastDecision = mic.allHolders.isEmpty
-                ? "waiting"
-                : "mic held by \(mic.allHolders.joined(separator: ", ")) — not a call app"
+                ? localised("waiting", "жду")
+                : localised("mic held by ", "микрофон занят: ")
+                    + mic.allHolders.joined(separator: ", ")
+                    + localised(" — not a call app", " — это не приложение для звонков")
             return
         }
 
         let held = now.timeIntervalSince(since)
         guard held >= settings.startDelay else {
-            lastDecision = "\(mic.names.joined(separator: ", ")) on the mic for \(Int(held))s"
+            lastDecision = localised(
+                "\(mic.names.joined(separator: ", ")) on the mic for \(Int(held))s",
+                "\(mic.names.joined(separator: ", ")) держит микрофон \(Int(held)) с")
             return
         }
         let event = calendar?.bestMatch(for: now)
         currentEventEnd = event?.end
-        lastDecision = "started from mic activity (\(mic.names.first ?? "call app"))"
+        lastDecision = localised(
+            "started from mic activity (\(mic.names.first ?? "call app"))",
+            "начала по микрофону (\(mic.names.first ?? "приложение звонка"))")
         startRecording?(.micActivity, MeetingContext(
             meeting: event, app: mic.names.first, appFamilies: mic.families))
     }
@@ -188,12 +198,13 @@ final class AutoRecordController {
         // The ceiling applies to manual recordings too: whatever this is, it
         // stopped being a meeting hours ago.
         if elapsed > settings.maxDuration {
-            lastDecision = "stopped at the duration ceiling"
+            lastDecision = localised(
+                "stopped at the duration ceiling", "остановила на пределе длительности")
             stopRecording?("max-duration")
             return
         }
         guard session.trigger != .manual else {
-            lastDecision = "manual recording in progress"
+            lastDecision = localised("manual recording in progress", "идёт ручная запись")
             return
         }
 
@@ -204,7 +215,9 @@ final class AutoRecordController {
         // Independent of who holds the microphone, which is the point — this is
         // what catches an app that never lets the device go.
         if session.levelsMeasurable, min(micQuietFor, farEndQuietFor) > settings.silenceStop {
-            lastDecision = "stopped after \(Int(settings.silenceStop / 60)) min of silence"
+            lastDecision = localised(
+                "stopped after \(Int(settings.silenceStop / 60)) min of silence",
+                "остановила после \(Int(settings.silenceStop / 60)) мин тишины")
             stopRecording?("silence")
             return
         }
@@ -214,20 +227,23 @@ final class AutoRecordController {
         // full idle delay.
         if let end = currentEventEnd, now > end.addingTimeInterval(120),
            !mic.active, farEndQuietFor > 60 {
-            lastDecision = "stopped — calendar event ended"
+            lastDecision = localised(
+                "stopped — calendar event ended", "остановила — событие календаря кончилось")
             stopRecording?("calendar-event-ended")
             return
         }
 
         let micIdleFor = micIdleSince.map { now.timeIntervalSince($0) } ?? 0
         if !mic.active, micIdleFor > settings.stopDelay, farEndQuietFor > settings.stopDelay {
-            lastDecision = "stopped — the call ended"
+            lastDecision = localised("stopped — the call ended", "остановила — звонок кончился")
             stopRecording?("call-ended")
             return
         }
 
         lastDecision = mic.active
-            ? "meeting in progress"
-            : "quiet for \(Int(min(micIdleFor, farEndQuietFor)))s"
+            ? localised("meeting in progress", "идёт встреча")
+            : localised(
+                "quiet for \(Int(min(micIdleFor, farEndQuietFor)))s",
+                "тихо уже \(Int(min(micIdleFor, farEndQuietFor))) с")
     }
 }

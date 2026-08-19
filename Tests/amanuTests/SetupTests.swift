@@ -88,7 +88,7 @@ struct SetupTests {
     @MainActor
     func choiceCardShowsStatus() {
         let card = ChoiceCard(id: "tool", title: "Tool", detail: "A backend")
-        card.status = "answers · 1.0"
+        card.report("answers · 1.0", good: true)
 
         let labels = card.allDescendants
             .filter { !$0.isHidden }
@@ -312,7 +312,7 @@ struct SetupTests {
     @MainActor
     func chosenCardColoursItsBadNews() throws {
         let card = ChoiceCard(id: "claude-cli", title: "Claude Code", detail: "No key.")
-        card.status = "not here"
+        card.report("not here")
         let label = try #require(card.allDescendants
             .compactMap { $0 as? NSTextField }
             .first { $0.stringValue == "not here" })
@@ -320,7 +320,10 @@ struct SetupTests {
         #expect(label.textColor == .secondaryLabelColor)
         card.isSelected = true
         #expect(label.textColor == .systemOrange)
-        card.status = "answers · 1.0"
+        // Good news is what the caller says it is, rather than what the words
+        // happen to start with — a card whose colour was read out of its own
+        // text would go grey in the other language.
+        card.report("answers · 1.0", good: true)
         #expect(label.textColor == .systemGreen)
     }
 
@@ -681,8 +684,8 @@ struct SetupTests {
     @Test("The sentence says the good news as well as the bad")
     func outstandingSentenceShapes() {
         #expect(SetupForm.sentence(for: []) == "Everything amanu needs is granted.")
-        #expect(SetupForm.sentence(for: ["microphone"]) == "One thing left: microphone")
-        #expect(SetupForm.sentence(for: ["microphone", "system audio"])
+        #expect(SetupForm.sentence(for: [.microphone]) == "One thing left: microphone")
+        #expect(SetupForm.sentence(for: [.microphone, .systemAudio])
             == "Left: microphone, system audio")
     }
 
