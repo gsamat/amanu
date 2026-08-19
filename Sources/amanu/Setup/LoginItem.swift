@@ -21,13 +21,18 @@ enum LoginItem {
 
     static var isAvailable: Bool { Runtime.isBundled }
 
+    /// Asked of `ThisTurn` because `SMAppService.mainApp.status` is an XPC
+    /// round trip, and the setup window asks this six times to draw itself
+    /// once.
     static func status() -> State {
-        guard Runtime.isBundled else { return .unavailable }
-        switch SMAppService.mainApp.status {
-        case .enabled: return .enabled
-        case .requiresApproval: return .needsApproval
-        case .notRegistered, .notFound: return .notRegistered
-        @unknown default: return .notRegistered
+        ThisTurn.answer("login item") {
+            guard Runtime.isBundled else { return State.unavailable }
+            switch SMAppService.mainApp.status {
+            case .enabled: return .enabled
+            case .requiresApproval: return .needsApproval
+            case .notRegistered, .notFound: return .notRegistered
+            @unknown default: return .notRegistered
+            }
         }
     }
 
@@ -35,6 +40,7 @@ enum LoginItem {
     static func register() throws -> State {
         guard Runtime.isBundled else { return .unavailable }
         try SMAppService.mainApp.register()
+        ThisTurn.forget()
         return status()
     }
 
@@ -42,6 +48,7 @@ enum LoginItem {
     static func unregister() throws -> State {
         guard Runtime.isBundled else { return .unavailable }
         try SMAppService.mainApp.unregister()
+        ThisTurn.forget()
         return status()
     }
 
