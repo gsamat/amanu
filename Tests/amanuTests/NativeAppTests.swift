@@ -84,3 +84,63 @@ struct NativeAppTests {
         #expect(Notifications.session(in: ["me.samat.amanu.session": 42]) == nil)
     }
 }
+
+/// The wizard is the first run, and after it the menus stop offering it: the
+/// form it holds lives in Settings for good, and the rest of the window —
+/// the order the grants have to happen in, the line saying what is still
+/// outstanding — has been answered by then.
+///
+/// The item is in two menus, which is the thing worth a test: it was added to
+/// both by hand, and hiding one of them is a fix that looks finished.
+@Suite("Setup is offered while there is a first run to finish")
+@MainActor
+struct SetupOfferTests {
+    @Test("The status item's menu offers Setup only while it is wanted")
+    func statusMenuHidesSetup() {
+        let menuBar = MenuBarController()
+        defer { withExtendedLifetime(menuBar) {} }
+
+        menuBar.setupAvailable(true)
+        #expect(menuBar.offeredItemTitles.contains("Setup…"))
+
+        menuBar.setupAvailable(false)
+        #expect(!menuBar.offeredItemTitles.contains("Setup…"))
+
+        // `amanu setup` resets the marker, and the way back has to be a way
+        // back: an item that only ever disappears is a one-way door.
+        menuBar.setupAvailable(true)
+        #expect(menuBar.offeredItemTitles.contains("Setup…"))
+    }
+
+    @Test("The app menu's Setup follows the same answer, and Settings never does")
+    func appMenuHidesSetup() throws {
+        let delegate = AppDelegate()
+        let menu = Run.mainMenu(settingsTarget: delegate)
+        let appMenu = try #require(menu.items.first?.submenu)
+        let setup = try #require(appMenu.items.first { $0.title == "Setup…" })
+        let settings = try #require(appMenu.items.first { $0.title == "Settings…" })
+
+        delegate.setupAvailable(false)
+        #expect(setup.isHidden)
+        #expect(!settings.isHidden, "Settings is the door that must not close")
+
+        delegate.setupAvailable(true)
+        #expect(!setup.isHidden)
+
+        withExtendedLifetime(delegate) {}
+    }
+
+    /// The initial state is not the controller's to set: the menu is built
+    /// after the controller has already asked once, so an item born visible
+    /// on a machine that finished setup last month would stay visible.
+    @Test("The app menu is built already knowing whether setup is pending")
+    func appMenuStartsFromTheMarker() throws {
+        let delegate = AppDelegate()
+        let menu = Run.mainMenu(settingsTarget: delegate)
+        let appMenu = try #require(menu.items.first?.submenu)
+        let setup = try #require(appMenu.items.first { $0.title == "Setup…" })
+
+        #expect(setup.isHidden == !SetupState.isPending)
+        withExtendedLifetime(delegate) {}
+    }
+}

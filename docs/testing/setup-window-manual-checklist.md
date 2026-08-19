@@ -298,6 +298,25 @@ checking by hand is only the seam between them.
 - Confirm the Setup tab has no **Later** or **Done**: those belong to the
   first run, and setup is marked completed by that window, not by this one.
 
+## Setup is offered only while there is a first run to finish
+
+- On a machine that has been through setup, confirm **Setup…** is in neither
+  menu — not the menu bar item's, not the app menu's. Both had it, and hiding
+  one of them looks finished.
+- Confirm **Settings…** is still in both, and that its **Setup** tab shows the
+  same form: this is where the permissions live now.
+- Run `amanu setup`. Confirm the wizard opens *and* that **Setup…** is back in
+  both menus while it is open — the command resets the marker, and the item
+  follows the marker.
+- Click **Done**, then open both menus again: the item is gone, without
+  restarting the app.
+- Remove `completed_at` and `version` from `~/.config/amanu/setup.json` and
+  relaunch: the wizard opens by itself and the item is in both menus again.
+- With every permission granted, look at Settings → Setup and confirm you can
+  still tell what is outstanding: each Access row says where it stands, and
+  the row that needs attention is tinted. The wizard's one-line summary is not
+  there — if that is missed, it belongs on the tab.
+
 ## Reopening and restart behavior
 
 - While the app is running, execute `amanu setup`. Confirm the existing app
