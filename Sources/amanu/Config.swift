@@ -66,11 +66,12 @@ enum Config {
         transcription()?["model"] as? String ?? "v3"
     }
 
-    /// Two-letter language code for the recording, e.g. "ru". Both engines do
-    /// better told than guessing: parakeet uses it as a script hint (so
-    /// Russian doesn't come back transliterated), assemblyai as its
-    /// language_code (a wrong one there produces confident phonetic garbage).
-    /// nil means parakeet runs unhinted and assemblyai auto-detects.
+    /// Two-letter code for the language meetings are *mostly* in, e.g. "ru".
+    ///
+    /// Not a pin. Both engines identify the language themselves; what this
+    /// narrows is the shortlist they choose from, and English is on that
+    /// shortlist whatever this says — see `MeetingLanguages`. nil means no
+    /// expectation at all.
     static func transcriptionLanguage() -> String? {
         guard let code = transcription()?["language"] as? String, !code.isEmpty else { return nil }
         return code

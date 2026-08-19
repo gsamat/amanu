@@ -54,7 +54,11 @@ actor AssemblyAIEngine: TranscriptionEngine {
     nonisolated let input: TranscriptionInput = .mixed
 
     private let apiKey: String
-    private let language: String?
+    /// The languages this meeting may be in. The API is told to detect within
+    /// them rather than to assume the first: `language_code` is a pin, and a
+    /// pin on the wrong language is where this engine returns fluent phonetic
+    /// garbage instead of failing.
+    private let expected: [String]
     private let speechModel: String?
 
     /// Throws rather than failing at transcribe time — a missing key should
@@ -62,10 +66,13 @@ actor AssemblyAIEngine: TranscriptionEngine {
     init() throws {
         guard let key = Config.assemblyAIKey() else { throw EngineError.noAPIKey }
         apiKey = key
-        language = Config.transcriptionLanguage()
+        expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
         speechModel = Config.assemblyAISpeechModel()
 
-        let parts = [speechModel ?? "universal", language ?? "auto-detect"]
+        let parts = [
+            speechModel ?? "universal",
+            expected.isEmpty ? "auto-detect" : expected.joined(separator: "+"),
+        ]
         model = parts.joined(separator: " · ")
     }
 
@@ -139,10 +146,16 @@ actor AssemblyAIEngine: TranscriptionEngine {
             // speakers_expected is deliberately unset — the model picks the
             // count better unconstrained than we can guess it.
         ]
-        if let language {
-            body["language_code"] = language
-        } else {
-            body["language_detection"] = true
+        // Detection is always on. What a configured language changes is the
+        // shortlist it chooses from, and where it lands when it can't tell:
+        // a short, noisy Russian meeting is otherwise perfectly capable of
+        // coming back as Bulgarian.
+        body["language_detection"] = true
+        if let primary = expected.first {
+            body["language_detection_options"] = [
+                "expected_languages": expected,
+                "fallback_language": primary,
+            ]
         }
         if let speechModel { body["speech_model"] = speechModel }
 

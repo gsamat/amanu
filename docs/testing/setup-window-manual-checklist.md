@@ -123,11 +123,20 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
   put the key in `config.json`; it should land in `~/.config/amanu/keys/` with
   mode 0600. amanu never writes to the shared `~/.config/assemblyai/token`,
   though it still reads it.
-- Change the meeting language, close Setup, reopen it, and verify the value was
-  persisted. The field commits on Return or on losing focus, and it takes
-  whatever it is given — `ru` and `ruфф` are equally acceptable to it.
+- Open the **Meetings are mostly in** menu. Confirm it opens on **Detect
+  automatically**, that English, Русский, Deutsch, Français and Español follow
+  in that order behind a separator, and that the rest of the alphabet follows
+  behind a second one. Every language is named in itself; no two-letter codes
+  appear in the window.
+- Pick a language, close Setup, reopen it, and verify the menu comes back on
+  the same one and `config.json` holds its two-letter code. Picking **Detect
+  automatically** must remove `transcription.language` rather than write an
+  empty string.
+- Confirm the line under the menu changes with the choice: nothing for English,
+  the promise about English meetings for any other language, and the note about
+  short or noisy meetings for **Detect automatically**.
 - Confirm the **I want a live transcript during meetings** row sits under the
-  language field, says the model is 600 MB and downloads once, and reports
+  language menu, says the model is 600 MB and downloads once, and reports
   **downloaded** when it is present.
 
 ## Summaries

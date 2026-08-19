@@ -67,8 +67,9 @@ enum SettingsSchema {
                       "assemblyai is the only engine on an Intel Mac; parakeet needs Apple Silicon.",
                       .choice(["auto", "assemblyai"]), default: "auto"),
                 Entry(["transcription", "language"], "Language",
-                      "Two-letter code. The engine does better told than guessing.",
-                      .text(placeholder: "ru"), default: "unset — assemblyai auto-detects"),
+                      "Two-letter code for what meetings are mostly in. English is expected "
+                          + "alongside it; the engine still decides which it heard.",
+                      .text(placeholder: "ru"), default: "unset — detected from any language"),
             ]
         }
         return [
@@ -79,8 +80,9 @@ enum SettingsSchema {
                   "auto: assemblyai when there's a key and the network answers, parakeet otherwise.",
                   .choice(["auto", "assemblyai", "parakeet"]), default: "auto"),
             Entry(["transcription", "language"], "Language",
-                  "Two-letter code. Both engines do better told than guessing.",
-                  .text(placeholder: "ru"), default: "unset — parakeet guesses, assemblyai auto-detects"),
+                  "Two-letter code for what meetings are mostly in. English is expected "
+                      + "alongside it; both engines still decide which they heard.",
+                  .text(placeholder: "ru"), default: "unset — detected from any language"),
             Entry(["transcription", "model"], "Parakeet model",
                   "v3 covers 25 European languages; v2 is English-only.",
                   .choice(["v3", "v2"]), default: "v3"),

@@ -233,9 +233,8 @@ enum DoctorReport {
     }
 
     /// The cloud engine has no models to cache; what it can be missing is a
-    /// key. Language matters more here than for parakeet — a wrong
-    /// language_code returns fluent-looking phonetic nonsense — so an unset
-    /// one is worth saying out loud.
+    /// key. Language is worth reporting either way: the engine detects it, and
+    /// what a configured one narrows is the shortlist it detects within.
     private static func checkAssemblyAI() -> Check {
         // A warning, not a failure: a missing key costs you the transcript,
         // and refusing to launch over it would cost you the recording too.
@@ -247,17 +246,20 @@ enum DoctorReport {
                     + " && chmod 600 \(Config.assemblyAIKeyPath.path)"
             )
         }
-        guard let language = Config.transcriptionLanguage() else {
+        let expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
+        guard !expected.isEmpty else {
             return Check(
                 name: "transcription",
-                status: .warn("assemblyai · key ok · no language set (auto-detect)"),
-                remediation: "set transcription.language (e.g. \"ru\") — auto-detect on a "
-                    + "short or noisy meeting can pick wrong"
+                status: .warn("assemblyai · key ok · no language set (detects from any)"),
+                remediation: "set transcription.language (e.g. \"ru\") — detection over every "
+                    + "language it knows can pick wrong on a short or noisy meeting"
             )
         }
         return Check(
             name: "transcription",
-            status: .warn("assemblyai · key ok · language \(language) · audio leaves this machine"),
+            status: .warn(
+                "assemblyai · key ok · expecting \(expected.joined(separator: "+")) "
+                    + "· audio leaves this machine"),
             remediation: nil
         )
     }

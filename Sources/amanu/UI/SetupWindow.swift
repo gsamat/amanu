@@ -51,7 +51,8 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         optional: true)
 
     private let engineCards = ChoiceGroup()
-    private let language = NSTextField()
+    private let language = NSPopUpButton()
+    private let languageNote = NSTextField(labelWithString: "")
     private let keepAudio = NSButton(
         checkboxWithTitle: "Keep the audio after transcribing", target: nil, action: nil)
     private let liveTranscription = NSSwitch()
@@ -267,19 +268,56 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         return SetupLayout.cards(engineCards.cards)
     }
 
+    /// A menu rather than the two-letter code this used to ask for. The code
+    /// was never a question anybody could answer from the window: nothing said
+    /// whether it wanted `ru`, `rus` or `ru-RU`, and a typo went to stderr,
+    /// where nobody was reading. What is stored is still the code.
     private func languageRow() -> NSView {
         let label = NSTextField(labelWithString: "Meetings are mostly in")
         label.font = .systemFont(ofSize: 13)
         label.textColor = .secondaryLabelColor
-        language.placeholderString = Self.systemLanguage ?? "ru"
-        language.delegate = self
-        language.widthAnchor.constraint(equalToConstant: 64).isActive = true
 
-        let stack = NSStackView(views: [label, language, NSView()])
-        stack.orientation = .horizontal
-        stack.alignment = .centerY
-        stack.spacing = 10
+        language.target = self
+        language.action = #selector(languageChanged)
+        buildLanguageMenu()
+
+        let picker = NSStackView(views: [label, language, NSView()])
+        picker.orientation = .horizontal
+        picker.alignment = .centerY
+        picker.spacing = 10
+
+        languageNote.font = SetupLayout.statusFont
+        languageNote.textColor = .secondaryLabelColor
+        languageNote.lineBreakMode = .byWordWrapping
+        languageNote.maximumNumberOfLines = 2
+        languageNote.preferredMaxLayoutWidth = 520
+
+        let stack = NSStackView(views: [picker, languageNote])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
         return stack
+    }
+
+    /// Detect first, then the five languages amanu is actually used in, then
+    /// the alphabet. Each item carries its own config value, so the menu can
+    /// be reordered without a table of indices to keep in step with it.
+    private func buildLanguageMenu() {
+        let menu = NSMenu()
+        let detect = NSMenuItem(title: "Detect automatically", action: nil, keyEquivalent: "")
+        menu.addItem(detect)
+        menu.addItem(.separator())
+        for (index, choice) in MeetingLanguages.menu.enumerated() {
+            if index == MeetingLanguages.pinned.count { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: choice.name, action: nil, keyEquivalent: "")
+            item.representedObject = choice.code
+            menu.addItem(item)
+        }
+        language.menu = menu
+    }
+
+    private var selectedLanguage: String? {
+        language.selectedItem?.representedObject as? String
     }
 
     private func liveTranscriptionRow() -> NSView {
@@ -424,10 +462,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         return formatter
     }()
 
-    private static var systemLanguage: String? {
-        Locale.current.language.languageCode?.identifier
-    }
-
     // MARK: - actions
 
     private func wireActions() {
@@ -450,7 +484,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         let enabled = liveTranscription.state == .on
         Config.update(path: ["live_transcription", "enabled"], value: enabled ? true : nil)
         if enabled {
-            commitLanguage()
             downloadLiveModel()
         } else {
             liveDownloadTask?.cancel()
@@ -462,8 +495,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private func downloadLiveModel() {
         guard !liveDownloading else { return }
-        let prompt = LiveTranscriptionLanguage.prompt(for:
-            language.stringValue.isEmpty ? Config.transcriptionLanguage() : language.stringValue)
+        let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: prompt) {
             liveStatus.stringValue = "downloaded"
             refresh()
@@ -632,7 +664,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// box is ticked would be nagging, and `amanu doctor` still says what is
     /// missing.
     private func finish() {
-        commitLanguage()
         SetupState.markCompleted()
         parakeetProgress?.invalidate()
         parakeetProgress = nil
@@ -644,14 +675,25 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
-        if field === language { commitLanguage() }
         if field === assemblyKey { Task { await saveAssemblyKey() } }
         if field === summaryKey { Task { await saveSummaryKey() } }
     }
 
-    private func commitLanguage() {
-        let code = language.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        Config.update(path: ["transcription", "language"], value: code.isEmpty ? nil : code)
+    @objc private func languageChanged() {
+        Config.update(path: ["transcription", "language"], value: selectedLanguage)
+        refresh()
+    }
+
+    /// What the choice above actually promises, in the one place somebody is
+    /// looking at it. Picking English says nothing worth saying — it is the
+    /// language the second slot would have added anyway.
+    private static func note(forLanguage code: String?) -> String {
+        guard let code else {
+            return "Both engines work it out from the audio. Naming a language "
+                + "keeps a short or noisy meeting from being taken for another one."
+        }
+        guard code != "en" else { return "" }
+        return "English meetings are recognised too — nothing to switch."
     }
 
     /// Check first, write second.
@@ -811,9 +853,15 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         // than as nothing selected at all.
         engineCards.select(
             Platform.supportsLocalModels ? Config.transcriptionEngine() : "assemblyai")
-        if language.stringValue.isEmpty, let stored = Config.transcriptionLanguage() {
-            language.stringValue = stored
-        }
+        // A code the menu doesn't offer — hand-edited, or a leftover "ru-RU"
+        // — selects Detect automatically, which is what the engines will
+        // actually do with it. Shown as it will behave rather than as it is
+        // written, and left in the file for its owner to change.
+        let stored = Config.transcriptionLanguage()
+        let item = language.menu?.items.first { $0.representedObject as? String == stored }
+        language.select(item ?? language.menu?.items.first)
+        languageNote.stringValue = Self.note(forLanguage: item?.representedObject as? String)
+        languageNote.isHidden = languageNote.stringValue.isEmpty
         keepAudio.state = Config.keepAudio() ? .on : .off
 
         liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off

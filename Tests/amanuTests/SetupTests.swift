@@ -216,6 +216,33 @@ struct SetupTests {
         #expect(toggle.action != nil)
     }
 
+    /// The window used to ask for a two-letter code in a text field, which
+    /// nobody could answer from the window and which accepted anything typed
+    /// into it. What replaced it has to keep the code out of sight and the
+    /// five spoken languages within reach.
+    @Test("The meeting language is chosen from a menu of named languages")
+    @MainActor
+    func languageIsAMenuOfNames() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let label = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Meetings are mostly in" })
+        let row = try #require(label.superview as? NSStackView)
+        let popup = try #require(row.arrangedSubviews.compactMap { $0 as? NSPopUpButton }.first)
+
+        #expect(popup.target != nil)
+        #expect(popup.action != nil)
+        #expect(popup.itemTitles.first == "Detect automatically")
+
+        let codes = popup.menu?.items.compactMap { $0.representedObject as? String } ?? []
+        #expect(Array(codes.prefix(5)) == MeetingLanguages.pinned)
+        #expect(codes.count == MeetingLanguages.menu.count)
+        #expect(popup.itemTitles.contains("Русский"))
+        #expect(!popup.itemTitles.contains("ru"))
+    }
+
     @Test("Ollama is a full summary card with the official install link")
     @MainActor
     func ollamaIsInstallableChoiceCard() throws {
