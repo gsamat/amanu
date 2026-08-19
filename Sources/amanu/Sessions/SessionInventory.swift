@@ -239,7 +239,8 @@ enum SessionInventory {
     /// hearing how it started is often what settles who was in it.
     static func opening(of transcript: Transcript, names: SpeakerNames?, lines: Int = 8) -> String {
         transcript.segments.prefix(lines).map { segment in
-            let who = names?.name(for: segment.speaker) ?? segment.speaker
+            let who = names?.speakers[segment.speaker]?.name
+                ?? SpeakerNames.described(label: segment.speaker)
             return "\(who): \(segment.text)"
         }.joined(separator: "\n")
     }

@@ -230,7 +230,7 @@ final class RecordingsWindow: NSObject {
     /// is what identifies a person by what they were talking about when nobody
     /// said any names at all.
     private func speakerRow(_ sample: SessionInventory.Sample, in dir: URL) -> NSView {
-        let label = NSTextField(labelWithString: sample.label)
+        let label = NSTextField(labelWithString: SpeakerNames.described(label: sample.label))
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.widthAnchor.constraint(equalToConstant: 80).isActive = true
 
