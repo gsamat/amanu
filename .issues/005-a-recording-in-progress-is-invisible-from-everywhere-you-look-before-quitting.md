@@ -65,7 +65,28 @@ and the same state a warning would come from.
 `CLAUDE.md` — "Quit the running app before replacing `/Applications/Amanu.app`"
 is the instruction that leads here, and says nothing about looking first.
 
-## `amanu sessions` does not answer the question either
+## Correction, and the answer that does exist
+
+Measured on 0.4.2 build 197, a day after the rest of this note: `amanu sessions`
+does not list a recording in progress **at all**. `SessionInventory` filters on
+`meta.json`, which is written when the recording stops — so the command answers
+"nothing is running" in exactly the case where something is. Everything below
+was written believing it showed a `pending` row. It does not, and the mistake
+made this note more dangerous than the thing it described.
+
+There is an honest answer on disk, and it was there all along. A session being
+recorded holds `.recording.json`, with the owning pid and the moment it started,
+written at the start and removed at the end:
+
+```sh
+ls ~/Recordings/*/.recording.json
+```
+
+Nothing printed means nothing is recording. That is the check to put in front of
+anything that quits the application, and `docs/testing/live-pass.md` now opens
+with it.
+
+## What the earlier note said about `amanu sessions`
 
 Measured the same evening, an hour later. A session still being recorded
 appears in `amanu sessions` as an ordinary row — its elapsed time and
