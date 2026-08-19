@@ -43,8 +43,9 @@ naming one no longer forces the engine to hear it.
   two places at once, and the settings window has a second tab besides, so a
   provider switched in one used to leave the others showing what was true a
   minute ago. Anything that writes a setting now says so, and everything on
-  screen reads the file again. The same pass found the setup window rewriting
-  `config.json` every time it redrew itself.
+  screen reads the file again. The same pass found two places that
+  rewrote `config.json` without being asked: the setup window on every redraw,
+  and the settings window whenever a field it had never touched lost focus.
 - **Smaller things in the same window.** The Access rows are one height rather
   than two. **Keep the audio after transcribing** is a switch like every other
   switch. The parakeet download counts towards 460 MB, which is about what the model
@@ -92,7 +93,7 @@ update as they survive any rebuild.
 
 The whole of this release was written by several agents working at once and
 merged afterwards, and the merge is the part worth being careful about. The
-automated tests pass — 197 of them — the universal build is signed and both
+automated tests pass — 201 of them — the universal build is signed and both
 slices answer `doctor`, and each window was rendered off screen and looked at.
 But **nobody has clicked through the merged setup window in a running copy**,
 and `docs/testing/setup-window-manual-checklist.md` has not been run against
