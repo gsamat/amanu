@@ -412,10 +412,11 @@ actor TranscriptionCoordinator {
                 "warning: unknown transcription engine \"\(configured)\" — choosing automatically\n".utf8
             ))
         }
-        let hasKey = Config.assemblyAIKey() != nil
+        let provider = Self.cloudProvider(configured: configured)
+        let hasKey = Self.cloudKey(for: provider) != nil
         if configured == "parakeet", !Platform.supportsLocalModels, hasKey {
             FileHandle.standardError.write(Data(
-                "warning: parakeet needs Apple Silicon — transcribing with assemblyai\n".utf8
+                "warning: parakeet needs Apple Silicon — transcribing with \(provider)\n".utf8
             ))
         }
         let engine: TranscriptionEngine
@@ -425,11 +426,11 @@ actor TranscriptionCoordinator {
             localModels: Platform.supportsLocalModels
         ) {
         case .cloud:
-            engine = try AssemblyAIEngine()
+            engine = try Self.cloudEngine(provider)
         case .local:
             engine = ParakeetEngine()
         case .cloudOrLocal:
-            engine = await Self.bestAvailableEngine()
+            engine = await Self.bestAvailableEngine(provider)
         case .unavailable:
             throw EngineUnavailable.noLocalModels
         }
@@ -438,7 +439,26 @@ actor TranscriptionCoordinator {
         return engine
     }
 
-    private static let knownEngines: Set<String> = ["auto", "assemblyai", "parakeet"]
+    private static let knownEngines: Set<String> = ["auto", "assemblyai", "openai", "parakeet"]
+
+    /// Which cloud service a configuration means. A configured engine naming
+    /// a provider outright is that provider; anything else defers to the
+    /// `cloud` setting, which is what the setup window's two cards write.
+    static func cloudProvider(configured: String) -> String {
+        Config.cloudEngines.contains(configured)
+            ? configured
+            : Config.transcriptionCloudProvider()
+    }
+
+    private static func cloudKey(for provider: String) -> String? {
+        provider == "openai" ? Config.openAIKey() : Config.assemblyAIKey()
+    }
+
+    private static func cloudEngine(_ provider: String) throws -> TranscriptionEngine {
+        provider == "openai"
+            ? try OpenAITranscriptionEngine()
+            : try AssemblyAIEngine()
+    }
 
     /// Which engine the configuration adds up to, before the network is
     /// consulted. Pure so the whole matrix — including the Intel half of the
@@ -460,9 +480,9 @@ actor TranscriptionCoordinator {
         hasKey: Bool,
         localModels: Bool
     ) -> EngineChoice {
-        // An explicit assemblyai keeps failing on a missing key rather than
+        // An explicit provider keeps failing on a missing key rather than
         // quietly transcribing locally: the person asked for diarization.
-        if configured == "assemblyai" { return .cloud }
+        if Config.cloudEngines.contains(configured) { return .cloud }
         // An explicit parakeet on a Mac that cannot run it is the one place
         // we override a stated preference — the alternative is no transcript.
         if configured == "parakeet" {
@@ -481,30 +501,35 @@ actor TranscriptionCoordinator {
         var isPermanent: Bool { false }
 
         var description: String {
-            "local transcription needs Apple Silicon, and this Mac has no "
-                + "AssemblyAI key — put one in \(Config.assemblyAIKeyPath.path)"
-                + " (chmod 600) or set ASSEMBLYAI_API_KEY"
+            "local transcription needs Apple Silicon, and this Mac has no key "
+                + "for a cloud engine — put an AssemblyAI one in "
+                + "\(Config.assemblyAIKeyPath.path) or an OpenAI one in "
+                + "\(Config.openAIKeyPath.path) (chmod 600), or set "
+                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY"
         }
     }
 
     /// Cloud when it's actually usable, local otherwise. Checked at the moment
     /// there is work rather than at launch, because the answer changes: the
     /// laptop that recorded a meeting on a train is transcribing it on a train.
-    private static func bestAvailableEngine() async -> TranscriptionEngine {
-        guard await assemblyAIReachable() else {
+    private static func bestAvailableEngine(_ provider: String) async -> TranscriptionEngine {
+        guard await cloudReachable(provider) else {
             FileHandle.standardError.write(Data(
-                "assemblyai unreachable — transcribing locally with parakeet\n".utf8
+                "\(provider) unreachable — transcribing locally with parakeet\n".utf8
             ))
             return ParakeetEngine()
         }
-        return (try? AssemblyAIEngine()) ?? ParakeetEngine()
+        return (try? cloudEngine(provider)) ?? ParakeetEngine()
     }
 
     /// A short, cheap "is the API there" probe. Any HTTP answer counts,
     /// including an unauthorized one: the question is whether the network is
     /// up, not whether the key is good.
-    private static func assemblyAIReachable() async -> Bool {
-        var request = URLRequest(url: URL(string: "https://api.assemblyai.com/v2/transcript")!)
+    private static func cloudReachable(_ provider: String) async -> Bool {
+        let url = provider == "openai"
+            ? URL(string: "https://api.openai.com/v1/models")!
+            : URL(string: "https://api.assemblyai.com/v2/transcript")!
+        var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
         do {

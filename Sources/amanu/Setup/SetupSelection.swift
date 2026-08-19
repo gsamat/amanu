@@ -22,6 +22,62 @@ enum SetupSelection {
     }
 }
 
+/// The transcription section's two switches and its provider, in the
+/// vocabulary the config file speaks.
+///
+/// The window asks two questions — may audio leave this Mac, and should the
+/// local model be kept ready — and the config answers them with one `engine`
+/// string. The translation is here rather than in the window so the whole
+/// matrix, including the Intel half of the universal binary, can be tested
+/// without opening anything.
+struct TranscriptionChoice: Equatable {
+    var cloud: Bool
+    var local: Bool
+    /// Which cloud service, whether or not the cloud is switched on. Kept
+    /// even while it is off: turning the switch back on should not lose the
+    /// answer, and the card is on screen the whole time either way.
+    var provider: String
+
+    static func read(
+        engine: String,
+        cloudProvider: String,
+        enabled: Bool,
+        localModels: Bool
+    ) -> TranscriptionChoice {
+        let named = Config.cloudEngines.contains(engine)
+        let provider = named ? engine : cloudProvider
+        guard enabled else {
+            return TranscriptionChoice(cloud: false, local: false, provider: provider)
+        }
+        // Anything that isn't a provider name or "parakeet" is auto — the
+        // default, and what an unreadable value falls back to elsewhere too.
+        let auto = !named && engine != "parakeet"
+        return TranscriptionChoice(
+            cloud: named || auto,
+            local: localModels && (auto || engine == "parakeet"),
+            provider: provider
+        )
+    }
+
+    /// What to write, as paths into the config with nil meaning "remove it".
+    /// Defaults are removed rather than written out: a config file that only
+    /// contains what was actually chosen is one a person can read.
+    var updates: [(path: [String], value: Any?)] {
+        guard cloud || local else {
+            // Neither engine is a real answer — record only, transcription off
+            // — and the engine setting is left alone so switching back on
+            // remembers what it was.
+            return [(["transcription", "enabled"], false)]
+        }
+        let engine: String? = cloud && local ? nil : (cloud ? provider : "parakeet")
+        return [
+            (["transcription", "enabled"], nil),
+            (["transcription", "engine"], engine),
+            (["transcription", "cloud"], provider == "assemblyai" ? nil : provider),
+        ]
+    }
+}
+
 /// A no-cost authentication check for the two summary API providers. Both
 /// official APIs expose an authenticated model-list endpoint, so setup can
 /// verify a key without generating (and billing for) any text.

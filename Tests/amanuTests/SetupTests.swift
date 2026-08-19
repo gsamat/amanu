@@ -183,6 +183,60 @@ struct SetupTests {
         #expect(checkbox.state == .on)
     }
 
+    /// The transcription section is two switches, and a switch nobody wired
+    /// is the defect this file exists because of — the Summaries one shipped
+    /// that way and silently summarised meetings that had been switched off.
+    @Test("Both transcription switches are wired to something")
+    @MainActor
+    func transcriptionSwitchesAreWired() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+
+        for title in ["In the cloud", "On this Mac"] {
+            let label = try #require(panel.contentView?.allDescendants
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == title })
+            // title → words stack → the row that carries the switch.
+            let row = try #require(label.superview?.superview as? NSStackView)
+            let toggle = try #require(row.arrangedSubviews.first as? NSSwitch)
+            #expect(toggle.target != nil, "\(title) has no target")
+            #expect(toggle.action != nil, "\(title) has no action")
+        }
+    }
+
+    /// Both providers are on screen whether or not the cloud is switched on,
+    /// and each says what an hour of meeting costs: the price belongs where
+    /// the choice is made.
+    @Test("Both cloud providers are offered, with their price and their key link")
+    @MainActor
+    func providerCardsCarryPriceAndLink() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let cards = panel.contentView?.allDescendants.compactMap { $0 as? ChoiceCard } ?? []
+
+        let assembly = try #require(cards.first { $0.id == "assemblyai" })
+        let openai = try #require(cards.first { $0.id == "openai" })
+
+        for card in [assembly, openai] {
+            let detail = card.allDescendants
+                .compactMap { $0 as? NSTextField }
+                .map(\.stringValue)
+                .joined(separator: " ")
+            #expect(detail.contains("an hour"), "\(card.id) doesn't say what it costs")
+        }
+
+        let links = [assembly, openai].compactMap { card in
+            card.allDescendants
+                .compactMap { $0 as? NSButton }
+                .first { $0.title.hasPrefix("Get a key") }?
+                .identifier?.rawValue
+        }
+        #expect(links.contains("https://www.assemblyai.com/dashboard/signup"))
+        #expect(links.contains("https://platform.openai.com/api-keys"))
+    }
+
     @Test("The Summaries switch sits to the left of its heading")
     @MainActor
     func summariesSwitchIsFirst() throws {

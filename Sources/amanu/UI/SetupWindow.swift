@@ -50,7 +50,23 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         grantedNote: "allowed",
         optional: true)
 
-    private let engineCards = ChoiceGroup()
+    private let cloudSwitch = NSSwitch()
+    private let cloudStatus = NSTextField(labelWithString: "")
+    private let providerCards = ChoiceGroup()
+    private let cloudKey = NSSecureTextField()
+    private let cloudKeyStatus = NSTextField(labelWithString: "")
+    /// Shown only when there is a key to paste: an empty field under a
+    /// working provider is an invitation to overwrite something that works.
+    private let keyLine = NSStackView()
+    /// The provider whose key field is open. Set when a card or the switch is
+    /// clicked for a service with no key yet — and while it is set, the
+    /// provider actually in force is unchanged, so a curious click cannot cost
+    /// the next meeting its transcript.
+    private var pendingProvider: String?
+    /// The provider in force, read back from the config on every refresh.
+    private var provider = "assemblyai"
+    private let localSwitch = NSSwitch()
+
     private let language = NSPopUpButton()
     private let languageNote = NSTextField(labelWithString: "")
     private let keepAudio = NSButton(
@@ -60,10 +76,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private let liveModelStore = LiveTranscriptionModelStore()
     private var liveDownloadTask: Task<Void, Never>?
     private var liveDownloading = false
-    private let assemblyKey = NSSecureTextField()
-    private let assemblyStatus = NSTextField(labelWithString: "")
     private let parakeetStatus = NSTextField(labelWithString: "")
-    private let parakeetDownload = NSButton(title: "Download", target: nil, action: nil)
     private let parakeetBar = NSProgressIndicator()
     private var parakeetProgress: Timer?
 
@@ -107,7 +120,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             "Access",
             content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
-        var transcription: [NSView] = [transcriptionCards(), languageRow()]
+        var transcription: [NSView] = [transcriptionRows(), languageRow()]
         // The live transcript is a local streaming model, so on an Intel Mac
         // there is nothing behind the switch. Left out rather than shown
         // switched off: an offer that can never be accepted.
@@ -210,20 +223,36 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     // MARK: - building
 
-    private func transcriptionCards() -> NSView {
-        let auto = ChoiceCard(
-            id: "auto",
-            title: "Whichever works",
-            detail: "AssemblyAI when there's a key and a network, parakeet otherwise.")
+    /// The two questions this section actually asks: may audio leave this
+    /// Mac, and should the local model be kept ready. Both are switches, and
+    /// neither is a fallback setting — "the cloud when it answers, this Mac
+    /// when it doesn't" is what having both on *means*, not a third option to
+    /// pick.
+    ///
+    /// The provider cards sit under the cloud switch and stay on screen while
+    /// it is off, because they are what the switch costs: the price per hour
+    /// belongs where the decision is made, not in a document.
+    private func transcriptionRows() -> NSView {
+        cloudSwitch.target = self
+        cloudSwitch.action = #selector(cloudToggled)
+        cloudStatus.font = SetupLayout.statusFont
+        cloudStatus.textColor = .secondaryLabelColor
+        cloudStatus.lineBreakMode = .byTruncatingTail
 
+        let cloudRow = SetupLayout.row(
+            leading: cloudSwitch,
+            title: SetupLayout.title("In the cloud"),
+            detail: SetupLayout.detail(
+                "Audio is uploaded to the provider's servers. Better on Russian, "
+                    + "and tells apart multiple speakers.",
+                lines: 2, width: 440),
+            trailing: [cloudStatus])
+
+        localSwitch.target = self
+        localSwitch.action = #selector(localToggled)
         parakeetStatus.font = SetupLayout.statusFont
         parakeetStatus.textColor = .secondaryLabelColor
-        parakeetStatus.lineBreakMode = .byWordWrapping
-        parakeetStatus.maximumNumberOfLines = 2
-        parakeetDownload.bezelStyle = .rounded
-        parakeetDownload.controlSize = .small
-        parakeetDownload.target = self
-        parakeetDownload.action = #selector(downloadParakeetClicked)
+        parakeetStatus.lineBreakMode = .byTruncatingTail
         // FluidAudio reports no progress, so the bar is the cache directory
         // growing towards the model's known size. Approximate, and better
         // than a spinner that could mean anything.
@@ -233,39 +262,64 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         parakeetBar.minValue = 0
         parakeetBar.maxValue = 600
         parakeetBar.isHidden = true
-        let local = ChoiceCard(
-            id: "parakeet",
-            title: "On this Mac",
-            detail: "parakeet. Nothing leaves the machine.",
-            accessories: [parakeetBar, parakeetStatus, parakeetDownload])
+        parakeetBar.widthAnchor.constraint(equalToConstant: 90).isActive = true
 
-        assemblyKey.placeholderString = "paste key"
-        assemblyKey.font = SetupLayout.detailFont
-        assemblyKey.delegate = self
-        assemblyStatus.font = SetupLayout.statusFont
-        assemblyStatus.textColor = .secondaryLabelColor
-        assemblyStatus.lineBreakMode = .byWordWrapping
-        assemblyStatus.maximumNumberOfLines = 2
-        let cloud = ChoiceCard(
+        let localRow = SetupLayout.row(
+            leading: localSwitch,
+            title: SetupLayout.title("On this Mac"),
+            detail: SetupLayout.detail(
+                "Nvidia parakeet, 600 MB download and disk usage. Nothing leaves "
+                    + "the machine, only me / them in the transcript.",
+                lines: 2, width: 440),
+            trailing: [parakeetBar, parakeetStatus])
+
+        // One row, not two, on an Intel Mac: there is no local model to offer,
+        // and the row explains itself rather than vanishing.
+        return SetupLayout.box([cloudRow, providerRow(), localRow])
+    }
+
+    /// The provider cards and the one key field they share, indented under
+    /// the switch they belong to.
+    private func providerRow() -> NSView {
+        let assembly = ChoiceCard(
             id: "assemblyai",
             title: "AssemblyAI",
-            detail: Platform.supportsLocalModels
-                ? "Tells apart people sharing one channel. Audio leaves the Mac."
-                : "The engine this Mac can run — the local one needs Apple "
-                    + "Silicon. Audio leaves the Mac.",
-            accessories: [
-                assemblyKey, assemblyStatus,
-                link("Get a key", "https://www.assemblyai.com/dashboard/signup"),
-            ])
+            detail: "$0.23 an hour. No limit on meeting length.",
+            accessories: [link("Get a key", "https://www.assemblyai.com/dashboard/signup")])
+        let openai = ChoiceCard(
+            id: "openai",
+            title: "OpenAI",
+            detail: "$0.36 an hour. Same key as summaries.",
+            accessories: [link("Get a key", "https://platform.openai.com/api-keys")])
+        providerCards.adopt([assembly, openai])
+        providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
-        // One card, not three, on an Intel Mac: the other two are the same
-        // local model under different names, and it cannot run here.
-        engineCards.adopt(Platform.supportsLocalModels ? [auto, local, cloud] : [cloud])
-        engineCards.onChange = { [weak self] id in
-            Config.update(path: ["transcription", "engine"], value: id == "auto" ? nil : id)
-            self?.refresh()
+        cloudKey.placeholderString = "paste key"
+        cloudKey.font = SetupLayout.detailFont
+        cloudKey.delegate = self
+        cloudKey.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        cloudKeyStatus.font = SetupLayout.statusFont
+        cloudKeyStatus.textColor = .secondaryLabelColor
+        cloudKeyStatus.lineBreakMode = .byWordWrapping
+        cloudKeyStatus.maximumNumberOfLines = 2
+
+        keyLine.orientation = .horizontal
+        keyLine.alignment = .centerY
+        keyLine.spacing = 10
+        keyLine.setViews([cloudKey, cloudKeyStatus, NSView()], in: .leading)
+
+        let stack = NSStackView(views: [SetupLayout.cards(providerCards.cards), keyLine])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        // Indented to the width of a switch plus its gap, so the cards read as
+        // the cloud row's detail rather than as a third choice beside it.
+        stack.edgeInsets = NSEdgeInsets(top: 12, left: 58, bottom: 13, right: 14)
+        for view in stack.arrangedSubviews {
+            view.widthAnchor.constraint(
+                equalTo: stack.widthAnchor, constant: -72).isActive = true
         }
-        return SetupLayout.cards(engineCards.cards)
+        return stack
     }
 
     /// A menu rather than the two-letter code this used to ask for. The code
@@ -480,6 +534,65 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         Config.update(path: ["keep_audio"], value: keepAudio.state == .on ? true : nil)
     }
 
+    /// The cloud switch. Turning it on for a service with no key does not
+    /// turn it on: it opens the key field instead and leaves the switch where
+    /// it was, because a switch that says "on" while every transcript fails
+    /// with HTTP 401 is a lie the person only finds out about after a meeting.
+    @objc private func cloudToggled() {
+        if cloudSwitch.state == .on, !hasKey(for: provider) {
+            pendingProvider = provider
+            cloudSwitch.state = .off
+            refresh()
+            focusKeyField()
+            return
+        }
+        pendingProvider = nil
+        commitTranscription()
+    }
+
+    /// Picking a card is how you say "use this one", so a card with a working
+    /// key also switches the cloud on. A card without one only opens the key
+    /// field: what is in force stays in force until the new key is accepted.
+    private func providerPicked(_ id: String) {
+        guard hasKey(for: id) else {
+            pendingProvider = id
+            refresh()
+            focusKeyField()
+            return
+        }
+        pendingProvider = nil
+        provider = id
+        cloudSwitch.state = .on
+        commitTranscription()
+    }
+
+    /// The switch is the download button: there is nothing to decide between
+    /// "I want this" and "fetch the model", so asking twice is a step for its
+    /// own sake.
+    @objc private func localToggled() {
+        if localSwitch.state == .on { downloadParakeetIfNeeded() }
+        commitTranscription()
+    }
+
+    private func commitTranscription() {
+        let choice = TranscriptionChoice(
+            cloud: cloudSwitch.state == .on,
+            local: localSwitch.state == .on && Platform.supportsLocalModels,
+            provider: provider)
+        for update in choice.updates {
+            Config.update(path: update.path, value: update.value)
+        }
+        refresh()
+    }
+
+    private func hasKey(for provider: String) -> Bool {
+        provider == "openai" ? Config.openAIKey() != nil : Config.assemblyAIKey() != nil
+    }
+
+    private func focusKeyField() {
+        panel.makeFirstResponder(cloudKey)
+    }
+
     @objc private func liveTranscriptionToggled() {
         let enabled = liveTranscription.state == .on
         Config.update(path: ["live_transcription", "enabled"], value: enabled ? true : nil)
@@ -606,11 +719,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private lazy var systemAudio: SetupPermissions.SystemAudioResult? =
         SetupPermissions.rememberedSystemAudio(heardAt: SetupState.systemAudioHeardAt())
 
-    @objc private func downloadParakeetClicked() {
-        parakeetDownload.isEnabled = false
+    private func downloadParakeetIfNeeded() {
+        let version = ParakeetEngine.configuredVersion()
+        let cache = AsrModels.defaultCacheDirectory(for: version)
+        guard !AsrModels.modelsExist(at: cache, version: version) else { return }
+        guard parakeetProgress == nil else { return }
         watchParakeetSize()
         Task {
-            let version = ParakeetEngine.configuredVersion()
             do {
                 _ = try await AsrModels.downloadAndLoad(version: version)
             } catch {
@@ -619,7 +734,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             parakeetProgress?.invalidate()
             parakeetProgress = nil
             parakeetBar.isHidden = true
-            parakeetDownload.isEnabled = true
             refresh()
         }
     }
@@ -682,7 +796,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
-        if field === assemblyKey { Task { await saveAssemblyKey() } }
+        if field === cloudKey { Task { await saveCloudKey() } }
         if field === summaryKey { Task { await saveSummaryKey() } }
     }
 
@@ -709,25 +823,36 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// into the field by accident used to replace a good key on disk, and the
     /// only sign was every later meeting failing to transcribe with HTTP 401.
     /// A key that isn't accepted never reaches the file.
-    private func saveAssemblyKey() async {
-        let key = assemblyKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func saveCloudKey() async {
+        let target = pendingProvider ?? provider
+        let key = cloudKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
-        assemblyStatus.stringValue = "checking…"
-        guard await Self.assemblyKeyWorks(key) else {
-            assemblyStatus.stringValue = Config.assemblyAIKey() == nil
-                ? "that key was refused"
-                : "that key was refused — the saved one is untouched"
+        cloudKeyStatus.stringValue = "checking…"
+
+        let accepted = target == "openai"
+            ? await SummaryKeyProbe.works(provider: .openAI, key: key)
+            : await Self.assemblyKeyWorks(key)
+        guard accepted else {
+            cloudKeyStatus.stringValue = hasKey(for: target)
+                ? "that key was refused — the saved one is untouched"
+                : "that key was refused"
             return
         }
+        let path = target == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
         do {
-            try Self.writeSecret(key, to: Config.assemblyAIKeyPath)
+            try Self.writeSecret(key, to: path)
         } catch {
-            assemblyStatus.stringValue = "couldn't save the key: \(error)"
+            cloudKeyStatus.stringValue = "couldn't save the key: \(error)"
             return
         }
-        assemblyKey.stringValue = ""
-        assemblyStatus.stringValue = "key works"
-        refresh()
+        cloudKey.stringValue = ""
+        cloudKeyStatus.stringValue = "key works"
+        // A key that works is the answer to the question the switch asked, so
+        // it turns the cloud on rather than making the person click twice.
+        provider = target
+        pendingProvider = nil
+        cloudSwitch.state = .on
+        commitTranscription()
     }
 
     private func saveSummaryKey() async {
@@ -855,11 +980,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         }
 
         let config = Config.raw()
-        // With only the cloud card on screen, a configured "auto" — which
-        // resolves to that engine here anyway — is shown as that card rather
-        // than as nothing selected at all.
-        engineCards.select(
-            Platform.supportsLocalModels ? Config.transcriptionEngine() : "assemblyai")
+        refreshTranscription()
         // A code the menu doesn't offer — hand-edited, or a leftover "ru-RU"
         // — selects Detect automatically, which is what the engines will
         // actually do with it. Shown as it will behave rather than as it is
@@ -888,25 +1009,6 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             ? "~" + root.dropFirst(home.count)
             : root
 
-        if Platform.supportsLocalModels {
-            let version = ParakeetEngine.configuredVersion()
-            let downloaded = AsrModels.modelsExist(
-                at: AsrModels.defaultCacheDirectory(for: version), version: version)
-            parakeetDownload.isHidden = downloaded
-            if downloaded {
-                parakeetStatus.stringValue = "downloaded"
-                parakeetStatus.textColor = .systemGreen
-                parakeetBar.isHidden = true
-            } else if parakeetProgress == nil {
-                parakeetStatus.stringValue = "about 600 MB"
-                parakeetStatus.textColor = .secondaryLabelColor
-            }
-        }
-
-        if Config.assemblyAIKey() != nil, assemblyStatus.stringValue.isEmpty {
-            assemblyStatus.stringValue = "key found"
-        }
-
         let summary = Config.summary()
         summariesOn.state = summary.enabled ? .on : .off
         let backendIsKey = summary.backend == "anthropic-api" || summary.backend == "openai-api"
@@ -920,6 +1022,61 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
         highlightNextGrant()
         updateFooter()
+    }
+
+    /// The transcription section, redrawn from the config and from what is
+    /// actually on disk: which keys exist, whether the local model is there.
+    private func refreshTranscription() {
+        let choice = TranscriptionChoice.read(
+            engine: Config.transcriptionEngine(),
+            cloudProvider: Config.transcriptionCloudProvider(),
+            enabled: Config.transcriptionEnabled(),
+            localModels: Platform.supportsLocalModels)
+        provider = choice.provider
+        cloudSwitch.state = choice.cloud ? .on : .off
+        // The card under the key field is the one being answered, so a
+        // provider waiting for a key is the one shown chosen.
+        providerCards.select(pendingProvider ?? provider)
+
+        for card in providerCards.cards {
+            let known = hasKey(for: card.id)
+            card.status = known ? "key works" : "no key yet"
+            card.showLink(!known)
+        }
+        cloudKey.placeholderString = (pendingProvider ?? provider) == "openai"
+            ? "sk-…" : "paste key"
+        if let pending = pendingProvider, cloudKeyStatus.stringValue.isEmpty {
+            cloudKeyStatus.stringValue = pending == provider || !choice.cloud
+                ? "paste a key to switch this on"
+                : "paste a key to move to \(pending == "openai" ? "OpenAI" : "AssemblyAI")"
+        }
+        if pendingProvider == nil, cloudKeyStatus.stringValue == "checking…" {
+            cloudKeyStatus.stringValue = ""
+        }
+        // The cards below carry the price and the key state, so the row says
+        // something only when it is waiting for one.
+        cloudStatus.stringValue = pendingProvider == nil ? "" : "needs a key"
+        keyLine.isHidden = pendingProvider == nil && hasKey(for: provider)
+
+        localSwitch.isEnabled = Platform.supportsLocalModels
+        localSwitch.state = choice.local ? .on : .off
+        if !Platform.supportsLocalModels {
+            parakeetStatus.stringValue = "needs Apple Silicon"
+            parakeetStatus.textColor = .secondaryLabelColor
+            parakeetBar.isHidden = true
+        } else {
+            let version = ParakeetEngine.configuredVersion()
+            let downloaded = AsrModels.modelsExist(
+                at: AsrModels.defaultCacheDirectory(for: version), version: version)
+            if downloaded {
+                parakeetStatus.stringValue = "downloaded"
+                parakeetStatus.textColor = .systemGreen
+                parakeetBar.isHidden = true
+            } else if parakeetProgress == nil {
+                parakeetStatus.stringValue = choice.local ? "about 600 MB" : "free"
+                parakeetStatus.textColor = .secondaryLabelColor
+            }
+        }
     }
 
     /// Tint the row the primary button is about to act on — and only that

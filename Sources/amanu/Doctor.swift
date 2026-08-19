@@ -177,28 +177,28 @@ enum DoctorReport {
                 remediation: nil
             )
         }
-        switch Config.transcriptionEngine() {
-        case "assemblyai": return checkAssemblyAI()
-        default:
-            guard Platform.supportsLocalModels else { return checkWithoutLocalModels() }
-            return checkParakeet()
-        }
+        let configured = Config.transcriptionEngine()
+        let provider = TranscriptionCoordinator.cloudProvider(configured: configured)
+        if Config.cloudEngines.contains(configured) { return checkCloud(provider) }
+        guard Platform.supportsLocalModels else { return checkWithoutLocalModels(provider) }
+        return checkParakeet()
     }
 
-    /// An Intel Mac, where anything but an explicit assemblyai would like to
+    /// An Intel Mac, where anything but an explicit cloud engine would like to
     /// run a local model and none of them can. Report what will actually
     /// happen — the cloud engine, or nothing at all — because the time to
     /// learn there is no engine is before the meeting.
-    private static func checkWithoutLocalModels() -> Check {
-        guard Config.assemblyAIKey() != nil else {
+    private static func checkWithoutLocalModels(_ provider: String) -> Check {
+        guard cloudKey(provider) != nil else {
             return Check(
                 name: "transcription",
-                status: .warn("local transcription needs Apple Silicon and there is no AssemblyAI key"),
-                remediation: "printf '%s' YOUR_KEY > \(Config.assemblyAIKeyPath.path)"
-                    + " && chmod 600 \(Config.assemblyAIKeyPath.path)"
+                status: .warn("local transcription needs Apple Silicon and there is no "
+                    + "\(cloudName(provider)) key"),
+                remediation: "printf '%s' YOUR_KEY > \(cloudKeyPath(provider).path)"
+                    + " && chmod 600 \(cloudKeyPath(provider).path)"
             )
         }
-        return checkAssemblyAI()
+        return checkCloud(provider)
     }
 
     private static func checkParakeet() -> Check {
@@ -235,22 +235,22 @@ enum DoctorReport {
     /// The cloud engine has no models to cache; what it can be missing is a
     /// key. Language is worth reporting either way: the engine detects it, and
     /// what a configured one narrows is the shortlist it detects within.
-    private static func checkAssemblyAI() -> Check {
+    private static func checkCloud(_ provider: String) -> Check {
         // A warning, not a failure: a missing key costs you the transcript,
         // and refusing to launch over it would cost you the recording too.
-        guard Config.assemblyAIKey() != nil else {
+        guard cloudKey(provider) != nil else {
             return Check(
                 name: "transcription",
-                status: .warn("assemblyai engine selected but no API key — transcripts will fail"),
-                remediation: "printf '%s' YOUR_KEY > \(Config.assemblyAIKeyPath.path)"
-                    + " && chmod 600 \(Config.assemblyAIKeyPath.path)"
+                status: .warn("\(provider) engine selected but no API key — transcripts will fail"),
+                remediation: "printf '%s' YOUR_KEY > \(cloudKeyPath(provider).path)"
+                    + " && chmod 600 \(cloudKeyPath(provider).path)"
             )
         }
         let expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
         guard !expected.isEmpty else {
             return Check(
                 name: "transcription",
-                status: .warn("assemblyai · key ok · no language set (detects from any)"),
+                status: .warn("\(provider) · key ok · no language set (detects from any)"),
                 remediation: "set transcription.language (e.g. \"ru\") — detection over every "
                     + "language it knows can pick wrong on a short or noisy meeting"
             )
@@ -258,10 +258,22 @@ enum DoctorReport {
         return Check(
             name: "transcription",
             status: .warn(
-                "assemblyai · key ok · expecting \(expected.joined(separator: "+")) "
+                "\(provider) · key ok · expecting \(expected.joined(separator: "+")) "
                     + "· audio leaves this machine"),
             remediation: nil
         )
+    }
+
+    private static func cloudKey(_ provider: String) -> String? {
+        provider == "openai" ? Config.openAIKey() : Config.assemblyAIKey()
+    }
+
+    private static func cloudKeyPath(_ provider: String) -> URL {
+        provider == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
+    }
+
+    private static func cloudName(_ provider: String) -> String {
+        provider == "openai" ? "OpenAI" : "AssemblyAI"
     }
 
     static func print(_ checks: [Check]) {
