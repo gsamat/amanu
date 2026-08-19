@@ -24,6 +24,16 @@ enum SetupLayout {
     static let rowInsets = NSEdgeInsets(top: 13, left: 14, bottom: 13, right: 14)
     static let cardInsets = NSEdgeInsets(top: 14, left: 14, bottom: 14, right: 14)
 
+    /// The least a row may be. Two rows carrying one line each have to come
+    /// out the same height, and before this they did not: the height followed
+    /// the flexible gap below, which is constrained in neither direction, so
+    /// the row that still had a button came out 44pt and its neighbours 36pt.
+    /// Everything in a row is aligned to the top, so those eight points landed
+    /// under the text and read as a wider gap above the row beneath — which is
+    /// how the Calendar row came to look further from its neighbour than the
+    /// rest of the list.
+    static let rowHeight: CGFloat = 44
+
     /// Four sizes, each with one job: a muted label for the group, the line
     /// you read, the line that explains it, and the machine's own report.
     static let sectionFont = NSFont.systemFont(ofSize: 12, weight: .medium)
@@ -113,6 +123,16 @@ enum SetupLayout {
         return stack
     }
 
+    /// The gap that pushes whatever follows it to the trailing edge. It has
+    /// no intrinsic size of its own, so it is pinned flat: left free it takes
+    /// the height of the row with it, and the row stops describing its
+    /// content. Only the horizontal stretch is wanted here.
+    static func spacer() -> NSView {
+        let view = NSView()
+        view.heightAnchor.constraint(equalToConstant: 0).isActive = true
+        return view
+    }
+
     static func hairline() -> NSView {
         let line = Hairline()
         line.wantsLayer = true
@@ -144,8 +164,17 @@ enum SetupLayout {
         words.orientation = .vertical
         words.alignment = .leading
         words.spacing = 2
+        // The words are part of the switch, as the title of a checkbox is
+        // part of the checkbox. Aiming at a 50pt switch is a worse target
+        // than aiming at the sentence that says what it does.
+        let toggle = (leading as? NSSwitch)
+            ?? trailing.compactMap { $0 as? NSSwitch }.first
+        if let toggle {
+            words.addGestureRecognizer(NSClickGestureRecognizer(
+                target: toggle, action: #selector(NSSwitch.toggleFromItsLabel)))
+        }
         views.append(words)
-        views.append(NSView())
+        views.append(spacer())
         views.append(contentsOf: trailing)
 
         let stack = NSStackView(views: views)
@@ -155,6 +184,7 @@ enum SetupLayout {
         stack.alignment = detail == nil ? .centerY : .top
         stack.spacing = 10
         stack.edgeInsets = rowInsets
+        stack.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight).isActive = true
         return stack
     }
 
@@ -216,5 +246,16 @@ final class Hairline: NSView, LayerTinted {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         retint()
+    }
+}
+
+extension NSSwitch {
+    /// Toggling from something else that was clicked on the switch's behalf.
+    /// The gesture recogniser holds its target weakly, so the switch is its
+    /// own target: it is the one thing here the view hierarchy keeps alive.
+    @objc func toggleFromItsLabel() {
+        guard isEnabled else { return }
+        state = state == .on ? .off : .on
+        sendAction(action, to: target)
     }
 }

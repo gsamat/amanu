@@ -71,6 +71,11 @@ osascript -e 'tell application "System Events" to tell process "Amanu" \
 
 The section is four rows: Start at login, Microphone, System audio, Calendar.
 
+- Look down the list first: the rows that are down to one line must be the same
+  height and evenly spaced, whether or not they still carry a button. The gap
+  above **Calendar** used to be half again the others, because the System audio
+  row above it keeps **Test again** and came out eight points taller for it.
+
 - Microphone: click **Allow**, accept the macOS prompt, and confirm the row
   turns green. **By hand** if it was previously denied: confirm the button
   opens the right System Settings pane.
@@ -139,8 +144,10 @@ for it any more.
   `https://platform.openai.com/api-keys` respectively.
 - Switch **On this Mac** on with the model absent. Confirm the download starts
   from the switch alone — there is no Download button — and that the progress
-  bar and the megabyte count both advance without freezing the window. With
-  the model present the row says **downloaded**.
+  bar and the megabyte count both advance without freezing the window, and
+  that the bar reaches its end rather than stopping short of it: it counts
+  towards 460 MB, the size parakeet actually is on disk. With the model
+  present the row says **downloaded**.
 - **By hand, Intel:** confirm **On this Mac** is visible but disabled and says
   it needs Apple Silicon, rather than being missing.
 - Open the **Meetings are mostly in** menu. Confirm it opens on **Detect
@@ -205,9 +212,11 @@ for it any more.
 
 ## Audio retention
 
-- Click both the checkbox square and the words **Keep the audio after
-  transcribing**; confirm either target toggles the same checkbox, and that
-  turning it off removes `keep_audio` rather than writing `false`.
+- Click both the switch and the words **Keep the audio after transcribing**;
+  confirm either target toggles the same switch, and that turning it off
+  removes `keep_audio` rather than writing `false`. It is a switch like every
+  other yes/no in the window, and its symbol sits in the same column as the
+  folder above it.
 
 **By hand** from here down — all of it needs a microphone, sound coming out of
 the Mac, and a few minutes of waiting.
