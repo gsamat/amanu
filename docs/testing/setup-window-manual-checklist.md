@@ -18,6 +18,12 @@ Run it only after the current meeting and recording have ended. Replacing the
 installed application closes the copy that is running, so it doesn't belong in
 the middle of a recording.
 
+`docs/testing/window-shots.md` is the other half of this: it renders both
+windows to PNG files and lists every view's frame, which answers the questions
+about spacing, borders and appearance without a person squinting at a screen.
+Take the shots first — several items below are quicker to settle from a picture
+than from the running application.
+
 ## Before installing
 
 - Confirm the menu and status window both say the recording has stopped.
