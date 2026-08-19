@@ -141,3 +141,14 @@ reasoning alone. Worth knowing before trusting any of them in front of someone.
   `docs/testing/setup-window-manual-checklist.md` — a recording with real
   microphone speech and real playback, checked by ear; a permission denied and
   re-granted; a recordings folder moved into Documents.
+
+## Bold in the release notes cannot cross a line wrap
+
+`scripts/notes-to-html.py` matches `**bold**` within a line, so a span whose
+opening and closing markers landed on either side of a wrap survives into the
+HTML as literal asterisks — in the window Sparkle shows every existing
+installation. The script does not complain, because unmatched markers are not
+an error to it, only text. Wrap the prose around the emphasis rather than
+through it, and read the rendered HTML before shipping: `python3
+scripts/notes-to-html.py docs/release-notes-vX.Y.Z.md | grep '\*'` should
+print nothing.
