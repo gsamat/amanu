@@ -70,3 +70,10 @@ machine, and all of it changes what the window says and how tall its rows are.
 Two runs on different days differ for reasons that are not the code. When
 comparing across commits, compare runs taken close together, and check
 `tree.txt` before concluding that a layout moved.
+
+Which is why no picture from this tool belongs in the repository as a
+reference to compare against: it would be a picture of one machine on one day,
+and it would disagree with the next machine for reasons nobody could act on.
+The tool is here; its output is not. If these ever run unattended, the
+comparison to make is two runs on the same machine — before a change and after
+it — never a run against a file in git.
