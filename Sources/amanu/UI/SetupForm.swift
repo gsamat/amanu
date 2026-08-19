@@ -538,7 +538,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     /// "18 Aug" — enough to tell this week from last spring, and short enough
     /// to sit beside a row title.
-    private static let day: DateFormatter = {
+    ///
+    /// Built on each use rather than once. A `static let` is made the first
+    /// time anything asks for it and keeps whatever language was in force
+    /// then — which is right in a program that settles its language at
+    /// startup and wrong the moment anything else changes it, and a formatter
+    /// that is right by luck is worth less than one that is right by
+    /// construction. Two rows a person opens a window to read is not a rate
+    /// worth caching for.
+    private static var day: DateFormatter {
         let formatter = DateFormatter()
         // The window's language, on the Mac's own region: a Russian window
         // saying "heard the tone · 19 Aug" is two languages in one line, and
@@ -549,7 +557,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         formatter.locale = Locale(components: locale)
         formatter.setLocalizedDateFormatFromTemplate("d MMM")
         return formatter
-    }()
+    }
 
     // MARK: - actions
 
