@@ -151,6 +151,31 @@ names its colours in `tintLayer()`, which is called through the view's own
 appearance and again whenever that appearance changes. Setting
 `layer.borderColor` anywhere else is the bug coming back.
 
+## Asking macOS what it has granted is not free
+
+Measured inside the signed bundle on 19 August 2026, on an M-series Mac with
+everything already granted: `SMAppService.mainApp.status` costs **14 ms** — it
+is an XPC round trip to another daemon — `AVCaptureDevice.authorizationStatus`
+about **6 ms**, and `EKEventStore.authorizationStatus` about **3 ms**. In a
+bare build the first is free, because there is no bundle to register and
+`LoginItem.status` answers `.unavailable` without asking anyone: the cost
+exists only in the app, which is the only place it matters and the one place
+`swift test` cannot see it.
+
+They read like property accesses, so the setup form asked them the way you ask
+a property: the access rows ask, the highlight asks again to find the row to
+tint, and the footer asks twice more to say what is left and what its button
+should say — twelve login-item lookups and twelve microphone lookups to redraw
+once. Picking a summary card redraws twice, and spent a quarter of a second
+inside the click doing nothing else.
+
+`ThisTurn.answer` is the fix: the first ask in a turn of the main run loop goes
+out to the system and the rest of that turn reads what it brought back. It is
+safe precisely because changing any of these answers means going to System
+Settings and coming back, which cannot happen without the run loop turning.
+The exception is this program changing one itself — registering a login item,
+or a TCC prompt it raised — and those call `ThisTurn.forget()`.
+
 # What has never been verified
 
 Not defects, and not oversights: places where the code is believed correct on

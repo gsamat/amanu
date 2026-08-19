@@ -26,10 +26,12 @@ enum SetupPermissions {
     // MARK: - microphone
 
     static func microphone() -> State {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized: return .granted
-        case .notDetermined: return .notAsked
-        default: return .denied
+        ThisTurn.answer("microphone") {
+            switch AVCaptureDevice.authorizationStatus(for: .audio) {
+            case .authorized: return State.granted
+            case .notDetermined: return State.notAsked
+            default: return State.denied
+            }
         }
     }
 
@@ -39,16 +41,19 @@ enum SetupPermissions {
     static func requestMicrophone() async -> State {
         guard microphone() == .notAsked else { return microphone() }
         _ = await AVCaptureDevice.requestAccess(for: .audio)
+        ThisTurn.forget()
         return microphone()
     }
 
     // MARK: - calendar
 
     static func calendar() -> State {
-        switch EKEventStore.authorizationStatus(for: .event) {
-        case .fullAccess: return .granted
-        case .notDetermined: return .notAsked
-        default: return .denied
+        ThisTurn.answer("calendar") {
+            switch EKEventStore.authorizationStatus(for: .event) {
+            case .fullAccess: return State.granted
+            case .notDetermined: return State.notAsked
+            default: return State.denied
+            }
         }
     }
 
