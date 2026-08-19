@@ -143,6 +143,13 @@ for it any more.
   `~/.config/assemblyai/token`, though it still reads it.
 - Paste a *wrong* key over a working one and confirm the saved key is
   untouched and the status says so.
+- Submit a key with **Return** rather than by clicking away, and confirm the
+  window stays open long enough to say what happened — `checking…`, then
+  `key works` or `that key was refused`. Return used to reach **Done**, which
+  closed the window on the keystroke that submitted the key: the check
+  finished into a window nobody could see, and the only way to learn whether
+  the key was accepted was to open Setup again. Return anywhere *else* in the
+  window should still mean Done.
 - With both keys present, click the other provider's card. Confirm the cloud
   switch stays on, `transcription.cloud` changes, and — for a provider with no
   key — that clicking its card leaves the working provider in force and only
@@ -194,6 +201,9 @@ for it any more.
 - Click the title, description, and empty space inside each summary card;
   confirm the entire outlined rectangle selects it without swallowing clicks on
   install links, key fields, or the provider selector.
+- Submit the summary key with **Return** and confirm the window stays open and
+  reports the outcome — the same defect lived in this field, under the same
+  default button, and was fixed in the same place.
 - Confirm Codex is detected from either PATH or the copy bundled in
   ChatGPT.app, and its version status is visible.
 - **By hand:** confirm **Install it** is visible only for a CLI that is

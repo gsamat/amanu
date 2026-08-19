@@ -348,6 +348,39 @@ struct SetupTests {
         #expect(links.contains("https://platform.openai.com/api-keys"))
     }
 
+    /// Return in a key field must not reach the window's default button.
+    ///
+    /// It did, and Done closed the window on the keystroke that submitted the
+    /// key — so the check finished into a window nobody could see, and the
+    /// person who pasted a key never learned whether it was accepted. Found by
+    /// pasting a deliberately wrong key into the built application.
+    @Test("Return commits a key field instead of pressing Done")
+    @MainActor
+    func returnInAKeyFieldIsSwallowed() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+        let keyFields = panel.contentView?.allDescendants
+            .compactMap { $0 as? NSSecureTextField } ?? []
+        // Both of them: the cloud key and the summary key sit under the same
+        // default button and had the same problem.
+        #expect(keyFields.count == 2)
+
+        let editor = NSTextView()
+        for field in keyFields {
+            let delegate = try #require(field.delegate)
+            let swallowed = delegate.control?(
+                field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+            #expect(swallowed == true, "Return still reaches the default button")
+
+            // Everything else is left alone — Tab still moves on, and Return
+            // outside these fields still means Done.
+            let tab = delegate.control?(
+                field, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:)))
+            #expect(tab != true)
+        }
+    }
+
     @Test("The Summaries switch sits to the left of its heading")
     @MainActor
     func summariesSwitchIsFirst() throws {
