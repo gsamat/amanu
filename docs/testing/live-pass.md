@@ -12,13 +12,26 @@ a failing test first. That is the argument for this page.
 
 ## Before you start
 
-**Check that nothing is being recorded.** This is not a formality and it is not
-easy: a recording in progress is invisible from almost everywhere you would
-look. `amanu sessions` lists it as an ordinary row with `transcript: pending`,
-indistinguishable from one that stopped a minute ago. The only honest answer is
-the status window — a running transcript and a live **Pause** button. See
-`.issues/005`. Quitting the application mid-recording has already cost somebody
-three minutes of a conversation that cannot be recovered.
+**Check that nothing is being recorded**, like this:
+
+```sh
+ls ~/Recordings/*/.recording.json
+```
+
+A session being recorded holds that file, with the owning pid and the moment it
+started; it is written at the start and removed at the end. Nothing printed
+means nothing is recording.
+
+Do **not** use `amanu sessions` for this. It does not list a recording in
+progress at all — `SessionInventory` filters on `meta.json`, which is only
+written when the recording stops — so it answers "nothing is running" in
+exactly the case where something is. `.issues/005` says it shows up as a
+`pending` row; that was wrong, and this is the correction. The status window is
+also honest, showing a running transcript and a live **Pause** button, but it
+is a window and a script cannot consult it.
+
+Quitting the application mid-recording has already cost somebody three minutes
+of a conversation that cannot be recovered.
 
 The cases below are grouped so that one person, or one agent, can hold the
 application exclusively for a group and hand it on. Two things driving the same
