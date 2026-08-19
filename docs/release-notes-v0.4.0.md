@@ -39,11 +39,21 @@ naming one no longer forces the engine to hear it.
   left the previous theme's lines behind — pale grey on white, or white on
   dark. They are re-read now, and a window built before it has one no longer
   guesses.
+- **Every window follows a change to a setting.** The setup form now lives in
+  two places at once, and the settings window has a second tab besides, so a
+  provider switched in one used to leave the others showing what was true a
+  minute ago. Anything that writes a setting now says so, and everything on
+  screen reads the file again. The same pass found the setup window rewriting
+  `config.json` every time it redrew itself.
 - **Smaller things in the same window.** The Access rows are one height rather
   than two. **Keep the audio after transcribing** is a switch like every other
   switch. The parakeet download counts towards 460 MB, which is about what the model
   weighs, rather than 600, which it never reached. And the footer stopped
-  saying everything was granted while something on screen said it was not.
+  saying everything was granted while something on screen said it was not. A
+  provider you once looked at without having a key stopped being asked about
+  for ever, which had left a key field open over a key that already worked.
+  And a row of two lines has its bottom margin back: the last line used to sit
+  on the separator under it.
 
 ## The calendar dialog, once, on first launch
 
@@ -66,7 +76,7 @@ update as they survive any rebuild.
 
 The whole of this release was written by several agents working at once and
 merged afterwards, and the merge is the part worth being careful about. The
-automated tests pass — 183 of them — the universal build is signed and both
+automated tests pass — 188 of them — the universal build is signed and both
 slices answer `doctor`, and each window was rendered off screen and looked at.
 But **nobody has clicked through the merged setup window in a running copy**,
 and `docs/testing/setup-window-manual-checklist.md` has not been run against
