@@ -32,7 +32,8 @@ naming one no longer forces the engine to hear it.
 - **Settings shows the setup form itself**, on a **Setup** tab, rather than a
   second and poorer list of the same keys. **Advanced** is still the complete
   schema, and every field now shows its own default in grey rather than an
-  example that was sometimes untrue.
+  example that was sometimes untrue. Both windows open at the top of the form,
+  which the settings one did not: it opened partway down the list.
 - **The window survives the light theme.** Its borders and separators were
   resolved to fixed colours once, when it was built, so switching appearance
   left the previous theme's lines behind — pale grey on white, or white on
