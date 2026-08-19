@@ -75,18 +75,24 @@ spelling out, because each one has been guessed wrong at least once:
 - It is decided when the slice is compiled, not when the Mac is inspected. The
   x86_64 slice has the answer baked in.
 
-So on Intel: **AssemblyAI or nothing.** A key is not a preference there, it is
-the feature.
+So on Intel: **a cloud engine or nothing.** A key is not a preference there, it
+is the feature. Which cloud is a real choice — AssemblyAI or OpenAI, whichever
+has a key — but *having* one is not.
 
 ### What the program does about it
 
 One `Platform.supportsLocalModels` — compile-time, per slice — is asked once,
 and everything that would otherwise reach for a local model asks it:
 
-- the queue picks the cloud engine and says so in the log;
+- the queue picks the configured cloud engine and says so in the log;
 - `doctor` reports what will actually run, including the case worth naming out
-  loud: local transcription needs Apple Silicon and there is no AssemblyAI key;
-- Setup offers one engine card instead of three;
+  loud: *local transcription needs Apple Silicon and there is no AssemblyAI
+  key* — naming whichever provider is selected, so the sentence tells you which
+  key to go and get;
+- Setup shows the **On this Mac** switch disabled, saying it needs Apple
+  Silicon, rather than hiding it. A missing option looks like a bug; a
+  switched-off one with a reason does not. The two provider cards are on screen
+  as they are everywhere else, and the cloud switch is the only one that moves;
 - the live-transcript switch and its setting are not offered at all, and the
   status window's live section is hidden.
 
@@ -100,8 +106,15 @@ anything.
 
 **Measured.** The universal build, above. And the x86_64 slice running
 correctly: under Rosetta, `arch -x86_64 …/Amanu doctor` reports the cloud
-engine while `arch -arm64` with the same configuration reports parakeet. That
+engine — `assemblyai · key ok · expecting ru+en · audio leaves this machine` —
+while `arch -arm64` with the same configuration reports parakeet. That
 exercises every branch of the platform split for real.
+
+**Not measured: OpenAI on Intel, by anybody.** The engine has been run against
+the real API, one request and a sliced meeting both, but only on Apple Silicon.
+Nothing in it is architecture-dependent — it is HTTPS and JSON, and the slicing
+goes through the same `AVAudioFile` path the mix already uses — so the same
+behaviour is what one would predict. It is a prediction.
 
 **Not measured: amanu has never run on an Intel Mac.** Nobody has one here.
 Two things follow.
