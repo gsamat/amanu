@@ -36,6 +36,50 @@ struct SettingsSchemaTests {
         #expect(Self.stored(.flag(true), offByDefault) as? Bool == true)
     }
 
+    /// Leaving a field is not deciding anything. Every one of these used to
+    /// write the file back byte for byte, moving its timestamp and waking
+    /// every open window, because editing ended — not because anybody typed.
+    @Test("A row still showing what is stored commits nothing")
+    func unchangedRowsCommitNothing() {
+        let language = Self.entry(.text, default: "the meeting's language")
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.text("ru"), for: language), from: "ru"))
+
+        let onByDefault = Self.entry(.toggle, default: true)
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.flag(false), for: onByDefault), from: false))
+
+        let delay = Self.entry(.number(unit: "seconds"), default: 12)
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.text("30"), for: delay), from: 30))
+
+        let apps = Self.entry(.list, default: "empty")
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.text("zoom, teams"), for: apps), from: ["zoom", "teams"]))
+    }
+
+    /// The other half, and the one that would go unnoticed: a guard against
+    /// pointless writes must not swallow a real edit.
+    @Test("An edited row, and a row falling back to its default, both commit")
+    func changedRowsCommit() {
+        let language = Self.entry(.text, default: "the meeting's language")
+        #expect(SettingsSchema.changes(
+            SettingsSchema.resolve(.text("de"), for: language), from: "ru"))
+        // Emptied: the key goes away, which is a change when it was there.
+        #expect(SettingsSchema.changes(
+            SettingsSchema.resolve(.text(""), for: language), from: "ru"))
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.text(""), for: language), from: nil))
+
+        let delay = Self.entry(.number(unit: "seconds"), default: 12)
+        #expect(SettingsSchema.changes(
+            SettingsSchema.resolve(.text("45"), for: delay), from: 30))
+        // Unusable input changes nothing by definition; the window puts the
+        // stored value back instead.
+        #expect(!SettingsSchema.changes(
+            SettingsSchema.resolve(.text("soon"), for: delay), from: 30))
+    }
+
     @Test("Choosing the default option clears the key")
     func choiceAtDefaultClears() {
         let engine = Self.entry(.choice(["auto", "assemblyai", "parakeet"]), default: "auto")
