@@ -765,6 +765,31 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         if field === summaryKey { Task { await saveSummaryKey() } }
     }
 
+    /// Return in a key field submits the key and stops there.
+    ///
+    /// Left alone, the newline travels on to the window's default button —
+    /// Done — so the window closes on the very keystroke that submits the key.
+    /// The check against the API then finishes into a window nobody can see,
+    /// and the one answer worth waiting for, whether the key was accepted,
+    /// is delivered to nothing at all. Someone who pasted a key and pressed
+    /// Return has no way to learn what happened except to open Setup again.
+    ///
+    /// Ending editing here is the same path a click elsewhere takes — it fires
+    /// `controlTextDidEndEditing`, which saves — and returning true keeps the
+    /// keystroke from travelling any further. Only these two fields swallow
+    /// Return: everywhere else in the window it should still mean Done.
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy selector: Selector
+    ) -> Bool {
+        guard selector == #selector(NSResponder.insertNewline(_:)),
+              control === cloudKey || control === summaryKey
+        else { return false }
+        control.window?.makeFirstResponder(nil)
+        return true
+    }
+
     @objc private func languageChanged() {
         Config.update(path: ["transcription", "language"], value: selectedLanguage)
         refresh()
