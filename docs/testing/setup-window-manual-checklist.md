@@ -148,6 +148,11 @@ for it any more.
   that the bar reaches its end rather than stopping short of it: it counts
   towards 460 MB, the size parakeet actually is on disk. With the model
   present the row says **downloaded**.
+- With **On this Mac** on, the cloud switch on too, and the model absent,
+  reopen Setup: the footer must name `parakeet` and the button must offer
+  **Download parakeet**. Both switches on writes no engine to the config at
+  all, so a window that reads the engine name rather than the switch goes
+  quiet here and promises that everything amanu needs is granted.
 - **By hand, Intel:** confirm **On this Mac** is visible but disabled and says
   it needs Apple Silicon, rather than being missing.
 - Open the **Meetings are mostly in** menu. Confirm it opens on **Detect

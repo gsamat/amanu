@@ -59,6 +59,18 @@ struct TranscriptionChoice: Equatable {
         )
     }
 
+    /// Whether the local model has been asked for and is not on the disk.
+    ///
+    /// It is a question about the switch, not about the engine's name — both
+    /// switches on writes no engine at all, and that setting is still asking
+    /// for the local model: it is the one that keeps transcribing when the
+    /// network doesn't, and the download is the whole of what makes it true.
+    /// Asked of the engine string instead, the window went quiet in the most
+    /// ordinary case there is.
+    func needsLocalModel(downloaded: Bool) -> Bool {
+        local && !downloaded
+    }
+
     /// What to write, as paths into the config with nil meaning "remove it".
     /// Defaults are removed rather than written out: a config file that only
     /// contains what was actually chosen is one a person can read.

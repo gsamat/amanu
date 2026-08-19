@@ -980,12 +980,20 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             at: AsrModels.defaultCacheDirectory(for: version), version: version)
     }
 
-    /// Chosen as the engine, and not here. "Whichever works" is not this: it
-    /// falls back to AssemblyAI and says so on its own card.
-    private var parakeetIsChosenAndMissing: Bool {
-        Platform.supportsLocalModels
-            && Config.transcriptionEngine() == "parakeet"
-            && !parakeetIsDownloaded
+    /// The two switches as the config file has them.
+    private var transcriptionChoice: TranscriptionChoice {
+        TranscriptionChoice.read(
+            engine: Config.transcriptionEngine(),
+            cloudProvider: Config.transcriptionCloudProvider(),
+            enabled: Config.transcriptionEnabled(),
+            localModels: Platform.supportsLocalModels)
+    }
+
+    /// Asked for, and not here. **On this Mac** is the whole question: both
+    /// switches on is still asking for the local model, because that is the
+    /// setting that transcribes when the network doesn't.
+    private var parakeetIsWantedAndMissing: Bool {
+        transcriptionChoice.needsLocalModel(downloaded: parakeetIsDownloaded)
     }
 
     /// Summaries are on and the thing chosen to write them is not on this
@@ -1090,11 +1098,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     /// The transcription section, redrawn from the config and from what is
     /// actually on disk: which keys exist, whether the local model is there.
     private func refreshTranscription() {
-        let choice = TranscriptionChoice.read(
-            engine: Config.transcriptionEngine(),
-            cloudProvider: Config.transcriptionCloudProvider(),
-            enabled: Config.transcriptionEnabled(),
-            localModels: Platform.supportsLocalModels)
+        let choice = transcriptionChoice
         provider = choice.provider
         cloudSwitch.state = choice.cloud ? .on : .off
         // The card under the key field is the one being answered, so a
@@ -1174,7 +1178,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsSystemAudioTest(systemAudio) {
             return { [weak self] in Task { await self?.testSystemAudio() } }
         }
-        if parakeetIsChosenAndMissing, parakeetProgress == nil {
+        if parakeetIsWantedAndMissing, parakeetProgress == nil {
             return { [weak self] in self?.downloadParakeetIfNeeded() }
         }
         if Config.liveTranscriptionEnabled() {
@@ -1191,7 +1195,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsStartAtLogin { outstanding.append("start at login") }
         if SetupPermissions.microphone() != .granted { outstanding.append("microphone") }
         if systemAudio != .heard { outstanding.append("system audio") }
-        if parakeetIsChosenAndMissing { outstanding.append("parakeet") }
+        if parakeetIsWantedAndMissing { outstanding.append("parakeet") }
         if Config.liveTranscriptionEnabled() {
             let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
             if !liveModelStore.isReady(language: prompt) { outstanding.append("live model") }
