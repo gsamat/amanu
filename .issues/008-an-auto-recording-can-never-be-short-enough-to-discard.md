@@ -1,7 +1,7 @@
 ---
 title: "An automatic recording can never be short enough to be discarded"
 date: 2026-08-20
-status: open
+status: done
 affects: "min_duration_seconds, and every brief join of a call"
 ---
 
@@ -45,3 +45,39 @@ recording's, and `AutoRecordController` already knows it.
 
 Either way the test to write first is the one that fails today: an automatic
 recording of a call shorter than `min_duration_seconds` leaves nothing behind.
+
+## What was done
+
+Fixed on 20 August 2026. Of the two rules this note offered, the first was
+taken: the length to compare is the recording's, with the delay before stopping
+taken out of it first.
+
+Which delay is known from the reason the recording ended — `stop_delay` for
+`call-ended`, `silence_stop` for `silence`, sixty seconds for
+`calendar-event-ended` — so the measured case is 99 seconds less the 90 it spent
+waiting, which is 9, which is under 45, and it goes. The alternative, comparing
+the call's length, would have meant retaining the start of the mic-busy interval
+across the transition that throws it away and widening a callback shared with
+the manual-recording ceiling, and it would still have needed a fallback for a
+recording the calendar started and the microphone never triggered.
+
+The decision now lives in `AutoRecordController.shouldDiscard(trigger:reason:
+duration:settings:)`, taking its settings as a parameter so a test needs no
+config file — which is the part that matters, because this branch shipped
+unreachable precisely because nothing could call it. The calendar rule's bare
+sixty seconds became a named constant used by both the stop rule and the discard
+rule, so the two cannot drift apart the way this note describes. The caveat is
+written into the code: measuring from the recording's start under-counts the
+meeting by up to `start_delay` of pre-roll, which errs toward discarding.
+
+Eight tests, the first of them the nineteen-second join exactly as it was
+measured. It fails against the old comparison.
+
+The window no longer promises a minute it did not mean: **A call shorter than 45
+seconds is thrown away** / **Звонок короче 45 секунд выбрасывается**, and the
+settings row now says the wait before stopping does not count.
+
+The second half of the note is fixed too. AssemblyAI's
+`language_detection cannot be performed on files with no spoken audio` is now
+permanent, so a session with nothing in it is `failed` on the first attempt
+rather than uploaded and paid for twice more before retiring.

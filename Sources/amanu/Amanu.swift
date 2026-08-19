@@ -720,20 +720,21 @@ final class AppController {
         updates.recordingDidFinish()
 
         // A mic that opened for a few seconds was never a meeting. Throwing
-        // these away is what keeps the recordings folder worth opening —
-        // but only ever for recordings we started ourselves, and only when the
-        // recording ended because the meeting did.
-        //
-        // "app-quit" and "max-duration" say nothing about whether this was a
-        // real meeting: they mean we stopped it. Discarding on those threw
-        // away the first fifteen seconds of a genuine call that happened to
-        // start while amanu was being reinstalled (2026.08.18).
-        let endedByItself = ["call-ended", "silence", "calendar-event-ended"].contains(reason)
-        let minimum = Config.autoRecord().minDuration
-        if session.trigger != .manual, endedByItself, duration < minimum {
+        // these away is what keeps the recordings folder worth opening — but
+        // only ever for recordings we started ourselves, and only when the
+        // recording ended because the meeting did. The rule itself lives on
+        // AutoRecordController, which is the type that knows how long each
+        // way of ending waits before it fires; what is left of the recording
+        // once that wait is taken out is what gets compared.
+        let settings = Config.autoRecord()
+        if AutoRecordController.shouldDiscard(
+            trigger: session.trigger, reason: reason, duration: duration, settings: settings) {
+            let meeting = duration
+                - (AutoRecordController.trailingQuiet(for: reason, settings: settings) ?? 0)
             FileHandle.standardError.write(Data(
-                ("discarded \(session.dir.lastPathComponent): \(Int(duration))s "
-                    + "is under the \(Int(minimum))s minimum for an automatic recording\n").utf8
+                ("discarded \(session.dir.lastPathComponent): \(Int(meeting))s of meeting in "
+                    + "\(Int(duration))s of recording is under the \(Int(settings.minDuration))s "
+                    + "minimum for an automatic recording\n").utf8
             ))
             session.discard()
             Task { [liveTranscription] in await liveTranscription.finishRecording() }

@@ -558,8 +558,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 "Начинать запись, когда приложение звонка берёт микрофон")),
             detail: SetupLayout.detail(
                 localised(
-                    "And stop when it lets go. Recordings shorter than a minute are thrown away.",
-                    "И заканчивать, когда отпустит. Записи короче минуты выбрасываются."),
+                    "And stop when it lets go. A call shorter than 45 seconds is thrown away.",
+                    "И заканчивать, когда отпустит. Звонок короче 45 секунд выбрасывается."),
                 lines: 2, width: 520))
     }
 

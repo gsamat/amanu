@@ -193,6 +193,22 @@ the other.
 **C9 — A short call is thrown away.** Join and leave inside `min_duration`
 (45 seconds by default). No session should be kept.
 
+Do not judge this by the timer. The recording keeps running until the far end
+has been quiet for `stop_delay` (90 seconds), so it will be around a minute and
+a half long before anything is decided — that wait is subtracted from the length
+before it is compared to the minimum, which is the whole of `.issues/008`. Wait
+for the recording to stop by itself, then look at the folder. Until 20 August
+2026 this check could not fail, because nothing could ever be short enough.
+
+**C10 — Quitting mid-recording asks first.** Start another call, and with the
+recording running press ⌘Q. An alert must name how long it has been recording
+and offer **Quit and save the recording** / **Keep recording**. Choose *Keep
+recording*: amanu stays up and the menu bar still says it is recording. Press
+⌘Q again and quit for real: the session is in the recordings folder, whole,
+with `"stop_reason": "app-quit"` in its `meta.json`. Read the alert in Russian
+too. It is the one thing on this page that exists because of a specific
+morning — a quit during a call, and three minutes of it gone (`.issues/005`).
+
 ---
 
 ## D. The first run, and the command line
