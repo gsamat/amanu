@@ -40,6 +40,23 @@ struct TranscriptionChoiceTests {
         #expect(written["transcription.enabled"] == "nil")
     }
 
+    /// The footer asks whether the local model is missing, and it has to ask
+    /// the switch. Asked of the engine string — which is absent whenever both
+    /// switches are on — the window said nothing at all in the commonest
+    /// setting there is, and went back to promising that everything amanu
+    /// needs is here while the model it would transcribe with was not.
+    @Test("Both switches on still wants the local model on disk")
+    func bothSwitchesStillWantTheModel() {
+        #expect(Self.read("auto").needsLocalModel(downloaded: false))
+        #expect(!Self.read("auto").needsLocalModel(downloaded: true))
+        #expect(Self.read("parakeet").needsLocalModel(downloaded: false))
+        // Cloud only, or nothing at all, is not asking for it.
+        #expect(!Self.read("assemblyai").needsLocalModel(downloaded: false))
+        #expect(!Self.read("auto", enabled: false).needsLocalModel(downloaded: false))
+        // And a Mac that cannot run it is not missing it.
+        #expect(!Self.read("auto", localModels: false).needsLocalModel(downloaded: false))
+    }
+
     @Test("One switch each way names an engine outright")
     func oneSided() {
         #expect(Self.read("parakeet") == TranscriptionChoice(
