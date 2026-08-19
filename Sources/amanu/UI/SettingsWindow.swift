@@ -40,6 +40,12 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// Setup tab is a `SetupForm` and listens on its own.
     private var configWatch: ConfigWatch.Token?
     private var rows: [Row] = []
+    /// What the setup window says in its footer, under the tab that shows the
+    /// same form. Not a copy of the wizard's footer: the sentence comes from
+    /// the form, and there is no button under it — in a settings window a
+    /// button beside a list of settings reads as "apply", which is not what
+    /// it would do.
+    private let outstanding = NSTextField(labelWithString: "")
     private let restartNotice = NSTextField(labelWithString: "")
     private let strayKeys = NSTextField(labelWithString: "")
 
@@ -70,7 +76,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
         let tabs = NSTabView()
         tabs.translatesAutoresizingMaskIntoConstraints = false
-        tabs.addTabViewItem(tab("Setup", holding: SetupLayout.scroller(around: setup.view)))
+        tabs.addTabViewItem(tab("Setup", holding: setupTab()))
         tabs.addTabViewItem(tab("Advanced", holding: SetupLayout.scroller(around: advancedForm())))
 
         for label in [restartNotice, strayKeys] {
@@ -119,6 +125,12 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         panel.contentView = content
 
         configWatch = ConfigWatch.observe { [weak self] in self?.refresh() }
+        // Every redraw of the form ends here, whatever caused it — a grant
+        // given in this window, a switch in the other one, a model that
+        // finished downloading. The line is only true if it follows all of
+        // them, and this is the seam the form already had.
+        setup.onStateChange = { [weak self] in self?.showOutstanding() }
+        showOutstanding()
 
         panel.setFrameAutosaveName("amanu.settings")
         if panel.frame.origin == .zero { panel.center() }
@@ -141,9 +153,55 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// can be checked, so it's worth the accessor.
     var renderedControls: [NSControl] { rows.map(\.control) }
 
+    /// What the Setup tab says is still outstanding — the wizard's footer
+    /// sentence, under the same form.
+    var outstandingLine: String { outstanding.stringValue }
+
     func hide() { panel.orderOut(nil) }
 
     // MARK: - building
+
+    /// The form, and under it the one line saying whether anything is still
+    /// outstanding. The hairline is the setup window's: below it is a report
+    /// on the whole tab rather than another thing to fill in.
+    private func setupTab() -> NSView {
+        let scroll = SetupLayout.scroller(around: setup.view)
+        let divider = SetupLayout.hairline()
+        divider.translatesAutoresizingMaskIntoConstraints = false
+
+        outstanding.font = .systemFont(ofSize: 12)
+        outstanding.textColor = .secondaryLabelColor
+        outstanding.lineBreakMode = .byTruncatingTail
+        outstanding.translatesAutoresizingMaskIntoConstraints = false
+
+        let host = NSView()
+        // Constrained by `tab(_:holding:)` from outside, so it has to stop
+        // resizing itself.
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(scroll)
+        host.addSubview(divider)
+        host.addSubview(outstanding)
+        NSLayoutConstraint.activate([
+            scroll.topAnchor.constraint(equalTo: host.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: scroll.bottomAnchor),
+            divider.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            outstanding.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 12),
+            outstanding.leadingAnchor.constraint(
+                equalTo: host.leadingAnchor, constant: SetupLayout.gutter),
+            outstanding.trailingAnchor.constraint(
+                lessThanOrEqualTo: host.trailingAnchor, constant: -SetupLayout.gutter),
+            outstanding.bottomAnchor.constraint(equalTo: host.bottomAnchor, constant: -12),
+        ])
+        return host
+    }
+
+    /// The line under the Setup tab, from the form that computed it.
+    private func showOutstanding() {
+        outstanding.stringValue = setup.outstandingSentence
+    }
 
     private func tab(_ label: String, holding view: NSView) -> NSTabViewItem {
         let item = NSTabViewItem(identifier: label)

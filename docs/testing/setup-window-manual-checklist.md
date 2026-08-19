@@ -312,10 +312,17 @@ checking by hand is only the seam between them.
   restarting the app.
 - Remove `completed_at` and `version` from `~/.config/amanu/setup.json` and
   relaunch: the wizard opens by itself and the item is in both menus again.
-- With every permission granted, look at Settings → Setup and confirm you can
-  still tell what is outstanding: each Access row says where it stands, and
-  the row that needs attention is tinted. The wizard's one-line summary is not
-  there — if that is missed, it belongs on the tab.
+- Look at the line under the Setup tab, below the hairline. With everything
+  granted it reads *Everything amanu needs is granted* — the half of it that
+  matters when somebody opened the tab to be reassured rather than to repair
+  anything. It is the wizard's own sentence, from the same form.
+- Make something outstanding while the tab is open — deny a permission in
+  System Settings, or switch **On this Mac** on with the model deleted — and
+  confirm the line changes without the window being reopened: *One thing left:
+  microphone*, and *Left: …* once there are two.
+- Grant it back **in this window** and confirm the line clears itself. There
+  is deliberately no button under it: in a settings window a button beside a
+  list of settings reads as "apply".
 
 ## Reopening and restart behavior
 
