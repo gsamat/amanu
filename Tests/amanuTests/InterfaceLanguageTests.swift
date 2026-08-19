@@ -141,6 +141,38 @@ struct InterfaceLanguageTests {
                 "still English in a Russian window: \(Self.untranslated(english, russian))")
     }
 
+    /// And what that window says in an alert, which the walk above cannot
+    /// reach: an alert is not a subview, and the two sentences here are only
+    /// ever seen by somebody who pressed Finish processing on a recording it
+    /// could do nothing for.
+    @Test("What Finish processing says when it can't finish is in the window's language")
+    @MainActor
+    func theFinishAnswersAreTranslated() throws {
+        let root = try Self.recordingsOnADiskOfTheirOwn()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // The one with no transcript and no audio either, which is the case
+        // the button has to talk its way out of rather than work through.
+        let bare = root.appendingPathComponent("2026-08-18-100000-bare")
+        let item = try #require(SessionInventory.item(for: bare))
+
+        func refusal(_ language: InterfaceLanguage) -> String {
+            Self.inLanguage(language) {
+                guard case .refuse(let why) = RecordingsWindow.decision(
+                    for: item, transcriptionEnabled: true
+                ) else { return "" }
+                return why
+            }
+        }
+        let english = refusal(.english)
+        let russian = refusal(.russian)
+        #expect(english.contains("no longer in the folder"))
+        #expect(!russian.isEmpty)
+        #expect(english != russian, "still English in a Russian alert: \(russian)")
+
+        #expect(Self.inLanguage(.english) { RecordingsWindow.nothingOwedLine }
+            != Self.inLanguage(.russian) { RecordingsWindow.nothingOwedLine })
+    }
+
     /// And the same question of the Advanced tab, which is written from
     /// `SettingsSchema` rather than by hand. No window needed: the schema is
     /// the list, and the window renders it whole.

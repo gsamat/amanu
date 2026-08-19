@@ -104,6 +104,11 @@ struct RetranscriptionTests {
     }
 
     private static let noPostProcessing = PostProcessor.Policy(names: false, summary: false)
+    /// And the policy a Mac in ordinary use is under, where both steps are
+    /// on. It is what makes a retired recording look outstanding — neither
+    /// step has had its turn, because the transcript they read never
+    /// arrived — and so what leaves the window's button enabled for one.
+    private static let bothSteps = PostProcessor.Policy(names: true, summary: true)
 
     // MARK: - the route from the command line
 
@@ -162,8 +167,8 @@ struct RetranscriptionTests {
             Issue.record("Expected a session with no audio left to be refused.")
             return
         }
-        #expect(why.contains("discarded"))
-        #expect(why.contains("keep_audio"))
+        #expect(why.description.contains("discarded"))
+        #expect(why.description.contains("keep_audio"))
     }
 
     /// Deleted with the Finder rather than by amanu, which reads the same to
@@ -193,8 +198,8 @@ struct RetranscriptionTests {
             Issue.record("Expected a retired session to be refused without --again.")
             return
         }
-        #expect(why.contains("no speech"))
-        #expect(why.contains("--again"))
+        #expect(why.description.contains("no speech"))
+        #expect(why.description.contains("--again"))
 
         #expect(PostProcessor.plan(for: item, again: true, transcriptionEnabled: true)
             == .transcribe(clearingFirst: true))
@@ -211,7 +216,7 @@ struct RetranscriptionTests {
             Issue.record("Expected transcription being off to be refused.")
             return
         }
-        #expect(why.contains("transcription.enabled"))
+        #expect(why.description.contains("transcription.enabled"))
     }
 
     /// A transcribed session is left alone: `amanu process` on it is still the
@@ -230,5 +235,87 @@ struct RetranscriptionTests {
         #expect(PostProcessor.plan(for: item, transcriptionEnabled: true) == .finish)
         #expect(PostProcessor.plan(for: item, again: true, transcriptionEnabled: true)
             == .transcribe(clearingFirst: true))
+    }
+
+    // MARK: - the same route from the recordings window
+
+    /// The bug the window had after the command line stopped having it: the
+    /// button ran the post-processing that needs a transcript, on a session
+    /// whose transcript is the thing missing, and said nothing when nothing
+    /// came back.
+    @Test("Finish processing transcribes a settled recording rather than doing nothing")
+    @MainActor
+    func theWindowTranscribesASettledRecording() throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let item = try #require(SessionInventory.item(for: dir, policy: Self.noPostProcessing))
+        #expect(item.isOutstanding, "the button is only offered for a recording that owes work")
+        #expect(RecordingsWindow.decision(
+            for: item, policy: Self.noPostProcessing, transcriptionEnabled: true)
+            == .transcribe(clearingFirst: false))
+    }
+
+    /// A retired recording enables the button too, because the names and the
+    /// summary it never got still read as outstanding. It is sent to the
+    /// button next to it rather than left to press this one for ever.
+    @Test("A retired recording is sent to Re-transcribe, in words")
+    @MainActor
+    func theWindowSendsARetiredRecordingToRetranscribe() throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        SessionState.update(dir, with: [
+            SessionState.Key.transcriptionFailed: "assemblyai returned no speech",
+        ])
+
+        let item = try #require(SessionInventory.item(for: dir, policy: Self.bothSteps))
+        #expect(item.isOutstanding)
+        guard case .refuse(let why) = RecordingsWindow.decision(
+            for: item, policy: Self.bothSteps, transcriptionEnabled: true
+        ) else {
+            Issue.record("Expected the window to refuse a retired recording.")
+            return
+        }
+        #expect(why.contains("no speech"))
+        #expect(why.contains("Re-transcribe"))
+        // The window sends nobody to the command line: that flag is not in
+        // this window and there is a button here that does the same thing.
+        #expect(!why.contains("--again"))
+    }
+
+    @Test("A recording whose audio was discarded is refused in the window too")
+    @MainActor
+    func theWindowRefusesDiscardedAudio() throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        TrackCompressor.discard(sessionDir: dir)
+
+        let item = try #require(SessionInventory.item(for: dir, policy: Self.noPostProcessing))
+        guard case .refuse(let why) = RecordingsWindow.decision(
+            for: item, policy: Self.noPostProcessing, transcriptionEnabled: true
+        ) else {
+            Issue.record("Expected the window to refuse a recording with no audio left.")
+            return
+        }
+        #expect(why.contains("keep_audio"))
+    }
+
+    /// And the answer that is not a refusal at all: there was a transcript,
+    /// nothing after it was owed, and the button says so instead of running
+    /// for a moment and leaving the window exactly as it was.
+    @Test("A recording with nothing left to do says so")
+    @MainActor
+    func theWindowSaysWhenNothingIsOwed() throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Transcript(
+            engine: "parakeet", model: "v3", created_at: "2026-08-19T09:00:00Z",
+            segments: [.init(speaker: "me", start_ms: 0, end_ms: 1000, text: "Привет.")]
+        ).write(to: dir)
+
+        let item = try #require(SessionInventory.item(for: dir, policy: Self.noPostProcessing))
+        #expect(RecordingsWindow.decision(
+            for: item, policy: Self.noPostProcessing, transcriptionEnabled: true)
+            == .nothingOwed)
     }
 }
