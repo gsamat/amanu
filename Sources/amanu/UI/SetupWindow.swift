@@ -52,8 +52,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private let engineCards = ChoiceGroup()
     private let language = NSTextField()
-    private let keepAudio = NSButton(
-        checkboxWithTitle: "Keep the audio after transcribing", target: nil, action: nil)
+    private let keepAudio = NSSwitch()
     private let liveTranscription = NSSwitch()
     private let liveStatus = NSTextField(labelWithString: "")
     private let liveModelStore = LiveTranscriptionModelStore()
@@ -61,6 +60,13 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private var liveDownloading = false
     private let assemblyKey = NSSecureTextField()
     private let assemblyStatus = NSTextField(labelWithString: "")
+    /// What parakeet weighs on disk once it is there — measured, not quoted:
+    /// 461 MB for v3, and v2 is the same 0.6B model. The bar is the cache
+    /// directory growing towards this number, so a figure taken from
+    /// somewhere else is a bar that stops three quarters of the way and a
+    /// count that never reaches what it promised.
+    private static let parakeetMegabytes = 460
+
     private let parakeetStatus = NSTextField(labelWithString: "")
     private let parakeetDownload = NSButton(title: "Download", target: nil, action: nil)
     private let parakeetBar = NSProgressIndicator()
@@ -77,6 +83,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private let recordingsPath = NSTextField(labelWithString: "")
     private let autoRecord = NSSwitch()
+
+    /// What the last look for `claude`, `codex` and ollama found, by card.
+    /// Empty until that look finishes, and a missing answer is not "absent":
+    /// the window says nothing about a tool it has not been to see yet.
+    private var summaryToolRuns: [String: Bool] = [:]
 
     private let footerNote = NSTextField(labelWithString: "")
     private let primary = NSButton(title: "Done", target: nil, action: nil)
@@ -230,7 +241,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         parakeetBar.isIndeterminate = false
         parakeetBar.controlSize = .small
         parakeetBar.minValue = 0
-        parakeetBar.maxValue = 600
+        parakeetBar.maxValue = Double(Self.parakeetMegabytes)
         parakeetBar.isHidden = true
         let local = ChoiceCard(
             id: "parakeet",
@@ -335,11 +346,17 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         refresh()
     }
 
+    /// The one checkbox in a window of switches, and the only row whose words
+    /// did not start where the words above them started — the checkbox stood
+    /// in the column the folder symbol uses, and its title six points to the
+    /// left of the path's. It is a switch now, and its label still toggles it.
     private func keepAudioRow() -> NSView {
         keepAudio.target = self
         keepAudio.action = #selector(keepAudioChanged)
-        keepAudio.font = SetupLayout.titleFont
-        return SetupLayout.row(title: keepAudio)
+        return SetupLayout.row(
+            symbol: "waveform",
+            title: SetupLayout.title("Keep the audio after transcribing"),
+            trailing: [keepAudio])
     }
 
     private func summaryChoices() -> NSView {
@@ -570,6 +587,9 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     @objc private func downloadParakeetClicked() {
         parakeetDownload.isEnabled = false
         watchParakeetSize()
+        // So the footer button says what is happening from the first second,
+        // rather than at the end of it.
+        refresh()
         Task {
             let version = ParakeetEngine.configuredVersion()
             do {
@@ -597,7 +617,8 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             MainActor.assumeIsolated {
                 let mb = Self.megabytes(of: cache)
                 self?.parakeetBar.doubleValue = Double(mb)
-                self?.parakeetStatus.stringValue = "\(mb) of about 600 MB"
+                self?.parakeetStatus.stringValue =
+                    "\(mb) of about \(Self.parakeetMegabytes) MB"
             }
         }
     }
@@ -758,6 +779,12 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             $0.isEmpty ? "running, no models" : "running · \($0.prefix(2).joined(separator: ", "))"
         } ?? (ollama == nil ? "not here" : "installed, not running")
         summaryCards.card("ollama")?.showLink(ollama == nil)
+
+        summaryToolRuns = [
+            "claude-cli": claude?.runs == true,
+            "codex-cli": codex?.runs == true,
+            "ollama": models?.isEmpty == false,
+        ]
         refresh()
     }
 
@@ -767,6 +794,42 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             return "found but it doesn't run from here"
         }
         return "answers · \(version)"
+    }
+
+    /// Whether the local model is on this Mac. A Mac that cannot run it at
+    /// all is not missing it, so the question is answered yes there and the
+    /// window stops asking.
+    private var parakeetIsDownloaded: Bool {
+        guard Platform.supportsLocalModels else { return true }
+        let version = ParakeetEngine.configuredVersion()
+        return AsrModels.modelsExist(
+            at: AsrModels.defaultCacheDirectory(for: version), version: version)
+    }
+
+    /// Chosen as the engine, and not here. "Whichever works" is not this: it
+    /// falls back to AssemblyAI and says so on its own card.
+    private var parakeetIsChosenAndMissing: Bool {
+        Platform.supportsLocalModels
+            && Config.transcriptionEngine() == "parakeet"
+            && !parakeetIsDownloaded
+    }
+
+    /// Summaries are on and the thing chosen to write them is not on this
+    /// Mac. The card says "not here" in orange; this is what puts it in the
+    /// one line somebody reads before pressing Done.
+    private var chosenSummaryIsMissing: Bool {
+        let summary = Config.summary()
+        guard summary.enabled else { return false }
+        switch SetupSelection.summaryChoice(backend: summary.backend) {
+        case let looked where summaryToolRuns[looked] != nil:
+            return summaryToolRuns[looked] == false
+        case "api-key":
+            return summary.backend == "openai-api"
+                ? Config.openAIKey() == nil
+                : Config.anthropicKey() == nil
+        default:
+            return false
+        }
     }
 
     // MARK: - refresh
@@ -834,16 +897,14 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             : root
 
         if Platform.supportsLocalModels {
-            let version = ParakeetEngine.configuredVersion()
-            let downloaded = AsrModels.modelsExist(
-                at: AsrModels.defaultCacheDirectory(for: version), version: version)
+            let downloaded = parakeetIsDownloaded
             parakeetDownload.isHidden = downloaded
             if downloaded {
                 parakeetStatus.stringValue = "downloaded"
                 parakeetStatus.textColor = .systemGreen
                 parakeetBar.isHidden = true
             } else if parakeetProgress == nil {
-                parakeetStatus.stringValue = "about 600 MB"
+                parakeetStatus.stringValue = "about \(Self.parakeetMegabytes) MB"
                 parakeetStatus.textColor = .secondaryLabelColor
             }
         }
@@ -898,6 +959,9 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsSystemAudioTest(systemAudio) {
             return { [weak self] in Task { await self?.testSystemAudio() } }
         }
+        if parakeetIsChosenAndMissing, parakeetProgress == nil {
+            return { [weak self] in self?.downloadParakeetClicked() }
+        }
         if Config.liveTranscriptionEnabled() {
             let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
             if !liveModelStore.isReady(language: prompt), !liveDownloading {
@@ -912,10 +976,14 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         if SetupPermissions.needsStartAtLogin { outstanding.append("start at login") }
         if SetupPermissions.microphone() != .granted { outstanding.append("microphone") }
         if systemAudio != .heard { outstanding.append("system audio") }
+        if parakeetIsChosenAndMissing { outstanding.append("parakeet") }
         if Config.liveTranscriptionEnabled() {
             let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
             if !liveModelStore.isReady(language: prompt) { outstanding.append("live model") }
         }
+        // The window used to say everything was granted while the card it had
+        // chosen to write the summaries said "not here" three inches above.
+        if chosenSummaryIsMissing { outstanding.append("something to summarise with") }
 
         footerNote.stringValue = outstanding.isEmpty
             ? "Everything amanu needs is granted."
@@ -931,11 +999,17 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
             }
             if SetupPermissions.microphone() == .notAsked { return "Allow microphone" }
             if SetupPermissions.needsSystemAudioTest(systemAudio) { return "Allow and test" }
+            // Named separately from the live model because the two downloads
+            // can be outstanding at once, and a button that says "Download
+            // parakeet" while parakeet is downloading has nothing left to do
+            // but close the window under the person reading it.
+            if parakeetProgress != nil { return "Downloading parakeet…" }
+            if outstanding.contains("parakeet") { return "Download parakeet" }
             if liveDownloading { return "Downloading live model…" }
             if outstanding.contains("live model") { return "Download live model" }
             return "Done"
         }()
-        primary.isEnabled = !liveDownloading
+        primary.isEnabled = !liveDownloading && parakeetProgress == nil
     }
 
     private func report(_ row: AccessRow, _ message: String) {
@@ -948,7 +1022,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 /// A row in the Access list: where it stands, what it's for, and the one
 /// button that changes it.
 @MainActor
-private final class AccessRow: NSView {
+final class AccessRow: NSView {
     var onAct: (() -> Void)?
 
     private let mark = NSImageView()
@@ -956,6 +1030,7 @@ private final class AccessRow: NSView {
     private let note = NSTextField(labelWithString: "")
     private let detail: NSTextField
     private let button: NSButton
+    private let stack: NSStackView
     private let defaultDetail: String
     private let defaultAction: String
     private let grantedNote: String
@@ -970,6 +1045,7 @@ private final class AccessRow: NSView {
         self.grantedNote = grantedNote
         self.isOptional = optional
         button = NSButton(title: action, target: nil, action: nil)
+        stack = NSStackView()
         super.init(frame: .zero)
 
         self.title.font = SetupLayout.titleFont
@@ -1000,7 +1076,9 @@ private final class AccessRow: NSView {
         text.alignment = .leading
         text.spacing = 2
 
-        let stack = NSStackView(views: [mark, text, NSView(), button])
+        for view in [mark, text, SetupLayout.spacer(), button] {
+            stack.addArrangedSubview(view)
+        }
         stack.orientation = .horizontal
         stack.alignment = .top
         stack.spacing = 10
@@ -1012,6 +1090,11 @@ private final class AccessRow: NSView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            // Every granted row carries one line, and they have to look it.
+            // Without a floor the height is whatever the layout settles on
+            // and neighbouring rows come out different heights.
+            stack.heightAnchor.constraint(
+                greaterThanOrEqualToConstant: SetupLayout.rowHeight),
         ])
     }
 
@@ -1061,6 +1144,10 @@ private final class AccessRow: NSView {
         // it has nothing left to say once they have.
         let settled = state == .granted && override == nil
         detail.isHidden = settled || detail.stringValue.isEmpty
+        // A row that is down to its title is one line, and sits in the middle
+        // of the row like one; a row still explaining itself starts at the
+        // top, beside its first line.
+        stack.alignment = detail.isHidden ? .centerY : .top
         note.stringValue = noteOverride ?? {
             switch state {
             case .granted: return grantedNote
@@ -1113,10 +1200,22 @@ final class ChoiceCard: NSView {
             // "answers", "downloaded", "key works" are the states worth
             // seeing across the window; everything else is a note.
             let good = ["answers", "downloaded", "key works", "running"]
-            statusLabel.textColor = good.contains(where: newValue.hasPrefix)
-                ? .systemGreen
-                : .secondaryLabelColor
+            works = good.contains(where: newValue.hasPrefix)
+            colourStatus()
         }
+    }
+
+    /// Whether the last thing the machine said about this card was good news.
+    private var works = false
+
+    /// An unchosen card may report "not here" in passing — it is one of the
+    /// options, and that is what there is to say about it. The chosen one may
+    /// not: that is the meeting that will come back without a summary, so it
+    /// is said in the colour of something to attend to.
+    private func colourStatus() {
+        statusLabel.textColor = works
+            ? .systemGreen
+            : (selected ? .systemOrange : .secondaryLabelColor)
     }
 
     var isEnabled: Bool = true {
@@ -1135,6 +1234,7 @@ final class ChoiceCard: NSView {
                 ? NSColor.controlAccentColor.cgColor
                 : NSColor.separatorColor.withAlphaComponent(0.6).cgColor
             layer?.borderWidth = newValue ? 1.5 : 1
+            colourStatus()
         }
     }
 

@@ -165,22 +165,79 @@ struct SetupTests {
         #expect(card.hitTest(pointOnAccessory) === accessory)
     }
 
-    @Test("The Keep Audio label is the checkbox's clickable title")
+    /// It was the one checkbox in a window of switches, and a checkbox's
+    /// title is part of the checkbox. A switch with a dead label beside it
+    /// would be a smaller target than the thing it replaced, so the label
+    /// still has to work.
+    @Test("Keep Audio is a switch, and its label still toggles it")
     @MainActor
-    func keepAudioUsesTitledCheckbox() throws {
+    func keepAudioLabelTogglesItsSwitch() throws {
         let setup = SetupWindow()
         defer { withExtendedLifetime(setup) {} }
         let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
-        let checkbox = try #require(panel.contentView?.allDescendants
-            .compactMap { $0 as? NSButton }
-            .first { $0.title == "Keep the audio after transcribing" })
+        let label = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Keep the audio after transcribing" })
+        let words = try #require(label.superview as? NSStackView)
+        let row = try #require(words.superview as? NSStackView)
+        let toggle = try #require(row.arrangedSubviews.compactMap { $0 as? NSSwitch }.first)
+        let recognizer = try #require(words.gestureRecognizers.first)
 
-        checkbox.target = nil
-        checkbox.action = nil
-        checkbox.state = .off
-        checkbox.performClick(nil)
+        #expect(recognizer.target === toggle)
+        #expect(toggle.target != nil, "a switch nobody listens to writes nothing")
 
-        #expect(checkbox.state == .on)
+        // Unhooked first: this test is about the label reaching the switch,
+        // and the action behind it writes to the config file of whoever is
+        // running the suite.
+        toggle.target = nil
+        toggle.action = nil
+        toggle.state = .off
+        toggle.toggleFromItsLabel()
+
+        #expect(toggle.state == .on)
+    }
+
+    /// A row that still had a button came out taller than its neighbours, and
+    /// since everything in a row is aligned to the top the extra height
+    /// landed under the text — which is how the Calendar row came to look
+    /// further from System audio than the rest of the list.
+    @Test("Rows carrying one line are the same height, button or no button")
+    @MainActor
+    func accessRowsAreOneHeight() throws {
+        let rows = [
+            AccessRow(title: "Microphone", detail: "Your side of the call.", action: "Allow"),
+            AccessRow(title: "System audio", detail: "", action: "Allow and test"),
+            AccessRow(title: "Calendar", detail: "Names the folder.", action: "Allow"),
+        ]
+        let box = SetupLayout.box(rows)
+        // Granted, as they are on a Mac that has been through setup: the
+        // first and last lose their button, the middle one keeps "Test
+        // again" because macOS will not report that grant.
+        rows[0].update(.granted)
+        rows[1].update(.granted, note: "heard the tone", action: "Test again")
+        rows[2].update(.granted)
+        box.frame = NSRect(x: 0, y: 0, width: 690, height: 300)
+        box.layoutSubtreeIfNeeded()
+
+        #expect(rows[0].frame.height == SetupLayout.rowHeight)
+        #expect(rows[1].frame.height == rows[0].frame.height)
+        #expect(rows[2].frame.height == rows[0].frame.height)
+    }
+
+    @Test("A chosen card reports bad news as a problem, an unchosen one as a note")
+    @MainActor
+    func chosenCardColoursItsBadNews() throws {
+        let card = ChoiceCard(id: "claude-cli", title: "Claude Code", detail: "No key.")
+        card.status = "not here"
+        let label = try #require(card.allDescendants
+            .compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "not here" })
+
+        #expect(label.textColor == .secondaryLabelColor)
+        card.isSelected = true
+        #expect(label.textColor == .systemOrange)
+        card.status = "answers · 1.0"
+        #expect(label.textColor == .systemGreen)
     }
 
     @Test("The Summaries switch sits to the left of its heading")

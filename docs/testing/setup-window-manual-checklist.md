@@ -71,6 +71,11 @@ osascript -e 'tell application "System Events" to tell process "Amanu" \
 
 The section is four rows: Start at login, Microphone, System audio, Calendar.
 
+- Look down the list first: the rows that are down to one line must be the same
+  height and evenly spaced, whether or not they still carry a button. The gap
+  above **Calendar** used to be half again the others, because the System audio
+  row above it keeps **Test again** and came out eight points taller for it.
+
 - Microphone: click **Allow**, accept the macOS prompt, and confirm the row
   turns green. **By hand** if it was previously denied: confirm the button
   opens the right System Settings pane.
@@ -114,8 +119,10 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
   **Download**, the key field, and the links still perform their own actions:
   clicking the AssemblyAI key field must leave the selection alone.
 - Confirm the **On this Mac** card says either **downloaded** or approximately
-  600 MB. If the model is absent, start Download and verify that the progress
-  bar and the megabyte count both advance without freezing the window.
+  460 MB — the size parakeet actually is on disk, and what the bar counts
+  towards. If the model is absent, start Download and verify that the progress
+  bar and the megabyte count both advance without freezing the window, and
+  that the bar reaches its end rather than stopping short of it.
 - Confirm the AssemblyAI card always shows **Get a key**, that the link goes to
   `https://www.assemblyai.com/dashboard/signup`, and that a key already on disk
   is reported as **key found**.
@@ -176,9 +183,11 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
 
 ## Audio retention
 
-- Click both the checkbox square and the words **Keep the audio after
-  transcribing**; confirm either target toggles the same checkbox, and that
-  turning it off removes `keep_audio` rather than writing `false`.
+- Click both the switch and the words **Keep the audio after transcribing**;
+  confirm either target toggles the same switch, and that turning it off
+  removes `keep_audio` rather than writing `false`. It is a switch like every
+  other yes/no in the window, and its symbol sits in the same column as the
+  folder above it.
 
 **By hand** from here down — all of it needs a microphone, sound coming out of
 the Mac, and a few minutes of waiting.

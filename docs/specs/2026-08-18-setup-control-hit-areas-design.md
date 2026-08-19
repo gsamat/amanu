@@ -31,6 +31,12 @@ also avoided because several cards contain their own controls.
 of a separate label. AppKit then treats both the checkbox mark and its text as
 one control, so either toggles `keep_audio`.
 
+*Superseded 19 August 2026, requirement intact:* it is an `NSSwitch` now, like
+every other yes/no in the window, sitting in the trailing column of its row so
+that its words line up with the path above them. The label keeps its job — a
+click recogniser on the words toggles the switch — because a switch with a dead
+label beside it is a smaller target than the checkbox it replaced.
+
 The **Summaries** enable switch moves to the left of its heading, matching the
 placement of **Start recording by itself when a call app takes the mic**. Its
 configuration behavior does not change: turning summaries off disables every
@@ -57,7 +63,8 @@ Automated AppKit tests cover:
 - a disabled card ignores body activation;
 - interactive accessories remain present and usable inside a fully clickable
   card;
-- the Keep Audio checkbox owns its visible title;
+- the Keep Audio label toggles its control (originally: the checkbox owns its
+  visible title);
 - Ollama maps through the shared summary choice group;
 - the Ollama install link starts visible and can be hidden after detection.
 
