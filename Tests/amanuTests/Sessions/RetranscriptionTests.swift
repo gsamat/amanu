@@ -53,6 +53,21 @@ struct RetranscriptionTests {
         }
     }
 
+    /// An engine that cannot start at all, which is how a transcription is made
+    /// to fail without a network: `prepare()` throwing is the one failure the
+    /// per-track path doesn't shrug off and keep going from.
+    private actor BrokenEngine: TranscriptionEngine {
+        struct CannotPrepare: Error {}
+
+        nonisolated let name = "broken"
+        nonisolated let model = "test"
+        nonisolated let input: TranscriptionInput = .perTrack
+
+        func prepare() async throws { throw CannotPrepare() }
+        func release() async {}
+        func transcribe(_ audio: URL) async throws -> [TranscriptSegment] { [] }
+    }
+
     /// A session as it stands after transcription and settling: one stereo
     /// archive, meta.json pointing both tracks at it, and no transcript —
     /// which is exactly what the recordings window leaves behind when somebody
@@ -235,6 +250,116 @@ struct RetranscriptionTests {
         #expect(PostProcessor.plan(for: item, transcriptionEnabled: true) == .finish)
         #expect(PostProcessor.plan(for: item, again: true, transcriptionEnabled: true)
             == .transcribe(clearingFirst: true))
+    }
+
+    // MARK: - one session, two processes
+
+    /// The claim is only worth having if it goes away again. A run that leaves
+    /// `.transcribing.json` behind locks the session out of every later queue
+    /// until the process that wrote it dies.
+    @Test("A finished transcription leaves no claim behind, and neither does a failed one")
+    func theClaimIsReleasedByBothOutcomes() async throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let claim = SessionClaim.url(dir)
+
+        try await TranscriptionCoordinator(engine: RecordingEngine()).transcribeNow(dir)
+        #expect(!FileManager.default.fileExists(atPath: claim.path))
+
+        PostProcessor.markForRetranscription(dir)
+        await #expect(throws: (any Error).self) {
+            try await TranscriptionCoordinator(engine: BrokenEngine()).transcribeNow(dir)
+        }
+        #expect(
+            !FileManager.default.fileExists(atPath: claim.path),
+            "A transcription that threw must still give the session back."
+        )
+    }
+
+    /// What the menu bar counts as its backlog. A session another amanu has is
+    /// in progress, not pending; one whose claimant is gone is nobody's.
+    @Test("A session under a live claim is not pending; one under a dead claim is")
+    func pendingLeavesOutSessionsSomebodyElseHas() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-claims-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let live = root.appendingPathComponent("2026-08-20-live", isDirectory: true)
+        let dead = root.appendingPathComponent("2026-08-20-dead", isDirectory: true)
+        for dir in [live, dead] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: ["files": ["mic": "mic.caf"]])
+                .write(to: dir.appendingPathComponent("meta.json"))
+        }
+        // Our own pid stands in for a second amanu mid-transcription; 999999
+        // for one that died holding the folder.
+        try Self.claim(live, pid: ProcessInfo.processInfo.processIdentifier)
+        try Self.claim(dead, pid: 999_999)
+
+        #expect(TranscriptionCoordinator.pendingSessions(in: root)
+            .map { $0.lastPathComponent } == [dead.lastPathComponent])
+    }
+
+    /// The other cost centre. Both surfaces that finish a session — the sweep
+    /// at launch, the button, the command line, and the coordinator itself —
+    /// ask the same models, and two of them in one folder is one answer paid
+    /// for twice.
+    @Test("Post-processing a session somebody else is finishing does nothing at all")
+    func finishRefusesUnderALiveClaim() async throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Transcript(
+            engine: "parakeet", model: "v3", created_at: "2026-08-20T09:00:00Z",
+            segments: [.init(speaker: "me", start_ms: 0, end_ms: 1000, text: "Привет.")]
+        ).write(to: dir)
+        // Naming and summarizing gave up on the fixture; take that back, so
+        // that what stops this run is the claim and nothing else.
+        SessionState.update(dir, with: [
+            SessionState.Key.speakersStatus: nil,
+            SessionState.Key.summaryStatus: nil,
+        ])
+        #expect(!PostProcessor.outstanding(dir, policy: Self.bothSteps).isEmpty)
+
+        try Self.claim(dir, pid: ProcessInfo.processInfo.processIdentifier, stage: "finish")
+        let work = await PostProcessor.finish(dir, policy: Self.bothSteps)
+
+        #expect(work.isEmpty)
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("summary.md").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent(SpeakerNames.file).path))
+    }
+
+    /// And the transcript a run in flight is about to rewrite: clearing it from
+    /// under that run is how a summarizer ends up reading a file that has just
+    /// been deleted.
+    @Test("A session somebody else has is not cleared for re-transcription")
+    func retranscriptionWaitsForTheOwner() throws {
+        let dir = try Self.settledSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Transcript(
+            engine: "parakeet", model: "v3", created_at: "2026-08-20T09:00:00Z",
+            segments: [.init(speaker: "me", start_ms: 0, end_ms: 1000, text: "Привет.")]
+        ).write(to: dir)
+        try Self.claim(dir, pid: ProcessInfo.processInfo.processIdentifier)
+
+        PostProcessor.markForRetranscription(dir)
+
+        #expect(FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("transcript.json").path))
+    }
+
+    /// A claim as another process would have left it, written by hand so the
+    /// pid in it can be one this test chooses.
+    @discardableResult
+    private static func claim(_ dir: URL, pid: Int32, stage: String = "transcribe") throws -> URL {
+        let url = SessionClaim.url(dir)
+        try JSONSerialization.data(
+            withJSONObject: ["pid": pid, "started": "2026-08-20T09:00:00Z", "stage": stage],
+            options: [.prettyPrinted, .sortedKeys]
+        ).write(to: url)
+        return url
     }
 
     // MARK: - the same route from the recordings window

@@ -97,6 +97,14 @@ struct ProcessSession: ParsableCommand {
                 // out of audio.m4a a channel at a time; on one that never got
                 // that far it reads the tracks as they were recorded.
                 try runBlocking { try await TranscriptionCoordinator().transcribeNow(dir) }
+            } catch let busy as SessionClaim.Busy {
+                // The running app got to this folder first. Nothing has been
+                // touched, and there is nothing to fix — so this reads as a
+                // refusal rather than as a failure, and points at the copy of
+                // amanu that is doing the work.
+                print("")
+                print(busy)
+                throw ExitCode(1)
             } catch {
                 print("")
                 print("Transcription failed: \(error)")
@@ -107,6 +115,14 @@ struct ProcessSession: ParsableCommand {
         case .finish:
             let work = try runBlocking { await PostProcessor.finish(dir) }
             if work.isEmpty {
+                // Nothing done has two meanings and only one of them is good
+                // news. A session the app is naming and summarizing right now
+                // must not be reported as finished.
+                if let holder = SessionClaim.holder(dir), holder.isAlive {
+                    print("")
+                    print(SessionClaim.Busy(session: dir.lastPathComponent, holder: holder))
+                    throw ExitCode(1)
+                }
                 print("\nNothing to do — everything that can be done is done.")
                 return
             }

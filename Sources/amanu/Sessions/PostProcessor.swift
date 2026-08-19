@@ -69,10 +69,30 @@ enum PostProcessor {
     /// Order matters and is the whole point: names first, so the summary is
     /// handed "Фёдор" instead of "them" and writes about people rather than
     /// about channels.
+    ///
+    /// Four things call this — the transcription coordinator, the sweep at
+    /// launch and on every network return, the recordings window's button, and
+    /// `amanu process` — and any two of them can be in the same folder at the
+    /// same moment. So it takes the session's claim first, and returns an empty
+    /// `Work` when somebody else has it: these are model calls, and asking the
+    /// same model the same question twice costs money for one answer.
+    ///
+    /// `policy` is here for the same reason `outstanding` has one: a test can
+    /// say which steps it is exercising instead of inheriting whatever the
+    /// machine owner has turned on this week.
     @discardableResult
-    static func finish(_ dir: URL) async -> Work {
-        let work = outstanding(dir)
+    static func finish(_ dir: URL, policy: Policy = .configured) async -> Work {
+        let work = outstanding(dir, policy: policy)
         guard !work.isEmpty else { return work }
+
+        do {
+            try SessionClaim.acquire(dir, stage: .finish)
+        } catch {
+            appendSessionLog("post-processing skipped — \(error)", to: dir)
+            return Work()
+        }
+        defer { SessionClaim.release(dir) }
+
         guard let transcript = readTranscript(dir) else {
             appendSessionLog("post-processing skipped — can't read transcript.json", to: dir)
             return Work()
@@ -297,7 +317,18 @@ enum PostProcessor {
     /// queue treats it as untranscribed at the next scan. The AssemblyAI
     /// response cache is deliberately kept: re-rendering from it is free,
     /// while re-uploading is neither free nor fast.
+    ///
+    /// A session somebody else is working on is left exactly as it is: deleting
+    /// the transcript out from under a run in flight is how a summarizer ends
+    /// up reading a file that no longer exists, and the run it would have
+    /// interrupted is producing the very transcript being asked for.
     static func markForRetranscription(_ dir: URL) {
+        guard !SessionClaim.isHeld(dir) else {
+            appendSessionLog(
+                "not clearing for re-transcription — another amanu has this session", to: dir)
+            return
+        }
+
         let fm = FileManager.default
         for file in ["transcript.json", "transcript.md", SpeakerNames.file] {
             try? fm.removeItem(at: dir.appendingPathComponent(file))
