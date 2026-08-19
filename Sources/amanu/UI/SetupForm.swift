@@ -94,6 +94,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let liveTranscription = NSSwitch()
     private let liveStatus = NSTextField(labelWithString: "")
     private let liveModelStore = LiveTranscriptionModelStore()
+    /// What the models on this Mac weigh, for the two rows that say so. The
+    /// figure in each row's prose is what a download will cost; this is what
+    /// it did cost, and only this one can be trusted once the files exist.
+    private let modelStorage = ModelStorage()
     private var liveDownloadTask: Task<Void, Never>?
     private var liveDownloading = false
     /// What parakeet weighs on disk once it is there — measured, not quoted:
@@ -1150,7 +1154,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
         let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: livePrompt) {
-            liveStatus.stringValue = localised("downloaded", "скачана")
+            liveStatus.stringValue = Self.downloaded(modelStorage.liveModel())
             liveStatus.textColor = .systemGreen
         } else if !liveDownloading, Config.liveTranscriptionEnabled(), liveStatus.stringValue.isEmpty {
             liveStatus.stringValue = localised(
@@ -1233,7 +1237,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             let downloaded = AsrModels.modelsExist(
                 at: AsrModels.defaultCacheDirectory(for: version), version: version)
             if downloaded {
-                parakeetStatus.stringValue = localised("downloaded", "скачана")
+                parakeetStatus.stringValue = Self.downloaded(
+                    modelStorage.parakeet(version: version))
                 parakeetStatus.textColor = .systemGreen
                 parakeetBar.isHidden = true
             } else if parakeetProgress == nil {
@@ -1245,6 +1250,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 parakeetStatus.textColor = .secondaryLabelColor
             }
         }
+    }
+
+    /// A model that is here, and what it is costing to keep. The size is the
+    /// half of this line a person can act on: the row above it says what the
+    /// download would weigh, and only the Advanced tab can give the space
+    /// back, so the number has to appear where somebody would go looking for
+    /// it rather than only where it can be deleted.
+    private static func downloaded(_ model: ModelStorage.Model) -> String {
+        localised("downloaded · ", "скачана · ") + ModelStorage.describe(bytes: model.bytes)
     }
 
     /// Tint the row the primary button is about to act on — and only that

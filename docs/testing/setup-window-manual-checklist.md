@@ -299,6 +299,32 @@ checking by hand is only the seam between them.
 - Confirm the Setup tab has no **Later** or **Done**: those belong to the
   first run, and setup is marked completed by that window, not by this one.
 
+### Models on disk
+
+At the bottom of **Advanced**, and the only place amanu deletes anything a
+download brought in. The measuring can be read off a picture; the deleting is
+**by hand**, because it ends with half a gigabyte gone.
+
+- Confirm each listed model's size matches `du -sh` on the directory named in
+  the line above the rows, and that the total is the sum of what is listed.
+- Confirm the sizes agree with the two rows on the **Setup** tab, which say
+  the same numbers after "downloaded".
+- Set `transcription.model` to `v2`, reopen the tab, and confirm parakeet v3
+  is now listed as a second row — the version left behind is visible only
+  here. Put the setting back.
+- **By hand:** with **On this Mac** and the live transcript both on, delete
+  the live model. Confirm the alert names the size and says the live
+  transcript is going off, that the files are gone afterwards, that the switch
+  on the Setup tab is off, and that `live_transcription.enabled` has been
+  cleared from `config.json` rather than written `false`.
+- **By hand:** delete parakeet with the cloud on. Confirm the alert says
+  meetings will go to the cloud engine instead, and that
+  `transcription.engine` afterwards names that engine rather than being
+  absent. Record a short meeting and confirm it transcribes in the cloud
+  without fetching anything.
+- Cancel in the alert on a model you want to keep, and confirm nothing was
+  deleted and no setting changed.
+
 ## The language of the windows
 
 Nothing here needs a recording, but all of it needs a restart: the language is

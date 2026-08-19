@@ -41,6 +41,7 @@ program to suit its instruments.
 | `setup-switched-to-dark.png`, `setup-switched-back-to-light.png` | One window built in light and handed to the other appearance and back. |
 | `settings-setup-{light,dark}.png` | The settings window's first tab: the same form in another window. |
 | `settings-advanced-{light,dark}.png` | The Advanced tab, and `-narrow` at the minimum width the window allows. |
+| `settings-advanced-{light,dark}-bottom.png` | The same tab scrolled to its end, which is the only picture the models-on-disk block appears in. |
 | `settings-setup-switched-*.png` | The settings window through the same change of appearance. |
 | `tree.txt` | Every view in the setup window with its frame, in window coordinates. |
 

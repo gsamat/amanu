@@ -40,6 +40,15 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// Setup tab is a `SetupForm` and listens on its own.
     private var configWatch: ConfigWatch.Token?
     private var rows: [Row] = []
+    /// The local models as files: what they weigh and the button that gets
+    /// the space back. The one thing on this tab that is not a setting, and
+    /// the reason it is here anyway is in `modelsSection`.
+    private let modelStorage = ModelStorage()
+    private let modelsBox = NSStackView()
+    private let modelsTotal = NSTextField(labelWithString: "")
+    /// What the rows currently on screen are about, in the order they are in,
+    /// so a Delete button can find its own model by tag.
+    private var shownModels: [ModelStorage.Model] = []
     /// What the setup window says in its footer, under the tab that shows the
     /// same form. Not a copy of the wizard's footer: the sentence comes from
     /// the form, and there is no button under it — in a settings window a
@@ -160,6 +169,24 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// sentence, under the same form.
     var outstandingLine: String { outstanding.stringValue }
 
+    /// Everything the models block says. The rest of this tab is written from
+    /// `SettingsSchema`, which is checked for translation as a list; these
+    /// are the only words here written by hand, so this is how they get read
+    /// in both languages too.
+    var modelLines: [String] {
+        var found = [modelsTotal.stringValue]
+        var pending = modelsBox.subviews
+        while let next = pending.popLast() {
+            pending.append(contentsOf: next.subviews)
+            switch next {
+            case let field as NSTextField: found.append(field.stringValue)
+            case let button as NSButton: found.append(button.title)
+            default: break
+            }
+        }
+        return found
+    }
+
     func hide() { panel.orderOut(nil) }
 
     // MARK: - building
@@ -238,7 +265,221 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
                 form.addArrangedSubview(makeRow(for: entry))
             }
         }
+
+        // Nothing to weigh and nothing to delete on an Intel Mac: the local
+        // models can't run there, so they were never downloaded.
+        if Platform.supportsLocalModels {
+            form.setCustomSpacing(24, after: form.arrangedSubviews.last!)
+            for view in modelsSection() { form.addArrangedSubview(view) }
+        }
         return form
+    }
+
+    /// What the local models are costing in disk, and the only place amanu
+    /// offers to remove them.
+    ///
+    /// It breaks this tab's one rule — everything here comes from
+    /// `SettingsSchema` — and it has to, because it isn't a setting: there is
+    /// no key in the config file whose value is half a gigabyte of Core ML
+    /// packages. The schema stays the single list of *settings*; this is a
+    /// report on the disk with one action attached, and it is on this tab
+    /// because it is the tab a person opens when they have gone looking.
+    ///
+    /// It is deliberately not in the setup form. Deleting a model is a thing
+    /// to do deliberately, and setup is a form people click through.
+    private func modelsSection() -> [NSView] {
+        modelsBox.orientation = .vertical
+        modelsBox.alignment = .leading
+        modelsBox.spacing = 10
+
+        modelsTotal.font = .systemFont(ofSize: 11)
+        modelsTotal.textColor = .secondaryLabelColor
+        modelsTotal.lineBreakMode = .byTruncatingMiddle
+
+        return [
+            sectionHeader(localised("Models on disk", "Модели на диске")),
+            modelsTotal,
+            modelsBox,
+        ]
+    }
+
+    /// Rebuild the rows rather than update them. Which models are worth
+    /// listing is itself an answer that changes — a parakeet version left
+    /// behind by a change on this very tab appears, and goes when it is
+    /// deleted — and a list that only ever grew would keep offering to
+    /// delete a directory that isn't there any more.
+    private func refreshModels() {
+        guard Platform.supportsLocalModels else { return }
+        for view in modelsBox.arrangedSubviews {
+            modelsBox.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+
+        shownModels = modelStorage.all()
+        let total = modelStorage.total(shownModels)
+        modelsTotal.stringValue = total == 0
+            ? localised(
+                "Nothing downloaded yet. The setup tab is where they are fetched.",
+                "Пока ничего не скачано. Скачиваются они на вкладке настройки.")
+            : localised("\(ModelStorage.describe(bytes: total)) in total · ",
+                        "всего \(ModelStorage.describe(bytes: total)) · ")
+                + friendlyPath(shownModels[0].directory.deletingLastPathComponent())
+
+        for (index, model) in shownModels.enumerated() {
+            modelsBox.addArrangedSubview(modelRow(model, tag: index))
+        }
+    }
+
+    private func modelRow(_ model: ModelStorage.Model, tag: Int) -> NSView {
+        let name = NSTextField(labelWithString: model.name)
+        name.lineBreakMode = .byTruncatingTail
+
+        let size = NSTextField(labelWithString: model.isDownloaded
+            ? ModelStorage.describe(bytes: model.bytes)
+            : localised("not downloaded", "не скачана"))
+        size.textColor = model.isDownloaded ? .labelColor : .secondaryLabelColor
+        size.alignment = .right
+
+        let delete = NSButton(
+            title: localised("Delete", "Удалить"), target: self,
+            action: #selector(deleteModelClicked(_:)))
+        delete.bezelStyle = .rounded
+        delete.controlSize = .small
+        delete.tag = tag
+        // Present and disabled rather than absent: the row is the same row
+        // whether or not the model is here, and a button that comes and goes
+        // moves everything beside it.
+        delete.isEnabled = model.isDownloaded
+
+        let line = NSStackView(views: [name, size, delete])
+        line.orientation = .horizontal
+        line.alignment = .firstBaseline
+        line.spacing = 10
+        NSLayoutConstraint.activate([
+            name.widthAnchor.constraint(equalToConstant: 260),
+            size.widthAnchor.constraint(equalToConstant: 110),
+        ])
+
+        let help = NSTextField(labelWithString: Self.purpose(of: model.kind))
+        help.font = .systemFont(ofSize: 11)
+        help.textColor = .secondaryLabelColor
+        help.lineBreakMode = .byWordWrapping
+        help.maximumNumberOfLines = 0
+        help.preferredMaxLayoutWidth = 460
+
+        let row = NSStackView(views: [line, help])
+        row.orientation = .vertical
+        row.alignment = .leading
+        row.spacing = 2
+        return row
+    }
+
+    /// What the model is for, in the words the setup form uses for the switch
+    /// that asks for it — so somebody who deletes the wrong one has to have
+    /// misread the same sentence twice.
+    private static func purpose(of kind: ModelStorage.Model.Kind) -> String {
+        switch kind {
+        case .parakeet:
+            return localised(
+                "Transcribes on this Mac, after the meeting.",
+                "Расшифровывает на этом маке, после встречи.")
+        case .live:
+            return localised(
+                "The live transcript shown during a meeting.",
+                "Расшифровка, которая идёт прямо во время встречи.")
+        }
+    }
+
+    /// A path as a person would write it, which is also how the setup form
+    /// shows the recordings folder.
+    private func friendlyPath(_ url: URL) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return url.path.hasPrefix(home)
+            ? "~" + url.path.dropFirst(home.count)
+            : url.path
+    }
+
+    /// Ask, then delete, then bring down the switch that wanted it.
+    ///
+    /// The asking is not ceremony: the download is hundreds of megabytes over
+    /// whatever connection the person is on next time, and the alert is the
+    /// only place that says the switch is going off with it.
+    @objc private func deleteModelClicked(_ sender: NSButton) {
+        guard sender.tag < shownModels.count else { return }
+        let model = shownModels[sender.tag]
+        let choice = TranscriptionChoice.read(
+            engine: Config.transcriptionEngine(),
+            cloudProvider: Config.transcriptionCloudProvider(),
+            enabled: Config.transcriptionEnabled(),
+            localModels: Platform.supportsLocalModels)
+        let updates = ModelStorage.updatesAfterDeleting(
+            model.kind, choice: choice, liveEnabled: Config.liveTranscriptionEnabled())
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = localised("Delete \(model.name)?", "Удалить \(model.name)?")
+        alert.informativeText = Self.consequence(
+            of: model, choice: choice, switchesOff: !updates.isEmpty)
+        alert.addButton(withTitle: localised("Delete", "Удалить"))
+        alert.addButton(withTitle: localised("Cancel", "Отмена"))
+        alert.buttons.first?.hasDestructiveAction = true
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try modelStorage.delete(model)
+        } catch {
+            let failed = NSAlert()
+            failed.alertStyle = .warning
+            failed.messageText = localised(
+                "Couldn't delete \(model.name)", "Не удалось удалить \(model.name)")
+            failed.informativeText = error.localizedDescription
+            failed.runModal()
+            refreshModels()
+            return
+        }
+        // After the files, not before: a switch turned off for a deletion
+        // that then failed would leave the person worse off than they were.
+        for update in updates { Config.update(path: update.path, value: update.value) }
+        // A write redraws every surface, this one included — but only if
+        // there was one, and turning nothing off is the ordinary case.
+        if updates.isEmpty { refreshModels() }
+        setup.refresh()
+    }
+
+    /// What the person is about to lose, and what will change because of it.
+    private static func consequence(
+        of model: ModelStorage.Model,
+        choice: TranscriptionChoice,
+        switchesOff: Bool
+    ) -> String {
+        let freed = localised(
+            "\(ModelStorage.describe(bytes: model.bytes)) comes back. ",
+            "Освободится \(ModelStorage.describe(bytes: model.bytes)). ")
+        guard switchesOff else {
+            return freed + localised(
+                "It downloads again if you switch it back on.",
+                "Скачается снова, если её опять включить.")
+        }
+        switch model.kind {
+        case .parakeet where choice.cloud:
+            return freed + localised(
+                "Transcribing on this Mac goes off with it, so meetings go to "
+                    + "\(TranscriptionChoice.displayName(choice.provider)) instead.",
+                "Расшифровка на этом маке выключится, и встречи пойдут "
+                    + "в \(TranscriptionChoice.displayName(choice.provider)).")
+        case .parakeet:
+            return freed + localised(
+                "Nothing else is set up to transcribe, so transcription goes off "
+                    + "entirely — otherwise the model comes back at the next meeting.",
+                "Расшифровывать больше нечем, поэтому расшифровка выключится совсем — "
+                    + "иначе модель вернётся на ближайшей встрече.")
+        case .live:
+            return freed + localised(
+                "The live transcript goes off with it — otherwise the model comes "
+                    + "back at the next meeting.",
+                "Расшифровка по ходу встречи выключится — иначе модель вернётся "
+                    + "на ближайшей встрече.")
+        }
     }
 
     private func sectionHeader(_ title: String) -> NSView {
@@ -347,6 +588,9 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             }
         }
         showStrayKeys(in: config)
+        // Last, because it reads the disk rather than the file, and because
+        // what it lists depends on `transcription.model` just above it.
+        refreshModels()
     }
 
     private func value(at path: [String], in config: [String: Any]) -> Any? {
