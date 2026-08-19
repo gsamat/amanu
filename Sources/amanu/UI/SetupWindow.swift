@@ -948,8 +948,11 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 /// A row in the Access list: where it stands, what it's for, and the one
 /// button that changes it.
 @MainActor
-private final class AccessRow: NSView {
+private final class AccessRow: NSView, LayerTinted {
     var onAct: (() -> Void)?
+
+    /// Whether this is the row being asked for right now; see `setAttention`.
+    private var wantsAttention = false
 
     private let mark = NSImageView()
     private let title: NSTextField
@@ -1017,6 +1020,17 @@ private final class AccessRow: NSView {
 
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    func tintLayer() {
+        layer?.backgroundColor = wantsAttention
+            ? NSColor.systemOrange.withAlphaComponent(0.12).cgColor
+            : NSColor.clear.cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        retint()
+    }
+
     @objc private func act() { onAct?() }
 
     /// Say that something is happening, so a button that takes a second
@@ -1030,9 +1044,8 @@ private final class AccessRow: NSView {
     /// macOS shows one TCC dialog at a time, so more than one highlighted row
     /// would be pointing at work that cannot be done yet.
     func setAttention(_ on: Bool) {
-        layer?.backgroundColor = on
-            ? NSColor.systemOrange.withAlphaComponent(0.12).cgColor
-            : NSColor.clear.cgColor
+        wantsAttention = on
+        retint()
         title.textColor = on ? .systemOrange : .labelColor
         detail.textColor = on ? .systemOrange : .secondaryLabelColor
         if on {
@@ -1095,7 +1108,7 @@ private final class AccessRow: NSView {
 
 /// A card in a row of mutually exclusive choices.
 @MainActor
-final class ChoiceCard: NSView {
+final class ChoiceCard: NSView, LayerTinted {
     let id: String
     var onSelect: ((String) -> Void)?
 
@@ -1131,10 +1144,8 @@ final class ChoiceCard: NSView {
                 systemSymbolName: newValue ? "largecircle.fill.circle" : "circle",
                 accessibilityDescription: newValue ? "chosen" : "not chosen")
             radio.contentTintColor = newValue ? .controlAccentColor : .tertiaryLabelColor
-            layer?.borderColor = newValue
-                ? NSColor.controlAccentColor.cgColor
-                : NSColor.separatorColor.withAlphaComponent(0.6).cgColor
             layer?.borderWidth = newValue ? 1.5 : 1
+            retint()
         }
     }
 
@@ -1171,7 +1182,7 @@ final class ChoiceCard: NSView {
         wantsLayer = true
         layer?.cornerRadius = SetupLayout.corner
         layer?.borderWidth = 1
-        layer?.borderColor = NSColor.separatorColor.cgColor
+        retint()
 
         let stack = compact
             ? NSStackView(views: [heading, detailLabel, NSView(), statusLabel] + accessories)
@@ -1195,6 +1206,17 @@ final class ChoiceCard: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }
+
+    func tintLayer() {
+        layer?.borderColor = selected
+            ? NSColor.controlAccentColor.cgColor
+            : NSColor.separatorColor.withAlphaComponent(0.6).cgColor
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        retint()
+    }
 
     /// The install link only belongs on a card for something that isn't here.
     func showLink(_ show: Bool) { linkButton?.isHidden = !show }
