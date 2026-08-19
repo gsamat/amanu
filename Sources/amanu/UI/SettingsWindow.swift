@@ -36,6 +36,9 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
     private let panel: NSWindow
     private let setup = SetupForm()
+    /// Redraws the Advanced tab when anything writes the config file. The
+    /// Setup tab is a `SetupForm` and listens on its own.
+    private var configWatch: ConfigWatch.Token?
     private var rows: [Row] = []
     private let restartNotice = NSTextField(labelWithString: "")
     private let strayKeys = NSTextField(labelWithString: "")
@@ -115,10 +118,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         ])
         panel.contentView = content
 
-        // The two tabs are two views of one file, and several settings appear
-        // in both. Each redraws the other after a write, so switching tabs
-        // never shows what the file said a moment ago.
-        setup.onStateChange = { [weak self] in self?.refresh() }
+        configWatch = ConfigWatch.observe { [weak self] in self?.refresh() }
 
         panel.setFrameAutosaveName("amanu.settings")
         if panel.frame.origin == .zero { panel.center() }
@@ -334,10 +334,11 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         }
         // Clearing can change what a field should show — an emptied field goes
         // back to displaying its default as a placeholder — and a nested
-        // object may have just disappeared from the file entirely. The setup
-        // tab reads the same keys, so it is redrawn too.
+        // object may have just disappeared from the file entirely. The write
+        // above has already redrawn every other surface, this one included;
+        // an invalid entry never reaches it, which is why the guard clause
+        // redraws by hand.
         refresh()
-        setup.refresh()
     }
 
     /// Keys in the file that nothing reads: a typo, or a setting from a

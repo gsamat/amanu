@@ -284,6 +284,10 @@ final class AppController {
     private lazy var recordings = RecordingsWindow(root: root)
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
+    /// The live-transcript switch is on the status window and in the setup
+    /// form, which is in two windows; whichever one is used, the others have
+    /// to agree.
+    private var configWatch: ConfigWatch.Token?
     private var recordRequestObserver: NSObjectProtocol?
     private var activateObserver: NSObjectProtocol?
     /// App Nap throttles timers, network and IPC for an app nobody is looking
@@ -362,6 +366,9 @@ final class AppController {
             options: [.userInitiated, .suddenTerminationDisabled, .automaticTerminationDisabled],
             reason: "amanu watches for meetings and answers its command line")
 
+        configWatch = ConfigWatch.observe { [weak self] in
+            self?.window.updateLivePreference(enabled: Config.liveTranscriptionEnabled())
+        }
         setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
         activateObserver = SingleInstance.observe { [weak self] in self?.showWindow() }
         recordRequestObserver = RecordRequest.observe { [weak self] action in

@@ -39,6 +39,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// The form itself, for a host to put in a scroll view.
     let view = FlippedStackView()
 
+    /// Redraws this copy when anything writes the config file — the other
+    /// window showing the same form, the Advanced tab beside it, or the
+    /// status window's live-transcript switch.
+    private var configWatch: ConfigWatch.Token?
+
 
     private let launchRow = AccessRow(
         title: "Start at login",
@@ -161,6 +166,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         wireActions()
         refresh()
+        configWatch = ConfigWatch.observe { [weak self] in self?.refresh() }
     }
 
     /// Re-read the machine and the config file. A host calls this when the
@@ -618,15 +624,27 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func keyProviderChanged() {
+        showKeyProvider()
+        if summaryCards.selected == "api-key" {
+            Config.update(path: ["summary", "backend"], value: selectedKeyBackend)
+        }
+    }
+
+    /// Everything the Anthropic/OpenAI control changes about how its card
+    /// *looks* — and nothing it writes.
+    ///
+    /// Split out because `refresh` needs the looking and must not do the
+    /// writing. A redraw that writes rewrites the config file every time
+    /// anything is drawn, and once something listens for writes in order to
+    /// redraw — which is the whole point of `Config.didChange` — a redraw that
+    /// writes is a redraw that never stops.
+    private func showKeyProvider() {
         summaryKey.placeholderString = selectedKeyBackend == "anthropic-api" ? "sk-ant-…" : "sk-…"
         summaryKeyStatus.stringValue = ""
         summaryKeyLink.identifier = NSUserInterfaceItemIdentifier(
             selectedKeyBackend == "anthropic-api"
                 ? "https://console.anthropic.com/settings/keys"
                 : "https://platform.openai.com/api-keys")
-        if summaryCards.selected == "api-key" {
-            Config.update(path: ["summary", "backend"], value: selectedKeyBackend)
-        }
     }
 
     private var selectedKeyBackend: String {
@@ -1014,7 +1032,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let backendIsKey = summary.backend == "anthropic-api" || summary.backend == "openai-api"
         summaryCards.select(SetupSelection.summaryChoice(backend: summary.backend))
         if backendIsKey { keyProvider.selectedSegment = summary.backend == "openai-api" ? 1 : 0 }
-        keyProviderChanged()
+        showKeyProvider()
         for card in summaryCards.cards { card.isEnabled = summary.enabled }
 
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
