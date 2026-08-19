@@ -54,7 +54,7 @@ struct SettingsSchemaTests {
 
     @Test("An emptied field means unset, not empty")
     func emptyFieldClears() {
-        let language = Self.entry(.text(placeholder: "ru"), default: "the meeting's language")
+        let language = Self.entry(.text, default: "the meeting's language")
         #expect(Self.stored(.text(""), language) == nil)
         #expect(Self.stored(.text("   "), language) == nil)
         #expect(Self.stored(.text(" ru "), language) as? String == "ru")
@@ -65,7 +65,7 @@ struct SettingsSchemaTests {
 
     @Test("Typing the default value back clears the key")
     func typedDefaultClears() {
-        let model = Self.entry(.text(placeholder: "claude-opus-5"), default: "claude-opus-5")
+        let model = Self.entry(.text, default: "claude-opus-5")
         #expect(Self.stored(.text("claude-opus-5"), model) == nil)
         #expect(Self.stored(.text("claude-sonnet-5"), model) as? String == "claude-sonnet-5")
 
@@ -270,14 +270,19 @@ struct SettingsWindowTests {
     }
 
     /// Placeholders are how a default is visible without being set, which is
-    /// the thing that lets the config file stay empty.
-    @Test("Every field shows its default as a placeholder")
+    /// the thing that lets the config file stay empty. Not merely present —
+    /// the *default*: a placeholder showing a plausible example instead is how
+    /// the Language field spent a version implying its default was `ru` when
+    /// leaving it alone lets the engine detect what it hears.
+    @Test("Every field shows its own default as a placeholder")
     func fieldsShowDefaults() {
         _ = NSApplication.shared
         let window = SettingsWindow()
         for (entry, control) in zip(SettingsSchema.sections.flatMap(\.entries),
                                     window.renderedControls) {
             guard let field = control as? NSTextField else { continue }
+            #expect(field.placeholderString == SettingsSchema.describeDefault(entry),
+                    "\(entry.path) doesn't show its default as its placeholder")
             #expect(!(field.placeholderString ?? "").isEmpty,
                     "\(entry.path) has no placeholder")
         }

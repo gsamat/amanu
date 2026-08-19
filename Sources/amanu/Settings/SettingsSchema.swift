@@ -15,7 +15,7 @@ enum SettingsSchema {
         /// A fixed set of values, rendered as a pop-up.
         case choice([String])
         case number(unit: String)
-        case text(placeholder: String)
+        case text
         /// A comma-separated list, stored as an array of strings.
         case list
     }
@@ -27,8 +27,9 @@ enum SettingsSchema {
         /// One line saying what it does — in the window, under the control.
         let help: String
         let kind: Kind
-        /// Rendered as the placeholder, so the default is visible without
-        /// having to set it.
+        /// Rendered as the field's placeholder, so the default is visible
+        /// without having to set it — which is what lets an untouched config
+        /// file stay empty and still be readable.
         let defaultValue: Any
         /// True when the value is only read at startup. Saying so beats a
         /// user changing a switch and quietly getting nothing.
@@ -72,7 +73,7 @@ enum SettingsSchema {
                 Entry(["transcription", "language"], "Language",
                       "Two-letter code for what meetings are mostly in. English is expected "
                           + "alongside it; the engine still decides which it heard.",
-                      .text(placeholder: "ru"), default: "unset — detected from any language"),
+                      .text, default: "detected from any language"),
             ]
         }
         return [
@@ -88,7 +89,7 @@ enum SettingsSchema {
             Entry(["transcription", "language"], "Language",
                   "Two-letter code for what meetings are mostly in. English is expected "
                       + "alongside it; both engines still decide which they heard.",
-                  .text(placeholder: "ru"), default: "unset — detected from any language"),
+                  .text, default: "detected from any language"),
             Entry(["transcription", "model"], "Parakeet model",
                   "v3 covers 25 European languages; v2 is English-only.",
                   .choice(["v3", "v2"]), default: "v3"),
@@ -126,7 +127,7 @@ enum SettingsSchema {
                   .number(unit: "minutes"), default: 300),
             Entry(["auto_record", "apps"], "Call apps",
                   "Bundle-id prefixes that count as a call. Empty means any app that opens the mic.",
-                  .list, default: "the known conferencing apps and browsers"),
+                  .list, default: "known call apps and browsers"),
             Entry(["auto_record", "ignore_apps"], "Never count these",
                   "Bundle ids or app names that never start a recording, whatever they do with the mic.",
                   .list, default: "empty"),
@@ -144,7 +145,7 @@ enum SettingsSchema {
                   .toggle, default: false),
             Entry(["recordings_dir"], "Recordings folder",
                   "Where sessions land.",
-                  .text(placeholder: "~/Recordings"), default: "~/Recordings", needsRestart: true),
+                  .text, default: "~/Recordings", needsRestart: true),
         ]),
 
         Section(title: "Transcription", entries: [
@@ -157,15 +158,13 @@ enum SettingsSchema {
                   .toggle, default: true),
             Entry(["transcription", "assemblyai", "api_key_path"], "AssemblyAI key file",
                   "Where the cloud engine's key is read from. ASSEMBLYAI_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/amanu/keys/assemblyai"),
-                  default: "~/.config/amanu/keys/assemblyai"),
+                  .text, default: "~/.config/amanu/keys/assemblyai"),
             Entry(["transcription", "assemblyai", "speech_model"], "AssemblyAI speech model",
                   "Empty sends nothing and lets the API pick its own default.",
-                  .text(placeholder: "best"), default: "the API's own default"),
+                  .text, default: "the API's own default"),
             Entry(["transcription", "openai", "model"], "OpenAI model",
                   "The default is the only OpenAI model that returns both timings and speakers.",
-                  .text(placeholder: "gpt-4o-transcribe-diarize"),
-                  default: "gpt-4o-transcribe-diarize"),
+                  .text, default: "gpt-4o-transcribe-diarize"),
         ]),
 
         Section(title: "Summaries", entries: [
@@ -178,24 +177,22 @@ enum SettingsSchema {
                   default: "auto"),
             Entry(["summary", "model"], "Anthropic model",
                   "Used on the API path. The CLI uses whatever model Claude Code is set to.",
-                  .text(placeholder: "claude-opus-5"), default: "claude-opus-5"),
+                  .text, default: "claude-opus-5"),
             Entry(["summary", "openai_model"], "OpenAI model",
                   "Used by the codex CLI and the OpenAI API.",
-                  .text(placeholder: "gpt-5"), default: "gpt-5"),
+                  .text, default: "gpt-5"),
             Entry(["summary", "ollama_model"], "Local model",
                   "The fully-offline fallback.",
-                  .text(placeholder: "qwen3:8b"), default: "qwen3:8b"),
+                  .text, default: "qwen3:8b"),
             Entry(["summary", "language"], "Summary language",
                   "Leave empty to write in whichever language the meeting was held in.",
-                  .text(placeholder: "ru"), default: "the language of the meeting"),
+                  .text, default: "the language of the meeting"),
             Entry(["summary", "api_key_path"], "Anthropic key file",
                   "Where the Anthropic key is read from. ANTHROPIC_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/amanu/keys/anthropic"),
-                  default: "~/.config/amanu/keys/anthropic"),
+                  .text, default: "~/.config/amanu/keys/anthropic"),
             Entry(["summary", "openai_api_key_path"], "OpenAI key file",
                   "Where the OpenAI key is read from. OPENAI_API_KEY wins over it.",
-                  .text(placeholder: "~/.config/amanu/keys/openai"),
-                  default: "~/.config/amanu/keys/openai"),
+                  .text, default: "~/.config/amanu/keys/openai"),
         ]),
 
         Section(title: "Calendar and naming", entries: [
@@ -207,14 +204,14 @@ enum SettingsSchema {
                   .toggle, default: true),
             Entry(["user_name"], "Your name",
                   "Used instead of \"me\". Empty falls back to the account's full name, and to \"me\" if that isn't a person's name.",
-                  .text(placeholder: NSFullUserName()), default: "the account's full name"),
+                  .text, default: "the account's full name"),
             Entry(["speaker_names", "backend"], "Which model to ask",
                   "Same chain as summaries. auto walks it until one answers.",
                   .choice(["auto", "claude-cli", "anthropic-api", "codex-cli", "openai-api", "ollama"]),
                   default: "auto"),
             Entry(["speaker_names", "model"], "Anthropic model for naming",
                   "Naming is an easier job than summarizing; empty uses the summary's model.",
-                  .text(placeholder: "claude-sonnet-5"), default: "the summary's model"),
+                  .text, default: "the summary's model"),
         ]),
 
         Section(title: "Interface", entries: [
@@ -226,9 +223,26 @@ enum SettingsSchema {
                   .toggle, default: true, needsRestart: true),
             Entry(["on_stop"], "Run after each session",
                   "A shell command, given the session folder as its argument, after the transcript and summary are written.",
-                  .text(placeholder: "my-hook"), default: "nothing"),
+                  .text, default: "nothing"),
         ]),
     ] }
+
+    /// The default in words, for the grey of an empty field.
+    ///
+    /// Every setting has one and it is worth showing: a control says what it
+    /// is set to and never what it would do if nobody had set it. Booleans
+    /// read as the switch reads — on, off — and a number carries its unit,
+    /// because "12" on its own is a question.
+    static func describeDefault(_ entry: Entry) -> String {
+        switch entry.kind {
+        case .toggle:
+            return entry.defaultValue as? Bool == true ? "on" : "off"
+        case .number(let unit):
+            return "\(entry.defaultValue) \(unit)"
+        default:
+            return "\(entry.defaultValue)"
+        }
+    }
 
     // MARK: - what a control's contents mean
 

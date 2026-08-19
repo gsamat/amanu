@@ -1,6 +1,8 @@
 # Setup window: manual verification
 
-Last run 19 August 2026, against `Amanu.app` 0.2.0. Most of it can be driven
+Last run 19 August 2026, against `Amanu.app` 0.2.0; the settings-window
+section below was added when the form moved into Settings and has not been run
+against a build yet. Most of it can be driven
 without hands — a real click at a screen point plus `~/.config/amanu/config.json`
 answers nearly every question here — and that is how it was run. The items that
 genuinely need a person are marked **by hand**; they are the ones involving
@@ -249,6 +251,27 @@ the Mac, and a few minutes of waiting.
    an unusable key in place of the working one, record a few seconds, and
    confirm a failed transcript keeps the source audio. Switch the Mac back on
    and restore the key immediately afterwards.
+
+## The settings window shows the same form
+
+The form on this list is also the first tab of **Settings** (⌘,). It is one
+`SetupForm`, not two, so everything above holds there as well; what is worth
+checking by hand is only the seam between them.
+
+- Open Settings and confirm the **Setup** tab is selected, is scrolled to the
+  top — the Access list, not the middle of it — and shows the same rows,
+  switches, cards and machine-read statuses as the Setup window.
+- In **Advanced**, confirm every empty field shows its default in grey and
+  nothing is truncated at the right edge of the field.
+- Change something in **Advanced** that the Setup tab also shows —
+  `keep_audio`, or `transcription.cloud` — switch back, and confirm the Setup
+  tab already agrees. It is redrawn on every write rather than when reopened.
+- Change the same setting on the Setup tab and confirm `config.json` says so.
+- With Settings and Setup both open, change something in one and confirm the
+  other agrees once it is brought forward: they are separate forms over one
+  file, and coming back on screen is what re-reads it.
+- Confirm the Setup tab has no **Later** or **Done**: those belong to the
+  first run, and setup is marked completed by that window, not by this one.
 
 ## Reopening and restart behavior
 

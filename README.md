@@ -536,10 +536,25 @@ delete the key from `meta.json` to offer it again.
 
 ## Settings
 
-**⌘,** — from the menu bar item or the app menu. Every setting amanu has, with
-a line saying what it does and its default showing as the placeholder, so you
-can see what a value would be without setting it. Settings that are only read
-at startup say so under the control instead of pretending to take effect.
+**⌘,** — from the menu bar item or the app menu. Two tabs.
+
+**Setup** is the first-run window itself, not a copy of it: the same
+permission rows, the same switches for what transcribes and cards for who
+does, the same folder and language and automatic recording. It reports what it
+finds on the machine — whether a grant exists, whether the local model is
+downloaded, whether `claude` and `codex` answer when run — and nothing in it
+was ever meant to be changeable only on the day amanu was installed. **Setup…**
+in the menu opens the same form with a wizard around it: a footer naming what
+is still outstanding, and one button that does the next thing that has to
+happen.
+
+**Advanced** is everything setup doesn't ask, which is most of the settings:
+every entry amanu has, with a line saying what it does. An untouched field
+shows its default in grey as the placeholder — the value itself where there is
+one, and otherwise what happens instead (`the language of the meeting`,
+`detected from any language`), so a setting can be read without being set.
+Settings that are only read at startup say so under the control instead of
+pretending to take effect.
 
 The window writes `~/.config/amanu/config.json` and writes as little as it can:
 a control put back to its default **clears** the key rather than storing
@@ -728,7 +743,8 @@ A negative x means the item is parked outside the display.
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
 - **AppKit** — the whole UI by hand: a status item, the Dock icon, and four
-  plain windows (status, recordings, settings, setup). No SwiftUI
+  plain windows (status, recordings, settings, setup — the last two showing
+  one shared form). No SwiftUI
 
 ## If amanu dies mid-meeting
 

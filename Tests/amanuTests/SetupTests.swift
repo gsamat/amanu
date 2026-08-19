@@ -372,6 +372,29 @@ struct SetupTests {
         #expect(install.identifier?.rawValue == "https://ollama.com/download/mac")
     }
 
+    /// The settings window is not allowed a second, poorer copy of the setup
+    /// form: two hand-written forms over one set of settings drift the moment
+    /// either is edited. This is the cheapest way to notice — the provider
+    /// cards only exist in `SetupForm`, so finding one inside the settings
+    /// window is evidence that the window shows the form rather than
+    /// imitating it.
+    @Test("The settings window shows the setup form itself")
+    @MainActor
+    func settingsReusesTheSetupForm() throws {
+        let settings = SettingsWindow()
+        defer { withExtendedLifetime(settings) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu settings" })
+        let tabs = try #require(panel.contentView?.allDescendants
+            .compactMap { $0 as? NSTabView }.first)
+
+        #expect(tabs.tabViewItems.map(\.label) == ["Setup", "Advanced"])
+        // Only the selected tab is in the hierarchy, and setup is the one a
+        // person opening settings should land on.
+        let cards = panel.contentView?.allDescendants.compactMap { $0 as? ChoiceCard } ?? []
+        #expect(cards.contains { $0.id == "assemblyai" })
+        #expect(cards.contains { $0.id == "claude-cli" })
+    }
+
     @Test("The Claude card keeps the automatic fallback chain")
     func summaryChoiceMapping() {
         #expect(SetupSelection.summaryBackend(
