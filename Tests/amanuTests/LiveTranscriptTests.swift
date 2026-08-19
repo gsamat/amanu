@@ -199,6 +199,56 @@ struct LiveTranscriptTests {
         #expect(snapshot.entries.isEmpty)
     }
 
+    @Test("The transcript folds away when the meeting ends, and a link brings it back")
+    func transcriptVisibilityAcrossTheEndOfAMeeting() {
+        func snapshot(
+            recording: Bool,
+            status: LiveTranscriptionCoordinator.Status,
+            text: Bool
+        ) -> LiveTranscriptionCoordinator.Snapshot {
+            var state = LiveTranscriptState()
+            state.beginRecording(enabled: true)
+            if text {
+                state.applyPartial(
+                    speaker: .you, text: "so we agreed", startMilliseconds: 0,
+                    epoch: state.epoch)
+            }
+            return LiveTranscriptionCoordinator.Snapshot(
+                isRecording: recording, isEnabled: true, entries: state.entries,
+                status: status)
+        }
+
+        // Nothing said yet, but the model is loading: the box is there so the
+        // first words do not push the window taller under the reader's hands.
+        #expect(StatusWindow.liveTextVisibility(
+            for: snapshot(recording: true, status: .loading, text: false),
+            revealed: false
+        ) == .init(showsTranscript: true, showsRevealLink: false))
+
+        #expect(StatusWindow.liveTextVisibility(
+            for: snapshot(recording: true, status: .live, text: true),
+            revealed: false
+        ) == .init(showsTranscript: true, showsRevealLink: false))
+
+        // The meeting is over: the box goes, the link stays.
+        #expect(StatusWindow.liveTextVisibility(
+            for: snapshot(recording: false, status: .idle, text: true),
+            revealed: false
+        ) == .init(showsTranscript: false, showsRevealLink: true))
+
+        #expect(StatusWindow.liveTextVisibility(
+            for: snapshot(recording: false, status: .idle, text: true),
+            revealed: true
+        ) == .init(showsTranscript: true, showsRevealLink: true))
+
+        // A recording that produced no live text at all offers nothing to
+        // reveal, so the section stays a single row.
+        #expect(StatusWindow.liveTextVisibility(
+            for: snapshot(recording: false, status: .idle, text: false),
+            revealed: true
+        ) == .init(showsTranscript: false, showsRevealLink: false))
+    }
+
     @Test("The downloaded model runs both shared live streams end to end")
     func downloadedModelDualStreamIntegration() async throws {
         guard ProcessInfo.processInfo.environment["AMANU_RUN_LIVE_MODEL_TEST"] == "1" else {

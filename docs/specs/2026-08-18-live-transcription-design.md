@@ -80,8 +80,13 @@ an unobtrusive status label.
   epoch. Nothing from the disabled interval appears later.
 - Amanu's existing recording pause also pauses live input, then resumes the
   same live epoch when recording resumes.
-- At meeting stop, the preview remains visible for reference. It is cleared at
-  the beginning of the next recording or when the process exits.
+- At meeting stop, the preview folds away and the window returns to the height
+  it had before it expanded: the meeting is over, and a status window has no
+  reason to stay tall for a transcript nobody is reading any more. A
+  `Show transcript` link appears where the status label sits — the label has
+  nothing to say once recording has stopped — and brings the text back for as
+  long as it is wanted. The text itself is cleared at the beginning of the next
+  recording or when the process exits.
 - A live failure appears inline. It never changes the recorder's state or the
   post-recording queue.
 
