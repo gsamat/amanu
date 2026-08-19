@@ -111,6 +111,39 @@ struct TranscriptionChoiceTests {
         #expect(chosen["transcription.cloud"] == "openai")
     }
 
+    /// Found by clicking the real window: a provider asked for while it had no
+    /// key stayed "pending" after the key came back, so the form kept a key
+    /// field open — focused, over a working key — and kept a card marked
+    /// chosen that the config did not agree with.
+    @Test("A pending provider stops pending once it has a key")
+    func pendingClearsWhenTheKeyArrives() {
+        #expect(TranscriptionChoice.stillPending("openai") { _ in true } == nil)
+        #expect(TranscriptionChoice.stillPending("openai") { _ in false } == "openai")
+        #expect(TranscriptionChoice.stillPending(nil) { _ in false } == nil)
+        // Each provider answers for itself: assemblyai having a key says
+        // nothing about openai waiting for one.
+        #expect(TranscriptionChoice.stillPending("openai") { $0 == "assemblyai" } == "openai")
+    }
+
+    /// The key line says what the key would do, and the row says a key is
+    /// missing only when that is what holds the switch down — a cloud already
+    /// running through the other provider is not waiting for anything.
+    @Test("What is asked for depends on what the key would do")
+    func keyPromptWording() {
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: nil, inForce: "assemblyai", cloudOn: true) == nil)
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: "assemblyai", inForce: "assemblyai", cloudOn: false)
+            == "paste a key to switch this on")
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: "openai", inForce: "assemblyai", cloudOn: true)
+            == "paste a key to move to OpenAI")
+
+        #expect(TranscriptionChoice.rowNeedsKey(pending: "openai", cloudOn: false))
+        #expect(!TranscriptionChoice.rowNeedsKey(pending: "openai", cloudOn: true))
+        #expect(!TranscriptionChoice.rowNeedsKey(pending: nil, cloudOn: false))
+    }
+
     /// The Intel half of the universal binary: there is no local model, so
     /// the local switch cannot be on however the config reads.
     @Test("Without local models the local switch is always off")

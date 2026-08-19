@@ -1029,6 +1029,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func refreshTranscription() {
         let choice = transcriptionChoice
         provider = choice.provider
+        pendingProvider = TranscriptionChoice.stillPending(pendingProvider) { [weak self] in
+            self?.hasKey(for: $0) ?? false
+        }
+
         cloudSwitch.state = choice.cloud ? .on : .off
         // The card under the key field is the one being answered, so a
         // provider waiting for a key is the one shown chosen.
@@ -1041,17 +1045,18 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         }
         cloudKey.placeholderString = (pendingProvider ?? provider) == "openai"
             ? "sk-…" : "paste key"
-        if let pending = pendingProvider, cloudKeyStatus.stringValue.isEmpty {
-            cloudKeyStatus.stringValue = pending == provider || !choice.cloud
-                ? "paste a key to switch this on"
-                : "paste a key to move to \(pending == "openai" ? "OpenAI" : "AssemblyAI")"
-        }
-        if pendingProvider == nil, cloudKeyStatus.stringValue == "checking…" {
+        // Written on every pass rather than only into an empty label: a line
+        // left over from the last question describes the wrong one.
+        if let prompt = TranscriptionChoice.keyPrompt(
+            pending: pendingProvider, inForce: provider, cloudOn: choice.cloud) {
+            cloudKeyStatus.stringValue = prompt
+        } else if cloudKeyStatus.stringValue == "checking…" {
             cloudKeyStatus.stringValue = ""
         }
-        // The cards below carry the price and the key state, so the row says
-        // something only when it is waiting for one.
-        cloudStatus.stringValue = pendingProvider == nil ? "" : "needs a key"
+        // The cards below carry the price and the key state, so the row speaks
+        // only when a missing key is what holds the switch down.
+        cloudStatus.stringValue = TranscriptionChoice.rowNeedsKey(
+            pending: pendingProvider, cloudOn: choice.cloud) ? "needs a key" : ""
         keyLine.isHidden = pendingProvider == nil && hasKey(for: provider)
 
         localSwitch.isEnabled = Platform.supportsLocalModels
