@@ -25,7 +25,7 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 ```sh
 make app                                 # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/    # replace the installed copy
-swift test                               # 188 tests
+swift test                               # 192, of which 3 only run for shots
 ```
 
 Quit the running app before replacing `/Applications/Amanu.app` — deleting a
@@ -35,7 +35,10 @@ doorbell the new copy is ringing.
 Audio paths can only be tested by making a recording by hand. Everything else
 is covered by tests, and `docs/testing/setup-window-manual-checklist.md` covers
 the setup window — most of it can be driven from a script, and the items that
-genuinely need a person are marked.
+genuinely need a person are marked. Before changing that window, read
+`docs/testing/window-shots.md`: it renders both windows to PNG in both
+appearances, and every layout defect this project has found was found by
+looking at one.
 
 ## Two standing decisions
 

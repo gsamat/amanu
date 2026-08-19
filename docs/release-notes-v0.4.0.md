@@ -76,7 +76,7 @@ update as they survive any rebuild.
 
 The whole of this release was written by several agents working at once and
 merged afterwards, and the merge is the part worth being careful about. The
-automated tests pass — 188 of them — the universal build is signed and both
+automated tests pass — 189 of them — the universal build is signed and both
 slices answer `doctor`, and each window was rendered off screen and looked at.
 But **nobody has clicked through the merged setup window in a running copy**,
 and `docs/testing/setup-window-manual-checklist.md` has not been run against
