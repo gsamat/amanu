@@ -544,9 +544,16 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
     private func askCalendar() async {
         let state = await SetupPermissions.requestCalendar()
+        calendarGrant = state
         if state == .denied { SetupPermissions.openSettings(.calendar) }
         refresh()
     }
+
+    /// What the calendar prompt answered, for as long as this window is open.
+    /// Kept because EventKit will not admit to a grant given in this process
+    /// until the next launch, and a row that still says "optional" after the
+    /// person has just said yes is the button looking broken all over again.
+    private var calendarGrant: SetupPermissions.State?
 
     private func testSystemAudio() async {
         audioRow.working("playing a tone…")
@@ -790,7 +797,7 @@ final class SetupWindow: NSObject, NSTextFieldDelegate, NSWindowDelegate {
                 detail: "Only Amanu.app can register itself; this is a bare build.")
         }
         micRow.update(SetupPermissions.microphone())
-        calendarRow.update(SetupPermissions.calendar())
+        calendarRow.update(calendarGrant ?? SetupPermissions.calendar())
 
         switch systemAudio {
         case .heard:
