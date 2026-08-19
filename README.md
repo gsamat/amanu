@@ -319,9 +319,11 @@ error at all.
 
 ## Transcription
 
-Built in and automatic, with two engines behind one protocol. Which one runs
-is `transcription.engine`, `auto` by default: cloud when a key and a network
-are both there, local otherwise.
+Built in and automatic, with three engines behind one protocol: one local and
+two cloud services. Which one runs is `transcription.engine`, `auto` by
+default: the cloud when a key and a network are both there, local otherwise.
+`transcription.cloud` picks *which* cloud — `assemblyai` (default) or
+`openai`.
 
 Jobs run in a serial queue, so a new recording can start while the last one is
 still being transcribed, and unfinished jobs resume at the next launch — the
@@ -388,7 +390,8 @@ selected.
 The key is read from `~/.config/amanu/keys/assemblyai` (chmod 600) — amanu's
 own drawer, mode 0700, so no other tool that keeps a key on this machine can
 overwrite it. A key already sitting in the shared `~/.config/assemblyai/token`
-is read as a fallback, so nobody has to paste theirs twice. Or
+or `~/.config/assemblyai/api_key` is read as a fallback, so nobody has to paste
+theirs twice. Or
 `ASSEMBLYAI_API_KEY`, or `transcription.assemblyai.api_key`:
 
 ```sh
@@ -401,6 +404,33 @@ To transcribe a session again — with the other engine, or because the first
 result was poor — use **Re-transcribe** in the recordings list, or delete its
 `transcript.json` by hand and restart amanu; either way it comes back through
 the queue.
+
+### openai — cloud, diarizing
+
+The other cloud engine: `"engine": "openai"`, or `"cloud": "openai"` to make it
+what `auto` reaches for. It transcribes the same `mixed.m4a` AssemblyAI does
+and returns the same shape — timed segments with speaker labels — so
+everything downstream, including the `me`/`them` attribution above, is
+identical.
+
+The model is `gpt-4o-transcribe-diarize`, and it is the only OpenAI
+transcription model amanu can use: `gpt-transcribe` and `gpt-4o-transcribe`
+return running text with no timings, and a transcript with no clock can be
+neither lined up with the recording nor attributed to a speaker.
+`transcription.openai.model` overrides it for the day they ship a better one.
+
+OpenAI refuses requests over 25 MB, which the mix reaches at around 55 minutes,
+so a longer meeting is cut into pieces, each transcribed on its own, with the
+timings shifted back onto the session clock. Speaker labels are per request, so
+they are kept apart per piece (`1A`, `2A`) rather than merged — two pieces'
+first speakers are not the same person just because they were both first.
+Responses are cached as `transcript.openai.json` (or `transcript.openai.1.json`
+and so on), and a retry re-renders from them instead of re-uploading.
+
+The key is `~/.config/amanu/keys/openai` — the same file the summary backends
+read, so a key pasted for one is already there for the other — or
+`OPENAI_API_KEY`, or a key already sitting in `~/.config/openai/token` or
+`~/.config/openai/api_key`, both of which are read and never written.
 
 ### live — while the meeting is still going
 
@@ -535,6 +565,7 @@ Optional, at `~/.config/amanu/config.json`:
   "transcription": {
     "enabled": true,
     "engine": "auto",
+    "cloud": "assemblyai",
     "language": "ru",
     "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
   },
@@ -562,8 +593,13 @@ Optional, at `~/.config/amanu/config.json`:
 - `recordings_dir` — where sessions land. Resolution order: `--out` flag >
   config > `~/Recordings`.
 - `transcription.enabled` — set `false` to just record.
-- `transcription.engine` — `auto` (default), `parakeet` (always local) or
-  `assemblyai` (always cloud). `auto` picks assemblyai when there's a key and
+- `transcription.cloud` — which cloud engine `auto` uploads to: `assemblyai`
+  (default) or `openai`.
+- `transcription.openai.model` — OpenAI's transcription model. The default,
+  `gpt-4o-transcribe-diarize`, is the only one of theirs that returns timings
+  and speakers.
+- `transcription.engine` — `auto` (default), `parakeet` (always local), or a
+  cloud engine by name: `assemblyai` or `openai`. `auto` picks the cloud when there's a key and
   the API answers, parakeet otherwise, and it asks at the moment there's a
   session to transcribe rather than at launch.
 - `transcription.model` — parakeet only: `v3` (multilingual, default) or `v2`

@@ -56,10 +56,33 @@ reason; keep the check if you touch the target.
 ## Nothing writes to shared key files
 
 `~/.config/assemblyai`, `~/.config/anthropic` and `~/.config/openai` are read,
-never written. Several unrelated tools share those paths, and that is how a
+never written — both the `token` filename the CLIs write and the `api_key` one
+people write by hand. Several unrelated tools share those paths, and that is how a
 working AssemblyAI key became two bytes one evening and every meeting after it
 failed with HTTP 401. If a feature needs to store a key, it goes in
 `Config.keysDir`.
+
+## Only one OpenAI transcription model is usable
+
+`gpt-transcribe`, `gpt-4o-transcribe` and `gpt-4o-mini-transcribe` return
+running text with no timings at all — amanu cannot use them for anything, no
+matter how good the text is: a transcript with no clock can be neither lined
+up with the recording nor attributed to a speaker.
+`gpt-4o-transcribe-diarize` is the one that returns timed segments *and*
+speakers, and `chunking_strategy` is required with it for any audio over 30
+seconds — without that field the API answers 400 rather than transcribing.
+
+Its 25 MB per request is a real limit, not a guideline: the mix reaches it at
+around 55 minutes, so `AudioSlicer` cuts longer meetings up. Speaker labels are
+per request, so they are prefixed per piece rather than merged — the "A" of the
+second piece is not the "A" of the first, and treating them as one person would
+hand two strangers one name. That is not a theory: a four-minute mix run
+through the real API in four pieces on 19 August came back with the Russian
+voice labelled `1A` in the first piece and `4B` in the last.
+
+Both paths have been run against the API for real — one request, and four —
+which is what `requestLimit` being an init parameter is for: proving the sliced
+path costs four minutes of audio rather than an hour of it.
 
 ## Banners need a bundle
 

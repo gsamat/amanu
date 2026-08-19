@@ -7,6 +7,7 @@ import Foundation
 ///       "transcription": {
 ///         "enabled": true,
 ///         "engine": "auto",
+///         "cloud": "assemblyai",
 ///         "language": "ru",
 ///         "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
 ///       },
@@ -48,16 +49,51 @@ enum Config {
         transcription()?["enabled"] as? Bool ?? true
     }
 
-    /// Configured engine: `auto` (default), `parakeet` (local) or
-    /// `assemblyai` (cloud, diarizing).
+    /// Configured engine: `auto` (default), `parakeet` (local), or a cloud
+    /// provider by name — `assemblyai` or `openai`.
     ///
-    /// `auto` means "the best one available right now": assemblyai when there
-    /// is a key and the API answers, parakeet otherwise. That ordering is
-    /// deliberate — assemblyai is better on Russian and tells apart several
-    /// people sharing one channel, and parakeet needs neither network nor
-    /// account, so it is what should catch a session recorded on a train.
+    /// `auto` means "the best one available right now": the cloud provider
+    /// when there is a key and the API answers, parakeet otherwise. That
+    /// ordering is deliberate — a cloud engine is better on Russian and tells
+    /// apart several people sharing one channel, and parakeet needs neither
+    /// network nor account, so it is what should catch a session recorded on
+    /// a train.
     static func transcriptionEngine() -> String {
         transcription()?["engine"] as? String ?? "auto"
+    }
+
+    /// Which cloud engine `auto` reaches for: `assemblyai` (default) or
+    /// `openai`. It only decides the provider — whether the cloud is used at
+    /// all is `engine`, and a `engine` naming a provider outright wins over
+    /// this.
+    ///
+    /// The two are separate settings because they answer separate questions,
+    /// and the setup window asks them separately: a switch for "may audio
+    /// leave this Mac", a pair of cards for "to whom". Turning the switch off
+    /// and on again should not lose the answer to the second one.
+    static func transcriptionCloudProvider() -> String {
+        let configured = transcription()?["cloud"] as? String ?? "assemblyai"
+        guard cloudEngines.contains(configured) else {
+            FileHandle.standardError.write(Data(
+                "warning: unknown cloud engine \"\(configured)\" — using assemblyai\n".utf8
+            ))
+            return "assemblyai"
+        }
+        return configured
+    }
+
+    /// The cloud engines, by the name they carry in the config and in
+    /// transcript.json's provenance.
+    static let cloudEngines: Set<String> = ["assemblyai", "openai"]
+
+    /// OpenAI's transcription model. The default is the only one of theirs
+    /// that returns timings and speakers; the setting exists for the day they
+    /// ship a better one, not as a menu to browse.
+    static func openAITranscriptionModel() -> String {
+        guard let model = (transcription()?["openai"] as? [String: Any])?["model"] as? String,
+              !model.isEmpty
+        else { return "gpt-4o-transcribe-diarize" }
+        return model
     }
 
     /// Parakeet model version: "v3" (multilingual, default) or "v2"
@@ -112,12 +148,29 @@ enum Config {
 
     /// Where the rest of a machine's toolchain tends to keep the same secret.
     /// Read-only as far as amanu is concerned.
-    static let assemblyAISharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/assemblyai/token")
-    static let openAISharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/openai/token")
-    static let anthropicSharedKeyPath = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/anthropic/token")
+    ///
+    /// Two filenames each, because both are in the wild: `token` is what the
+    /// CLIs write, `api_key` is what people write by hand — and a key sitting
+    /// in the second one while the window says "no key yet" is a person being
+    /// asked to paste something they already have.
+    static let assemblyAISharedKeyPaths = sharedKeyPaths("assemblyai")
+    static let openAISharedKeyPaths = sharedKeyPaths("openai")
+    static let anthropicSharedKeyPaths = sharedKeyPaths("anthropic")
+
+    private static func sharedKeyPaths(_ service: String) -> [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return ["token", "api_key"].map {
+            home.appendingPathComponent(".config/\(service)/\($0)")
+        }
+    }
+
+    /// The first of `paths` that holds something.
+    private static func secret(atAnyOf paths: [URL]) -> String? {
+        for path in paths {
+            if let found = secret(at: path) { return found }
+        }
+        return nil
+    }
 
     static func secret(at path: URL) -> String? {
         guard let contents = try? String(contentsOf: path, encoding: .utf8),
@@ -141,7 +194,7 @@ enum Config {
             .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
             return secret(at: configured)
         }
-        return secret(at: assemblyAIKeyPath) ?? secret(at: assemblyAISharedKeyPath)
+        return secret(at: assemblyAIKeyPath) ?? secret(atAnyOf: assemblyAISharedKeyPaths)
     }
 
     /// Override AssemblyAI's default speech model. nil sends nothing and lets
@@ -377,7 +430,7 @@ enum Config {
             .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
             return secret(at: configured)
         }
-        return secret(at: openAIKeyPath) ?? secret(at: openAISharedKeyPath)
+        return secret(at: openAIKeyPath) ?? secret(atAnyOf: openAISharedKeyPaths)
     }
 
     private static func summaryJSON() -> [String: Any]? {
@@ -392,7 +445,7 @@ enum Config {
             return env.trimmed
         }
         if let configured = summary().apiKeyPath { return secret(at: configured) }
-        return secret(at: anthropicKeyPath) ?? secret(at: anthropicSharedKeyPath)
+        return secret(at: anthropicKeyPath) ?? secret(atAnyOf: anthropicSharedKeyPaths)
     }
 
     /// Parse the config file. A malformed config is reported on stderr rather

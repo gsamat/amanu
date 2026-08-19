@@ -64,8 +64,11 @@ enum SettingsSchema {
         guard Platform.supportsLocalModels else {
             return [
                 Entry(["transcription", "engine"], "Engine",
-                      "assemblyai is the only engine on an Intel Mac; parakeet needs Apple Silicon.",
-                      .choice(["auto", "assemblyai"]), default: "auto"),
+                      "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
+                      .choice(["auto", "assemblyai", "openai"]), default: "auto"),
+                Entry(["transcription", "cloud"], "Cloud engine",
+                      "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+                      .choice(["assemblyai", "openai"]), default: "assemblyai"),
                 Entry(["transcription", "language"], "Language",
                       "Two-letter code. The engine does better told than guessing.",
                       .text(placeholder: "ru"), default: "unset — assemblyai auto-detects"),
@@ -76,8 +79,11 @@ enum SettingsSchema {
                   "Uses an additional local NVIDIA model while a meeting is being recorded.",
                   .toggle, default: false),
             Entry(["transcription", "engine"], "Engine",
-                  "auto: assemblyai when there's a key and the network answers, parakeet otherwise.",
-                  .choice(["auto", "assemblyai", "parakeet"]), default: "auto"),
+                  "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
+                  .choice(["auto", "assemblyai", "openai", "parakeet"]), default: "auto"),
+            Entry(["transcription", "cloud"], "Cloud engine",
+                  "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
+                  .choice(["assemblyai", "openai"]), default: "assemblyai"),
             Entry(["transcription", "language"], "Language",
                   "Two-letter code. Both engines do better told than guessing.",
                   .text(placeholder: "ru"), default: "unset — parakeet guesses, assemblyai auto-detects"),
@@ -154,6 +160,10 @@ enum SettingsSchema {
             Entry(["transcription", "assemblyai", "speech_model"], "AssemblyAI speech model",
                   "Empty sends nothing and lets the API pick its own default.",
                   .text(placeholder: "best"), default: "the API's own default"),
+            Entry(["transcription", "openai", "model"], "OpenAI model",
+                  "The default is the only OpenAI model that returns both timings and speakers.",
+                  .text(placeholder: "gpt-4o-transcribe-diarize"),
+                  default: "gpt-4o-transcribe-diarize"),
         ]),
 
         Section(title: "Summaries", entries: [

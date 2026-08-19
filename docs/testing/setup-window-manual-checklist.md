@@ -106,23 +106,43 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
 
 ## Transcription
 
-- Confirm **Whichever works** is selected by default, and that selecting it
-  removes `transcription.engine` from `config.json` rather than writing a name.
-- Click the title, the description, and empty space inside each of the three
-  cards; confirm the whole outlined rectangle selects the card. The cards are
-  **Whichever works**, **On this Mac** (parakeet) and **AssemblyAI**. Confirm
-  **Download**, the key field, and the links still perform their own actions:
-  clicking the AssemblyAI key field must leave the selection alone.
-- Confirm the **On this Mac** card says either **downloaded** or approximately
-  600 MB. If the model is absent, start Download and verify that the progress
-  bar and the megabyte count both advance without freezing the window.
-- Confirm the AssemblyAI card always shows **Get a key**, that the link goes to
-  `https://www.assemblyai.com/dashboard/signup`, and that a key already on disk
-  is reported as **key found**.
-- If an AssemblyAI key is available, paste it and verify **key works**. Do not
-  put the key in `config.json`; it should land in `~/.config/amanu/keys/` with
-  mode 0600. amanu never writes to the shared `~/.config/assemblyai/token`,
-  though it still reads it.
+The section is two switches and a pair of provider cards, not a row of
+mutually exclusive cards. Having both switches on *is* the fallback — the
+cloud when it answers, this Mac when it doesn't — so there is no third card
+for it any more.
+
+- Confirm both switches on removes `transcription.engine` from `config.json`
+  rather than writing `auto`, and that switching only the cloud off writes
+  `"engine": "parakeet"` (and only the Mac off writes the provider's name).
+- Turn both off. Confirm `config.json` gains `transcription.enabled: false`
+  and that `engine` is left alone, so turning one back on remembers the
+  provider.
+- Confirm the **AssemblyAI** and **OpenAI** cards are on screen even while
+  **In the cloud** is off, each showing its price per hour, and that the card
+  for a key already on disk says **key works**.
+- With no key for the chosen provider, switch **In the cloud** on. Confirm the
+  switch stays off, the key field takes focus, and the status says a key is
+  needed. A switch that reads "on" while every transcript fails with HTTP 401
+  is the defect this behaviour exists to prevent.
+- Paste a working key and confirm the switch turns itself on, the card says
+  **key works**, and the key lands in `~/.config/amanu/keys/` with mode 0600 —
+  never in `config.json`. amanu never writes to the shared
+  `~/.config/assemblyai/token`, though it still reads it.
+- Paste a *wrong* key over a working one and confirm the saved key is
+  untouched and the status says so.
+- With both keys present, click the other provider's card. Confirm the cloud
+  switch stays on, `transcription.cloud` changes, and — for a provider with no
+  key — that clicking its card leaves the working provider in force and only
+  opens the key field.
+- Confirm **Get a key** appears on a card without a key and points at
+  `https://www.assemblyai.com/dashboard/signup` and
+  `https://platform.openai.com/api-keys` respectively.
+- Switch **On this Mac** on with the model absent. Confirm the download starts
+  from the switch alone — there is no Download button — and that the progress
+  bar and the megabyte count both advance without freezing the window. With
+  the model present the row says **downloaded**.
+- **By hand, Intel:** confirm **On this Mac** is visible but disabled and says
+  it needs Apple Silicon, rather than being missing.
 - Change the meeting language, close Setup, reopen it, and verify the value was
   persisted. The field commits on Return or on losing focus, and it takes
   whatever it is given — `ru` and `ruфф` are equally acceptable to it.
@@ -202,9 +222,10 @@ the Mac, and a few minutes of waiting.
    - **Re-transcribe** is enabled and successfully produces a new transcript
      from the archived channels, and `amanu process --again` does the same
      thing from the command line.
-4. Optional failure-path check: temporarily select AssemblyAI without a usable
-   key, record a few seconds, and confirm a failed transcript keeps the source
-   audio. Restore the engine to **Whichever works** immediately afterwards.
+4. Optional failure-path check: temporarily switch **On this Mac** off and put
+   an unusable key in place of the working one, record a few seconds, and
+   confirm a failed transcript keeps the source audio. Switch the Mac back on
+   and restore the key immediately afterwards.
 
 ## Reopening and restart behavior
 
