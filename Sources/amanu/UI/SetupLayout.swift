@@ -1,14 +1,14 @@
 import AppKit
 
-/// The setup window's grid and type scale, in one place.
+/// The grid and type scale of the setup form, in one place.
 ///
-/// Everything in that window is one of four shapes — a section, a list of
+/// Everything in that form is one of four shapes — a section, a list of
 /// rows, a row, or a card — and every one of them used to carry its own
 /// hand-written insets and font sizes. Sizes chosen a few lines apart drift,
 /// and a window whose rows are 9pt tall in one box and 13pt in the next looks
 /// like it was assembled rather than designed.
 ///
-/// So the numbers live here and the window asks for shapes.
+/// So the numbers live here and the form asks for shapes.
 @MainActor
 enum SetupLayout {
     /// The window's own margin, and the distance between two sections. A
@@ -131,6 +131,25 @@ enum SetupLayout {
         let view = NSView()
         view.heightAnchor.constraint(equalToConstant: 0).isActive = true
         return view
+    }
+
+    /// A form in a scroll view. Pinned to the clip view on three sides: the
+    /// height stays intrinsic, which is what makes the thing scroll rather
+    /// than squash itself into whatever room the window has.
+    static func scroller(around form: NSView) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        scroll.documentView = form
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        form.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            form.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            form.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            form.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+        ])
+        return scroll
     }
 
     static func hairline() -> NSView {
@@ -258,4 +277,17 @@ extension NSSwitch {
         state = state == .on ? .off : .on
         sendAction(action, to: target)
     }
+}
+
+/// A vertical stack whose origin is its top-left corner.
+///
+/// AppKit's default is the bottom-left, and a scroll view whose document view
+/// is not flipped opens showing the *bottom* of a form taller than the window.
+/// That is how the settings window came up halfway down its own Access list
+/// while the setup window, the same form in a plainer container, came up at
+/// the top: the position depended on when the clip view got its final height,
+/// which is not a thing a form should depend on.
+@MainActor
+final class FlippedStackView: NSStackView {
+    override var isFlipped: Bool { true }
 }

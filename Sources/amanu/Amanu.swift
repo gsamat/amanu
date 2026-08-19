@@ -256,7 +256,11 @@ final class AppController {
     private let window = StatusWindow()
     /// Built on first use. It is thirty-odd controls, and amanu spends nearly
     /// all of its life recording rather than being configured.
-    private lazy var settings = SettingsWindow()
+    private lazy var settings: SettingsWindow = {
+        let window = SettingsWindow()
+        window.isRecording = { [weak self] in self?.session != nil }
+        return window
+    }()
     private lazy var setupWindow: SetupWindow = {
         let setup = SetupWindow()
         setup.isRecording = { [weak self] in self?.session != nil }
