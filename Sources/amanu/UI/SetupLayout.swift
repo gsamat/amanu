@@ -203,8 +203,26 @@ enum SetupLayout {
         stack.alignment = detail == nil ? .centerY : .top
         stack.spacing = 10
         stack.edgeInsets = rowInsets
-        stack.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight).isActive = true
+        fitRowHeight(stack)
         return stack
+    }
+
+    /// State a row's height against what it holds, rather than leaving it to
+    /// the stack's own fitting size.
+    ///
+    /// AppKit drops the far inset when a stack is aligned to one edge: a row
+    /// aligned to the top comes out `insets.top + content` tall and nothing
+    /// else, so a wrapping label ends flush with the bottom of the row and
+    /// the tails of its p's and q's sit on the hairline below it. Two rows
+    /// looked like that before today and four do now, which is what makes it
+    /// worth stating in one place instead of padding each caller.
+    static func fitRowHeight(_ stack: NSStackView) {
+        let insets = stack.edgeInsets.top + stack.edgeInsets.bottom
+        for view in stack.arrangedSubviews {
+            stack.heightAnchor.constraint(
+                greaterThanOrEqualTo: view.heightAnchor, constant: insets).isActive = true
+        }
+        stack.heightAnchor.constraint(greaterThanOrEqualToConstant: rowHeight).isActive = true
     }
 
     /// A row of mutually exclusive cards, all the same width.

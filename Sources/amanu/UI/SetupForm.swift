@@ -1244,12 +1244,11 @@ final class AccessRow: NSView, LayerTinted {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            // Every granted row carries one line, and they have to look it.
-            // Without a floor the height is whatever the layout settles on
-            // and neighbouring rows come out different heights.
-            stack.heightAnchor.constraint(
-                greaterThanOrEqualToConstant: SetupLayout.rowHeight),
         ])
+        // Every granted row carries one line and they have to look it; a row
+        // still explaining itself has to keep the inset under its last line.
+        // Both are the same arithmetic every other row gets.
+        SetupLayout.fitRowHeight(stack)
     }
 
     required init?(coder: NSCoder) { fatalError("not used") }

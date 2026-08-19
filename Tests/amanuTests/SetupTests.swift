@@ -219,9 +219,63 @@ struct SetupTests {
         box.frame = NSRect(x: 0, y: 0, width: 690, height: 300)
         box.layoutSubtreeIfNeeded()
 
-        #expect(rows[0].frame.height == SetupLayout.rowHeight)
+        #expect(rows[0].frame.height >= SetupLayout.rowHeight)
         #expect(rows[1].frame.height == rows[0].frame.height)
         #expect(rows[2].frame.height == rows[0].frame.height)
+    }
+
+    /// AppKit leaves the far inset out of a stack's fitting height when the
+    /// stack is aligned to one edge, so a row aligned to the top came out
+    /// `insets.top + content` tall and nothing else: the last line of a
+    /// wrapping detail sat flush with the bottom of the row, and the tails of
+    /// its p's and q's touched the hairline under it — or, in the last row of
+    /// a box, the border.
+    @Test("A row whose detail wraps keeps the inset under its last line")
+    @MainActor
+    func wrappingRowKeepsItsBottomInset() throws {
+        let words = SetupLayout.detail(
+            "Nvidia parakeet, 460 MB download and disk usage. Nothing leaves the "
+                + "machine, and it works with no network at all.", lines: 2, width: 520)
+        let row = SetupLayout.row(
+            leading: NSSwitch(),
+            title: SetupLayout.title("On this Mac"),
+            detail: words,
+            trailing: [SetupLayout.status("downloaded")])
+        let box = SetupLayout.box([row])
+        box.frame = NSRect(x: 0, y: 0, width: 690, height: 200)
+        box.layoutSubtreeIfNeeded()
+
+        let content = try #require(words.superview)
+        let placed = row.convert(content.bounds, from: content)
+        #expect(placed.height > SetupLayout.rowHeight,
+                "the detail has to have wrapped, or this measures nothing")
+        #expect(placed.minY == SetupLayout.rowInsets.bottom)
+        #expect(row.frame.height - placed.maxY == SetupLayout.rowInsets.top)
+    }
+
+    /// The same, for the hand-built row in the Access list: **Start at login**
+    /// is the one that still explains itself on a Mac that has been through
+    /// none of this.
+    @Test("An Access row that is still explaining itself keeps its bottom inset")
+    @MainActor
+    func wrappingAccessRowKeepsItsBottomInset() throws {
+        let row = AccessRow(
+            title: "Start at login",
+            detail: "So a meeting is never missed because nobody opened amanu, and "
+                + "this sentence is long enough to need a second line.",
+            action: "Install")
+        let box = SetupLayout.box([row])
+        row.update(.notAsked)
+        box.frame = NSRect(x: 0, y: 0, width: 690, height: 200)
+        box.layoutSubtreeIfNeeded()
+
+        let stack = try #require(row.subviews.first)
+        let text = try #require(stack.subviews.compactMap { $0 as? NSStackView }.first)
+        let placed = row.convert(text.bounds, from: text)
+        #expect(placed.height > SetupLayout.rowHeight,
+                "the detail has to have wrapped, or this measures nothing")
+        #expect(placed.minY == SetupLayout.rowInsets.bottom)
+        #expect(row.frame.height - placed.maxY == SetupLayout.rowInsets.top)
     }
 
     @Test("A chosen card reports bad news as a problem, an unchosen one as a note")
