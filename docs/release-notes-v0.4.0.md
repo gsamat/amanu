@@ -55,6 +55,20 @@ naming one no longer forces the engine to hear it.
   And a row of two lines has its bottom margin back: the last line used to sit
   on the separator under it.
 
+- **`amanu setup` works on a Mac where nothing is running yet** — the branch
+  that starts the application itself never worked, which is to say it never
+  worked on a fresh install, the one place the README sends people. Fixing it
+  turned up something worse: run from a terminal, the application asked the
+  system about the *terminal's* permissions and believed the answers. The
+  setup window would show a green tick for a permission amanu did not have,
+  and its system-audio test would pass on the terminal's grant and remember
+  that for a month. A command run from a shell now opens the application
+  properly and lets it answer for itself.
+- **Setup is offered only while there is a first run left to finish.** Once it
+  is done the menu item goes; `amanu setup` in a terminal is the way back to
+  it, and says so in the README. Settings, and the same form on its **Setup**
+  tab, are where they always were.
+
 ## The calendar dialog, once, on first launch
 
 amanu asks for the calendar a few seconds after it starts, without waiting for
@@ -76,7 +90,7 @@ update as they survive any rebuild.
 
 The whole of this release was written by several agents working at once and
 merged afterwards, and the merge is the part worth being careful about. The
-automated tests pass — 190 of them — the universal build is signed and both
+automated tests pass — 194 of them — the universal build is signed and both
 slices answer `doctor`, and each window was rendered off screen and looked at.
 But **nobody has clicked through the merged setup window in a running copy**,
 and `docs/testing/setup-window-manual-checklist.md` has not been run against
