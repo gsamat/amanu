@@ -1,8 +1,8 @@
 The models are visible now, and can be taken off the disk. The setup window
 stopped being slow, for a reason worth reading about. The live transcript gets
-out of the way when the meeting ends. And the Russian that shipped yesterday
-had five holes in it, which are closed — along with the reason nothing had
-noticed them.
+out of the way when the meeting ends. And three sentences that yesterday's
+Russian had left in English are in Russian now, along with the reason nothing
+had noticed them.
 
 ## What changed since v0.4.1
 
@@ -26,43 +26,52 @@ noticed them.
 - **The live transcript folds away when the recording stops.** The window used
   to stay 460 points tall around text nobody was reading until the next
   meeting started. It returns to its own height, and a link in the section
-  header brings the text back if you want it. The design document had been
-  promising the new behaviour for a while; the code was doing the other thing.
-- **Five things were still in English on a Russian Mac**: the labels **You**
-  and **Them** above the live transcript and the link that shows and hides it;
-  what the menu bar says while a recording is being transcribed; where a
-  speaker's name came from, in the recordings window; and the date beside a
-  permission row in setup.
+  header brings the text back if you want it. The window's own comment had
+  described this behaviour all along — "borrows it while it runs and gives it
+  back afterwards" — while the design document promised the opposite. The
+  document was the one that was wrong, and it has been corrected.
+- **Three sentences were still in English on a Russian Mac**: the labels
+  **You** and **Them** above the live transcript, what the menu bar and the
+  status window say while a recording is being transcribed, and where a
+  speaker's name came from, in the recordings window.
+- **A voice is named in the window's language.** Where the recordings window
+  showed `me` and `them A` it now says «я» and «они A». The files keep the
+  original keys — `transcript.md` and `speakers.json` are unchanged — and
+  since it is the letter that tells two voices apart, a line in the window
+  still finds its line in the file.
 
 ## What looking for them found
 
 Yesterday's translation was checked by a test that builds the setup form in
 both languages and reports anything that comes out the same. It missed all
-five, and the two reasons are worth naming because they are the kind of hole
+three, and the two reasons are worth naming because they are the kind of hole
 that stays open:
 
 - It never walked into the status window at all. The window says almost
   nothing until something is said to it, so the test now drives it through
   every recorder state and every state of the transcription engine, and clicks
   the link to see its second half.
-- It compared the transcript as one block of text. One translated separator
-  inside the block made the whole block differ between the languages, and the
-  English speaker labels hid behind it. It reads line by line now. Comparing
-  whole blocks gives a false "translated", and that is the part to remember.
+- It compared whole lines. Almost every line in these windows is several
+  independent phrases with a separator between them, so an English phrase hides
+  behind a translated one beside it and the line as a whole looks translated.
+  `manual · 1 turns` against `вручную · реплик: 1` differs completely, which
+  is how `manual` survived. The walk splits on the separator and compares
+  phrase by phrase now. Compare the smallest thing that is a sentence, not the
+  largest thing that is a line.
 
 The menu bar, the application menu and the recordings window were read by eye
 and looked complete — which is exactly the assurance that was not enough for
-the status window, so they are walked now too. That turned up three more, and
-the same shape of hole a third time: `manual · 1 turns` against
-`вручную · реплик: 1` differs as a whole, so the English word hid behind the
-translated one beside it. The walk now splits on the separator and compares
-phrase by phrase, and two of the three only appeared once it did.
+the status window, so they are walked now too.
 
-The date was the odd one. It was formatted by a `static let`, made the first
-time anything asked and keeping whatever language was in force at that moment
-— which happens to be right in a program that settles its language before it
-opens a window, and would stop being right the moment anything changed it. A
-formatter that is correct by luck is worth less than one that is correct by
+Two more things turned up there that were not costing anyone anything yet. The
+link that shows and hides the transcript is new in this release and would have
+shipped in English if nothing had looked. And the date beside a permission row
+was formatted by a `static let`, made the first time anything asked and
+keeping whatever language was in force at that moment — which is right in a
+program that settles its language before it opens a window, and stops being
+right the moment anything changes it. On a Russian Mac that date read
+correctly; it was a trap that had not sprung. It is built per use now: a
+formatter that is right by luck is worth less than one that is right by
 construction, and two dates a person opens a window to read are not a rate
 worth caching for.
 
@@ -74,15 +83,19 @@ real means erasing more than a gigabyte belonging to whoever runs it, which is
 their decision and not something to rehearse on their behalf. The confirmation,
 the switch it turns off, and the recalculation are covered by tests.
 
-**Four windows are walked; the alerts are not.** The two confirmations in the
-recordings window cannot be opened from a test without trapping a modal loop.
-They are translated, and that was checked by eye — the assurance this release
-spent three rounds learning not to trust.
+**Three windows and two menus are walked; the alerts are not.** The setup
+form, the status window, the recordings window, the menu bar and the
+application menu each go through their states in both languages and report
+anything that comes out the same. The two confirmations in the recordings
+window cannot be opened from a test without trapping a modal loop. They are
+translated, and that was checked by eye — the assurance this release spent
+three rounds learning not to trust.
 
-**The application was not launched for this release.** The windows were
-rendered off screen in both languages and both appearances and looked at, and
-the measurements above were taken in a signed bundle — but nothing here was
-clicked in a running copy.
+**The application was not launched for this release.** Windows were rendered
+off screen and looked at, but no window went through all four combinations:
+the setup and settings windows in both appearances, in English; the status and
+recordings windows in both languages, in the light one. The timings above were
+measured in a signed bundle. Nothing here was clicked in a running copy.
 
 ## Requirements
 
