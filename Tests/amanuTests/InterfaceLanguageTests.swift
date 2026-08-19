@@ -67,12 +67,8 @@ struct InterfaceLanguageTests {
         let russian = Self.inLanguage(.russian) { Self.readable(SetupForm()) }
 
         #expect(english.count == russian.count, "the two forms are not the same form")
-        var untranslated: [String] = []
-        for (before, after) in zip(english, russian)
-        where before == after && !Self.sameInBothLanguages(before) {
-            untranslated.append(before)
-        }
-        #expect(untranslated.isEmpty, "still English in a Russian window: \(untranslated)")
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian window: \(Self.untranslated(english, russian))")
     }
 
     /// And the same question of the status window, which the walk above does
@@ -89,12 +85,60 @@ struct InterfaceLanguageTests {
         let russian = Self.inLanguage(.russian) { Self.readableStatusWindow() }
 
         #expect(english.count == russian.count, "the two windows are not the same window")
-        var untranslated: [String] = []
-        for (before, after) in zip(english, russian)
-        where before == after && !Self.sameInBothLanguages(before) {
-            untranslated.append(before)
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian window: \(Self.untranslated(english, russian))")
+    }
+
+    /// The menu in the top-right corner, which is the surface amanu is
+    /// mostly used from and the only one a `.accessory` launch has at all.
+    /// Two of its items come and go and one line of it is not in the menu but
+    /// beside the icon, so the walk turns everything on and reads that too.
+    @Test("Nothing in the menu bar is left in English when the menu is Russian")
+    @MainActor
+    func theMenuBarIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) { Self.readableMenuBar() }
+        let russian = Self.inLanguage(.russian) { Self.readableMenuBar() }
+
+        #expect(english.count == russian.count, "the two menus are not the same menu")
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian menu: \(Self.untranslated(english, russian))")
+    }
+
+    /// And the application's own menu, which is a different menu built
+    /// somewhere else — ⌘, and ⌘Q live there, and so does the Setup item that
+    /// comes and goes.
+    @Test("Nothing in the application menu is left in English when it is Russian")
+    @MainActor
+    func theApplicationMenuIsAllInOneLanguage() {
+        let english = Self.inLanguage(.english) {
+            Self.titles(in: Run.mainMenu(settingsTarget: AppDelegate()))
         }
-        #expect(untranslated.isEmpty, "still English in a Russian window: \(untranslated)")
+        let russian = Self.inLanguage(.russian) {
+            Self.titles(in: Run.mainMenu(settingsTarget: AppDelegate()))
+        }
+
+        #expect(english.count == russian.count)
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian menu: \(Self.untranslated(english, russian))")
+    }
+
+    /// And the recordings window, whose words depend on what is on the disk.
+    /// It is given a disk of its own: two sessions made for the occasion, one
+    /// finished and one that never got a transcript, so that both what a row
+    /// says and what the panel under it says are read. Nothing here goes near
+    /// the recordings a person actually made — those are their conversations.
+    @Test("Nothing in the recordings window is left in English when it is Russian")
+    @MainActor
+    func theRecordingsWindowIsAllInOneLanguage() throws {
+        let root = try Self.recordingsOnADiskOfTheirOwn()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let english = Self.inLanguage(.english) { Self.readableRecordings(in: root) }
+        let russian = Self.inLanguage(.russian) { Self.readableRecordings(in: root) }
+
+        #expect(english.count == russian.count, "the two windows are not the same window")
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English in a Russian window: \(Self.untranslated(english, russian))")
     }
 
     /// And the same question of the Advanced tab, which is written from
@@ -143,12 +187,8 @@ struct InterfaceLanguageTests {
         let russian = Self.inLanguage(.russian) { SettingsWindow().modelLines }
 
         #expect(english.count == russian.count)
-        var untranslated: [String] = []
-        for (before, after) in zip(english, russian)
-        where before == after && !Self.sameInBothLanguages(before) {
-            untranslated.append(before)
-        }
-        #expect(untranslated.isEmpty, "still English under Advanced: \(untranslated)")
+        #expect(Self.untranslated(english, russian).isEmpty,
+                "still English under Advanced: \(Self.untranslated(english, russian))")
     }
 
     /// A size is half number and half word, and the word is not the only
@@ -230,6 +270,128 @@ struct InterfaceLanguageTests {
         return found
     }
 
+    /// The pairs that came out the same in both languages and had no
+    /// business doing so.
+    ///
+    /// Phrase by phrase rather than label by label. Almost everything in
+    /// these windows is several independent phrases with a separator between
+    /// them — a transcript is lines, a provenance line is "who said so · how
+    /// many turns" — and comparing them whole lets a phrase left in English
+    /// hide behind a translated phrase beside it. That is how `You` and
+    /// `Them` survived a translation, and how `manual` did after them.
+    private static func untranslated(_ english: [String], _ russian: [String]) -> [String] {
+        zip(english, russian).flatMap { before, after -> [String] in
+            let left = parts(of: before), right = parts(of: after)
+            // A label that came apart into a different number of pieces was
+            // translated; there is nothing to compare piece by piece.
+            guard left.count == right.count else { return [] }
+            return zip(left, right)
+                .filter { $0 == $1 && !sameInBothLanguages($0) }
+                .map(\.0)
+        }
+    }
+
+    private static func parts(of text: String) -> [String] {
+        text.components(separatedBy: "\n").flatMap { $0.components(separatedBy: " · ") }
+    }
+
+    /// Every state the menu bar item has, read after each. The two lines that
+    /// are filled in from outside — what is being transcribed, and why
+    /// auto-record last did what it did — are given amanu's own name, because
+    /// a fake sentence would either differ between the runs for a reason that
+    /// is not translation or be reported as English left behind.
+    @MainActor
+    private static func readableMenuBar() -> [String] {
+        _ = NSApplication.shared
+        let menuBar = MenuBarController()
+        menuBar.updatesAvailable(true)
+        menuBar.setupAvailable(true)
+        menuBar.updateAutoRecord(enabled: true, decision: "amanu")
+
+        var found: [String] = []
+        for state in [MenuBarController.State.idle, .recording, .paused] {
+            menuBar.update(state: state, elapsed: "1:23")
+            for status: TranscriptionCoordinator.Status in [
+                .idle, .transcribing(session: "amanu", queued: 0),
+                .transcribing(session: "amanu", queued: 2), .failed(session: "amanu"),
+            ] {
+                menuBar.updateTranscription(AppController.transcriptionLine(for: status))
+                found.append(contentsOf: menuBar.offeredItemTitles)
+                found.append(menuBar.statusItemTitle)
+            }
+        }
+        return found
+    }
+
+    /// What a menu shows. An item that carries a submenu shows the submenu's
+    /// title rather than its own — the two items at the top of the main menu
+    /// are called `NSMenuItem` and nobody has ever seen it.
+    private static func titles(in menu: NSMenu) -> [String] {
+        [menu.title] + menu.items.flatMap { item in
+            item.submenu.map { titles(in: $0) } ?? [item.title]
+        }
+    }
+
+    /// Two sessions in a directory of the suite's own making: one with a
+    /// transcript, a name somebody typed and a summary, and one that was
+    /// recorded and never transcribed. Between them they reach every state
+    /// the list has words for.
+    private static func recordingsOnADiskOfTheirOwn() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-language-walk-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        func session(_ name: String, transcript: Bool) throws -> URL {
+            let dir = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: [
+                "started": "2026-08-18T09:00:00Z",
+                "duration_seconds": 1800,
+                "title": "amanu",
+                "trigger": "mic-activity",
+            ]).write(to: dir.appendingPathComponent("meta.json"))
+            guard transcript else { return dir }
+            try JSONEncoder().encode(Transcript(
+                engine: "parakeet", model: "v3", created_at: "2026-08-18T09:31:00Z",
+                segments: [
+                    .init(speaker: "me", start_ms: 0, end_ms: 2000, text: "amanu"),
+                    .init(speaker: "them A", start_ms: 2000, end_ms: 4000, text: "amanu"),
+                ]
+            )).write(to: dir.appendingPathComponent("transcript.json"))
+            try SpeakerNames(speakers: ["them A": .init(name: "amanu", source: .manual)])
+                .write(to: dir)
+            try Data("# amanu\n".utf8).write(to: dir.appendingPathComponent("summary.md"))
+            return dir
+        }
+        _ = try session("2026-08-18-090000-done", transcript: true)
+        _ = try session("2026-08-18-100000-bare", transcript: false)
+        return root
+    }
+
+    /// The window with nothing chosen — where it says so — and then with each
+    /// recording chosen, which is where the panel underneath fills in.
+    @MainActor
+    private static func readableRecordings(in root: URL) -> [String] {
+        _ = NSApplication.shared
+        let window = RecordingsWindow(root: root)
+        var found: [String] = []
+        func read() {
+            found.append(contentsOf: window.listLines)
+            guard let view = window.view else { return }
+            view.layoutSubtreeIfNeeded()
+            found.append(contentsOf: strings(in: view))
+        }
+        read()
+        for view in window.view?.allDescendants ?? [] {
+            guard let table = view as? NSTableView, table.numberOfRows > 0 else { continue }
+            for row in 0..<table.numberOfRows {
+                table.selectRowIndexes([row], byExtendingSelection: false)
+                read()
+            }
+        }
+        return found
+    }
+
     private static func inLanguage<T>(_ language: InterfaceLanguage, _ body: () -> T) -> T {
         let previous = InterfaceLanguage.current
         InterfaceLanguage.current = language
@@ -253,6 +415,9 @@ struct InterfaceLanguageTests {
     private static func strings(in root: NSView) -> [String] {
         var found: [String] = []
         for view in root.allDescendants {
+            // A view that shows what somebody said in a meeting says it in
+            // the language they said it in. See `openingLabel`.
+            if view.identifier?.rawValue == "meeting-words" { continue }
             switch view {
             case let field as NSTextField:
                 found.append(field.stringValue)
@@ -266,11 +431,7 @@ struct InterfaceLanguageTests {
             case let button as NSButton:
                 found.append(button.title)
             case let text as NSTextView:
-                // Line by line rather than whole. A transcript is one string
-                // with several sentences in it, and comparing it whole lets a
-                // line left in English hide behind a line beside it that was
-                // translated — which is exactly what "You" and "Them" did.
-                found.append(contentsOf: text.string.components(separatedBy: "\n"))
+                found.append(text.string)
             default:
                 break
             }
@@ -286,6 +447,9 @@ struct InterfaceLanguageTests {
 
     /// The strings that are deliberately the same in both languages.
     private static func sameInBothLanguages(_ text: String) -> Bool {
+        // A menu indents a line by putting spaces in front of it. That is
+        // layout rather than language.
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.isEmpty { return true }
         // Names of things, and the shape of a key nobody translates.
         let names = [
@@ -301,6 +465,13 @@ struct InterfaceLanguageTests {
         if MeetingLanguages.menu.contains(where: { $0.name == text }) { return true }
         // A path is a path.
         if text.hasPrefix("~/") || text.hasPrefix("/") { return true }
+        // A string with no letters in it — a date, a clock, two counts with a
+        // slash between them — says the same thing in every language.
+        if !text.contains(where: \.isLetter) { return true }
+        // The transcript's own speaker keys, which the recordings window
+        // shows so that a person can match a row to what they are reading.
+        // They are the file's word for a voice, not amanu's word for anything.
+        if text == "me" || text.hasPrefix("them ") { return true }
         return false
     }
 }

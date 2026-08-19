@@ -24,6 +24,18 @@ struct SpeakerNames: Codable {
         /// it alone, because someone who corrected a name once should not have
         /// to correct it again after every retry.
         case manual
+
+        /// The same four for the recordings window, where a person is
+        /// reading them rather than a program. `rawValue` stays as it is:
+        /// it is what the file on disk says.
+        var described: String {
+            switch self {
+            case .account: return localised("account", "учётка")
+            case .config: return localised("config", "конфиг")
+            case .model: return localised("model", "модель")
+            case .manual: return localised("manual", "вручную")
+            }
+        }
     }
 
     struct Entry: Codable {

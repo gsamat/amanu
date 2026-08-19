@@ -62,6 +62,19 @@ final class RecordingsWindow: NSObject {
 
     var isVisible: Bool { panel.isVisible }
 
+    /// The window's own content, and the list inside it, for the suite that
+    /// builds this window in both languages and looks for a sentence left
+    /// behind in one of them. The list needs its own way in: the table draws
+    /// its cells from the data source rather than from views, so a walk of
+    /// the window's subviews goes straight past every row in it.
+    var view: NSView? { panel.contentView }
+
+    var listLines: [String] {
+        table.tableColumns.map(\.title) + items.flatMap { item in
+            table.tableColumns.map { Self.cell(item, column: $0.identifier.rawValue) ?? "" }
+        }
+    }
+
     // MARK: - building
 
     private func buildTable() {
@@ -96,6 +109,11 @@ final class RecordingsWindow: NSObject {
     private func buildLayout() -> NSView {
         detailTitle.font = .systemFont(ofSize: 13, weight: .medium)
         openingLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        // What was said in the meeting, which is the one thing in any of
+        // amanu's windows that is not amanu's to translate. Named so that the
+        // suite looking for English left in a Russian window knows to walk
+        // past it rather than report a person's own words as untranslated.
+        openingLabel.identifier = NSUserInterfaceItemIdentifier("meeting-words")
         openingLabel.textColor = .secondaryLabelColor
         openingLabel.lineBreakMode = .byTruncatingTail
         busyLabel.font = .systemFont(ofSize: 11)
@@ -225,7 +243,7 @@ final class RecordingsWindow: NSObject {
 
         let turns = localised("\(sample.turns) turns", "реплик: \(sample.turns)")
         let provenance = NSTextField(labelWithString: sample.source.map {
-            "\($0.rawValue) · " + turns
+            "\($0.described) · " + turns
         } ?? turns)
         provenance.font = .systemFont(ofSize: 10)
         provenance.textColor = .tertiaryLabelColor
@@ -359,7 +377,17 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate {
         row: Int
     ) -> Any? {
         guard row < items.count, let column = tableColumn?.identifier.rawValue else { return nil }
-        let item = items[row]
+        return Self.cell(items[row], column: column)
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        showDetail()
+    }
+
+    /// One cell, as words. Apart from the data source this is what
+    /// `listLines` reads, so that the suite and the window cannot disagree
+    /// about what a row says.
+    static func cell(_ item: SessionInventory.Item, column: String) -> String? {
         switch column {
         case "when":
             return item.started.map { SessionInventory.Item.stamp.string(from: $0) } ?? item.name
@@ -380,9 +408,5 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate {
         default:
             return nil
         }
-    }
-
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        showDetail()
     }
 }

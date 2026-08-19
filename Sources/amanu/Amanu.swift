@@ -671,16 +671,27 @@ final class AppController {
         }
     }
 
-    private func showTranscription(_ status: TranscriptionCoordinator.Status) {
-        let text: String?
+    /// What the menu and the window say while a recording is being
+    /// transcribed. A static function rather than a few lines inside the
+    /// method that shows it, because two surfaces say it and because a
+    /// sentence nothing can call is a sentence nothing can check.
+    static func transcriptionLine(for status: TranscriptionCoordinator.Status) -> String? {
         switch status {
         case .idle:
-            text = nil
+            return nil
         case .transcribing(let name, let queued):
-            text = queued > 0 ? "transcribing \(name) · \(queued) queued" : "transcribing \(name)"
+            return queued > 0
+                ? localised("transcribing \(name) · \(queued) queued",
+                            "расшифровываю \(name) · в очереди \(queued)")
+                : localised("transcribing \(name)", "расшифровываю \(name)")
         case .failed(let name):
-            text = "transcription failed · \(name)"
+            return localised("transcription failed · \(name)",
+                             "не удалось расшифровать · \(name)")
         }
+    }
+
+    private func showTranscription(_ status: TranscriptionCoordinator.Status) {
+        let text = Self.transcriptionLine(for: status)
         menuBar.updateTranscription(text)
         window.updateTranscription(text)
     }

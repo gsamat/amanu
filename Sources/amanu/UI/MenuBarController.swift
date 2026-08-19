@@ -178,6 +178,11 @@ final class MenuBarController {
         (statusItem.menu?.items ?? []).filter { !$0.isHidden }.map(\.title)
     }
 
+    /// What the item says beside its icon in the menu bar, which is words as
+    /// well as a clock — "paused" is in there, and it is the one string in
+    /// this class that is not in the menu at all.
+    var statusItemTitle: String { statusItem.button?.title ?? "" }
+
     /// Reflect recording state in the icon and the menu. Called once a second
     /// while recording.
     ///
