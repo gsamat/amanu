@@ -124,7 +124,16 @@ Two more things the test runs settled, neither of them fixed here:
   the default input mid-recording — the thing you do when you pick another
   microphone in Zoom — posts nothing, and capture carries on with the device it
   started on. In the call above the restarts came from the AirPods themselves
-  arriving and leaving, not from the source being switched.
+  arriving and leaving, not from the source being switched. Fixed in v0.4.7:
+  the mic track now follows the microphone rather than inheriting one.
+
+  The first attempt to measure this measured nothing: the test switched the
+  default to `ZoomAudioDevice`, `AudioObjectSetPropertyData` returned `noErr`,
+  and the default did not move — macOS refuses to hand that particular virtual
+  device the default and says so by doing nothing. Reading the property back
+  after setting it is the whole lesson; the conclusion above only survived
+  because the test was redone against a temporary aggregate device, which the
+  system does accept.
 - **Rebuilding a voice-processing route costs about 4 s** on an M-series Mac
   (0.5 s debounce, the rest the aggregate). Every one of those seconds is
   silence in the mic track. Raw capture comes back in a fraction of it, which

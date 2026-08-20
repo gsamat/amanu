@@ -851,6 +851,11 @@ either side of the change. The rebuild keeps cancellation on, because amanu
 taps the device rather than the call app's output, and a raw mic writes down
 whatever the speakers are playing (`.issues/rca-003`).
 
+The microphone itself is followed rather than inherited: whichever one the call
+app is listening to, and the system default when there is no answer. Choose a
+different microphone mid-meeting — in the call app or in System Settings — and
+the track moves with you a few seconds later, and says so in `mic_restarts`.
+
 ## Gotchas
 
 - With `system_audio: "all"` the tap records *everything* the Mac plays —

@@ -207,6 +207,34 @@ stopped, change dismissed as ours, mic silent until the next route change
 happened along. What the window is for is buying time to ask the only question
 that has an answer: five seconds after the attach, are buffers still arriving?
 
+## The microphone has to be followed; it is not inherited
+
+`AVAudioEngine` binds to the default input when it starts and stays there.
+Change the default under a running engine and nothing at all happens — no
+`AVAudioEngineConfigurationChange`, no error, the same microphone in the file
+as before. So the mic track follows two things of its own accord: a listener on
+`kAudioHardwarePropertyDefaultInputDevice`, and the session's 15-second tick
+asking `MicRoute` whether the answer has changed. Remove either and choosing
+another microphone mid-meeting leaves amanu recording the old one, silently,
+for the rest of the call.
+
+The device the *call app* is on is a different question from the default, and
+the more correct one — Zoom can be on a microphone the system was never told
+about. `kAudioProcessPropertyDevices` with an input scope answers it per
+process. Two traps in the answer: a process doing duplex I/O lists its output
+device there too (amanu's own capture reports the speakers next to the
+microphone), and the device has to be bound explicitly with
+`AUAudioUnit.setDeviceID` before any format is read, because with voice
+processing the unit builds its aggregate around whatever it was pointed at.
+
+**Setting a default device can silently do nothing.** `AudioObjectSetPropertyData`
+on `kAudioHardwarePropertyDefaultInputDevice` returns `noErr` for a device
+macOS will not make default — Zoom's hidden `ZoomAudioDevice` is one — and the
+default stays where it was. Anything that switches devices, test harness
+included, has to read the property back rather than trust the status. A whole
+evening's conclusion about route changes was drawn from a switch that never
+happened.
+
 ## Banners need a bundle
 
 `UNUserNotificationCenter` has nothing to post under in a bare build, so

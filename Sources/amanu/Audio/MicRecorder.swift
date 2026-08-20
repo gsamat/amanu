@@ -151,6 +151,24 @@ final class MicRecorder: @unchecked Sendable {
     /// When the current engine finished attaching, for the settle window
     /// below.
     private var attachedAt = Date.distantPast
+    /// The call app families this session follows, and the device that choice
+    /// currently resolves to — what capture is bound to rather than what it
+    /// inherited.
+    private var followedCallApps: [String] = []
+    private var boundDevice: AudioObjectID?
+    /// Set for one attach after an engine refused to start on a device we
+    /// chose, so the retry gets the default rather than the same refusal.
+    private var skipBinding = false
+    /// Listener on the system default input, because a default that changes
+    /// under a running engine changes nothing else: `AVAudioEngine` stays on
+    /// the device it was built around and posts no notification at all.
+    private var defaultInputListener: AudioObjectPropertyListenerBlock?
+
+    /// How long a new microphone has to still be the answer before we move to
+    /// it. A route in the middle of changing answers differently from one
+    /// second to the next, and each move costs about four seconds of silence
+    /// in the track.
+    private static let routeSettle: TimeInterval = 1.5
 
     /// How long after an attach a configuration change may be our own doing.
     /// Enabling the voice unit reconfigures the input device — it builds an
@@ -189,12 +207,19 @@ final class MicRecorder: @unchecked Sendable {
 
     /// Start capturing the mic, encoding AAC into `url` (use a .caf extension
     /// — CAF needs no finalization pass, so a crash loses nothing written).
-    func start(writingTo url: URL) throws {
+    ///
+    /// `callApps` are the bundle-id families this session is following, and
+    /// they decide which microphone is captured: the one the call app is
+    /// listening to, falling back to the system default. Pass them again
+    /// through `follow(callApps:)` when the session's idea of the call
+    /// changes.
+    func start(writingTo url: URL, callApps: [String] = []) throws {
         guard !isRecording else { return }
         self.url = url
+        followedCallApps = callApps
         try attach(voiceProcessing: Config.micVoiceProcessing())
         isRecording = true
-        inputDevice = AudioDevices.defaultInputName()
+        inputDevice = AudioDevices.name(of: boundDevice) ?? AudioDevices.defaultInputName()
         outputDevice = AudioDevices.defaultOutputName()
         // A call app (FaceTime, Zoom) grabbing the mic reconfigures the input
         // device and stops the engine mid-session; without this observer the
@@ -204,6 +229,41 @@ final class MicRecorder: @unchecked Sendable {
         ) { [weak self] note in
             guard let self, (note.object as? AVAudioEngine) === self.engine else { return }
             self.handleConfigChange()
+        }
+        listenForDefaultInputChanges()
+    }
+
+    /// Follow these call app families from now on. The route is re-examined
+    /// immediately: a second app joining the call may well be the one holding
+    /// the microphone.
+    func follow(callApps families: [String]) {
+        guard families != followedCallApps else { return }
+        followedCallApps = families
+        checkRoute()
+    }
+
+    /// Re-examine which microphone we ought to be on, and move if it is not
+    /// the one we are on. Called on every route notification and on the
+    /// session's own timer, because a call app can change device without
+    /// anything system-wide changing at all.
+    func checkRoute() {
+        guard isRecording, !restartPending else { return }
+        guard let wanted = MicRoute.preferred(callApps: followedCallApps) else { return }
+        guard wanted.id != boundDevice else { return }
+        // Two questions a second apart: a route in the middle of changing
+        // answers differently each time, and every move costs seconds of
+        // silence in the track.
+        let target = wanted.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.routeSettle) { [weak self] in
+            guard let self, self.isRecording, !self.restartPending else { return }
+            guard let now = MicRoute.preferred(callApps: self.followedCallApps),
+                  now.id == target, now.id != self.boundDevice
+            else { return }
+            let report = "mic: microphone moved to \(now.name ?? "?") "
+                + "(was \(AudioDevices.name(of: self.boundDevice) ?? "?")) — following it\n"
+            FileHandle.standardError.write(Data(report.utf8))
+            self.restartPending = true
+            self.restartCapture()
         }
     }
 
@@ -215,6 +275,7 @@ final class MicRecorder: @unchecked Sendable {
             NotificationCenter.default.removeObserver(configObserver)
             self.configObserver = nil
         }
+        stopListeningForDefaultInputChanges()
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         file = nil
@@ -246,6 +307,7 @@ final class MicRecorder: @unchecked Sendable {
     private func attach(voiceProcessing: Bool, reusingFile: Bool = false) throws {
         engine = AVAudioEngine()
         let input = engine.inputNode
+        bindInputDevice(of: input)
 
         var voice = voiceProcessing
         if voice {
@@ -323,9 +385,13 @@ final class MicRecorder: @unchecked Sendable {
         } catch {
             input.removeTap(onBus: 0)
             if existing == nil { file = nil }
+            // If we had pointed it at a microphone of our own choosing, that
+            // is the first suspect, and the retry gets the default instead.
+            skipBinding = boundDevice != AudioDevices.defaultInput()
             throw RecorderError.engineStartFailed(error)
         }
         attachedAt = Date()
+        skipBinding = false
 
         let report = "mic: voiceProcessing=\(input.isVoiceProcessingEnabled) "
             + "input=\(input.outputFormat(forBus: 0)) tap=\(monoFormat)\n"
@@ -466,6 +532,80 @@ final class MicRecorder: @unchecked Sendable {
         if let convertError { throw convertError }
     }
 
+    /// Point this engine at the microphone we mean to record.
+    ///
+    /// Only when that is not the default one: an engine picks the default up
+    /// by itself at start, so following a default that changed needs nothing
+    /// but the restart. What needs saying out loud is the other case — the
+    /// call app listening to a microphone the system has not been told about —
+    /// and that is the only case where this touches the unit at all, which
+    /// keeps a device the voice unit dislikes out of the ordinary path.
+    ///
+    /// A refusal is not fatal. Capture continues on the default, which is
+    /// where it would have been anyway; it is logged because it means the
+    /// track and the call are listening to different microphones.
+    private func bindInputDevice(of input: AVAudioInputNode) {
+        let fallback = AudioDevices.defaultInput()
+        guard !skipBinding, let wanted = MicRoute.preferred(callApps: followedCallApps),
+              wanted.id != fallback
+        else {
+            boundDevice = fallback
+            return
+        }
+        do {
+            try input.auAudioUnit.setDeviceID(wanted.id)
+            boundDevice = wanted.id
+            FileHandle.standardError.write(Data(
+                "mic: recording \(wanted.name ?? "?"), the microphone the call is on\n".utf8
+            ))
+        } catch {
+            boundDevice = fallback
+            FileHandle.standardError.write(Data(
+                "warning: cannot record \(wanted.name ?? "?") (\(error)) — using the default mic\n".utf8
+            ))
+        }
+    }
+
+    /// Follow the system default input while recording. A default that changes
+    /// under a running engine is silent in every other way — the engine stays
+    /// on the device it was built around, and `AVAudioEngineConfigurationChange`
+    /// is not posted — so without this listener, choosing another microphone
+    /// mid-meeting leaves amanu recording the old one for the rest of the call.
+    private func listenForDefaultInputChanges() {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async { self?.checkRoute() }
+        }
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
+        )
+        if status == noErr {
+            defaultInputListener = listener
+        } else {
+            let warning = "warning: cannot watch the default microphone (\(status)) — "
+                + "a mid-meeting change will not be followed\n"
+            FileHandle.standardError.write(Data(warning.utf8))
+        }
+    }
+
+    private func stopListeningForDefaultInputChanges() {
+        guard let defaultInputListener else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectRemovePropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main,
+            defaultInputListener
+        )
+        self.defaultInputListener = nil
+    }
+
     /// Another process reconfigured the input device (typically a call app
     /// engaging voice processing) and the engine stopped. Debounce briefly —
     /// reconfiguration storms post several notifications — then restart.
@@ -473,12 +613,16 @@ final class MicRecorder: @unchecked Sendable {
         guard isRecording, !restartPending else { return }
         restartPending = true
 
-        if Date().timeIntervalSince(attachedAt) <= Self.settleWindow {
-            // Possibly our own attach reconfiguring the device. Wait for the
-            // new engine to prove itself rather than guessing whose change
-            // this is: buffers still arriving at the deadline means it is
-            // alive and the change was ours, and no buffers means it stopped
-            // and has to be rebuilt whoever caused it.
+        if Date().timeIntervalSince(attachedAt) <= Self.settleWindow, engine.isRunning {
+            // Possibly our own attach reconfiguring the device — but only
+            // possibly, and only while the engine is still running. An engine
+            // that has stopped never restarts itself, so there is nothing to
+            // wait for and the case falls through to the restart below.
+            //
+            // Otherwise wait for the new engine to prove itself rather than
+            // guessing whose change this is: buffers still arriving at the
+            // deadline means it is alive and the change was ours, and no
+            // buffers means it stopped and has to be rebuilt whoever caused it.
             let wait = max(attachedAt.addingTimeInterval(Self.settleDeadline).timeIntervalSinceNow, 0.5)
             DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
                 guard let self, self.isRecording else { return }
@@ -505,11 +649,15 @@ final class MicRecorder: @unchecked Sendable {
         }
     }
 
-    /// Whether a buffer has landed recently enough to call capture alive. The
-    /// only evidence that separates a device we reconfigured from one that
-    /// stopped.
+    /// Whether a buffer has landed since the current engine attached, recently
+    /// enough to call capture alive. The only evidence that separates a device
+    /// we reconfigured ourselves from one that stopped.
+    ///
+    /// Both halves matter. A buffer from the engine that has just been torn
+    /// down says nothing about the one that replaced it, and without the first
+    /// half a dead engine looks alive for a whole second after every restart.
     private var audioIsFlowing: Bool {
-        guard let last = lastBufferAt else { return false }
+        guard let last = lastBufferAt, last > attachedAt else { return false }
         return Date().timeIntervalSince(last) < Self.aliveWithin
     }
 
@@ -578,7 +726,9 @@ final class MicRecorder: @unchecked Sendable {
     /// Record what the route changed into, for meta.json and the run log.
     /// `gap_ms` stays open until the first buffer lands.
     private func noteRestart() {
-        let input = AudioDevices.defaultInputName()
+        // The microphone we are on, which is not always the default one —
+        // that is the whole point of binding it.
+        let input = AudioDevices.name(of: boundDevice) ?? AudioDevices.defaultInputName()
         let output = AudioDevices.defaultOutputName()
         let voice = engine.inputNode.isVoiceProcessingEnabled
         state.withLock {
