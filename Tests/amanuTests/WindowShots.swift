@@ -629,11 +629,20 @@ struct WindowGallery {
 
     // MARK: - taking the picture
 
-    /// The same exposure as `WindowShots.write(_:_:)`, and for the same
-    /// reasons — see the comment there about the background.
+    /// The same exposure as `WindowShots.write(_:_:)` — see the comment there
+    /// about the background — except that it photographs the window's own
+    /// frame view rather than its content view, so the title bar and the three
+    /// buttons in the corner are in the picture. That is the difference
+    /// between a screenshot of a Mac window and a rectangle of controls, and
+    /// this suite's whole errand is showing somebody what amanu looks like.
+    ///
+    /// The buttons come out grey rather than red, yellow and green: they are
+    /// drawn for a window that is not the active application's, and a test
+    /// binary is not an application that macOS will activate. An inactive
+    /// window is a real state, and it is the one these pictures are of.
     @MainActor
     private func write(_ panel: NSWindow, _ name: String) throws {
-        let view = try #require(panel.contentView)
+        let view = try #require(panel.contentView?.superview ?? panel.contentView)
         view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         view.displayIfNeeded()

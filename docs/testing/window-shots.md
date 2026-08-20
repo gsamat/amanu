@@ -77,8 +77,16 @@ a line limit to raise.
 
 **Do not read a switch's state off a picture.** An `NSSwitch` is drawn by
 SwiftUI and comes out in the off position offscreen whatever it is set to. Every
-switch in these files looks off. `tree.txt` reports the real state, and it is
-the only place to read it.
+switch in these files looks off — grey, where a switch that is on is blue.
+`tree.txt` reports the real state, and it is the only place to read it.
+
+This has been tried and does not yield. Rendering the layer tree instead of the
+view tree gives the same picture; so does putting the window on screen first,
+and so does setting each switch's state again after the window exists to drive
+a redraw through it. The hosted view is not rendered by `cacheDisplay` at all,
+and there is no public way to make it. A picture that has to show a switch
+being on has to be taken of the real application, on a screen, with
+`screencapture`.
 
 **Measure in `tree.txt`, not with your eyes.** Rows are wrong by two or three
 points at a time, which is exactly the range where looking is unreliable and a
@@ -103,6 +111,16 @@ machine, and all of it changes what the window says and how tall its rows are.
 Two runs on different days differ for reasons that are not the code. When
 comparing across commits, compare runs taken close together, and check
 `tree.txt` before concluding that a layout moved.
+
+**The gallery's pictures have the window's title bar in them; the diagnostic
+ones do not.** `WindowGallery` photographs the window's frame view rather than
+its content view, so the three buttons in the corner are in the frame and the
+picture reads as a Mac window rather than as a rectangle of controls. They come
+out grey rather than red, yellow and green, because they are drawn for a window
+belonging to an application macOS has not activated — and it will not activate
+a test binary. `WindowShots` keeps to the content view: its pictures are
+compared against each other to the pixel, and chrome is one more thing that
+could differ for a reason nobody wants to chase.
 
 **The recordings window is posed, and the rest are not.** Its four sessions are
 written into a folder of its own for the exposure and deleted afterwards —
