@@ -308,7 +308,7 @@ than transcribed — that's what a mic opening for a few seconds is. Manual
 recordings are never auto-stopped and never discarded: if you pressed the
 button, only you decide.
 
-The menu shows what the loop is currently thinking ("waiting", "Zoom on the mic
+The menu shows what the loop is currently thinking ("ready", "Zoom on the mic
 for 7s", "quiet for 40s"), which is the difference between debugging a missed
 recording and guessing at it. The checkbox next to it turns the whole thing off
 immediately, without touching the config file.

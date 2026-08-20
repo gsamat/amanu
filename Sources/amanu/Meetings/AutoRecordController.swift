@@ -27,7 +27,7 @@ final class AutoRecordController {
 
     /// What the controller is thinking, for the menu. "Why didn't it record?"
     /// is otherwise a question you can only answer with a debugger.
-    private(set) var lastDecision = localised("waiting", "жду")
+    private(set) var lastDecision = localised("ready", "готов")
 
     /// Runtime override from the menu bar, independent of the config file.
     /// Turning auto-record off in the menu must be instant and obvious.
@@ -162,12 +162,12 @@ final class AutoRecordController {
         }
 
         guard settings.micActivity else {
-            lastDecision = localised("waiting for a calendar event", "жду события в календаре")
+            lastDecision = localised("ready, watching the calendar", "готов, слежу за календарём")
             return
         }
         guard let since = micActiveSince else {
             lastDecision = mic.allHolders.isEmpty
-                ? localised("waiting", "жду")
+                ? localised("ready", "готов")
                 : localised("mic held by ", "микрофон занят: ")
                     + mic.allHolders.joined(separator: ", ")
                     + localised(" — not a call app", " — это не приложение для звонков")
