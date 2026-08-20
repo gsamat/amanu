@@ -1,16 +1,24 @@
 # Seeing the windows
 
-`Tests/amanuTests/WindowShots.swift` renders the setup window, the settings
-window and the About window to PNG files, and writes a listing of where every
-view in the setup window ended up. It asserts nothing. It exists because the defects these
+`Tests/amanuTests/WindowShots.swift` renders every window amanu has to PNG
+files, and writes a listing of where every view in the setup window ended up.
+It asserts nothing. It exists because the defects these
 windows produce are not the kind a test catches: a label whose descenders sit
 on the hairline below it, a border still painted in the appearance the Mac has
 left, two rows nobody thought to compare that came out different heights. Each
 of those was found by rendering the window and looking at it.
 
 ```sh
-mkdir -p /tmp/shots && AMANU_SHOTS=/tmp/shots swift test --filter WindowShots
+mkdir -p /tmp/shots && AMANU_SHOTS=/tmp/shots swift test --filter 'Window(Shots|Gallery)'
 ```
+
+Two suites live in that file. `WindowShots` is the diagnostic one — the setup
+and settings windows at the wrong sizes on purpose, and through a change of
+appearance. `WindowGallery` is the other errand: the status window and the
+recordings window, which produce no layout defects and so were never in the
+first suite, plus the setup window at the exact height of its own form. Filter
+to one of them by name when only one is wanted; the two write into the same
+directory.
 
 The directory has to exist: the suite writes into it rather than creating it,
 so a first run without the `mkdir` fails on the first PNG.
@@ -21,8 +29,8 @@ its own:
 
 ```sh
 mkdir -p /tmp/shots-en /tmp/shots-ru
-AMANU_SHOTS=/tmp/shots-en swift test --filter WindowShots
-AMANU_SHOTS_LANGUAGE=ru AMANU_SHOTS=/tmp/shots-ru swift test --filter WindowShots
+AMANU_SHOTS=/tmp/shots-en swift test --filter 'Window(Shots|Gallery)'
+AMANU_SHOTS_LANGUAGE=ru AMANU_SHOTS=/tmp/shots-ru swift test --filter 'Window(Shots|Gallery)'
 ```
 
 `AMANU_SHOTS` both switches the suite on and says where to write; without it
@@ -44,6 +52,10 @@ program to suit its instruments.
 | `settings-advanced-{light,dark}-bottom.png` | The same tab scrolled to its end, which is the only picture the models-on-disk block appears in. |
 | `settings-setup-switched-*.png` | The settings window through the same change of appearance. |
 | `about-{light,dark}.png` | The About window, which sizes itself to its words — so this pair is where a Russian line that outgrew the width would show. |
+| `setup-{light,dark}-whole.png` | The setup window closed onto its own form: the whole screen, one image, no scrollbar and no empty band. This is the one to show somebody. |
+| `status-idle-{light,dark}.png` | The status window as it sits all day. |
+| `status-recording-{light,dark}.png` | The same window recording, with the live transcript that borrows its height. |
+| `recordings-{light,dark}.png` | The recordings window over four sessions made for the picture — finished, waiting, refused, and one whose names are half filled in — with the newest selected so the detail half is not blank. |
 | `tree.txt` | Every view in the setup window with its frame, in window coordinates. |
 
 ## How to read them
@@ -91,6 +103,12 @@ machine, and all of it changes what the window says and how tall its rows are.
 Two runs on different days differ for reasons that are not the code. When
 comparing across commits, compare runs taken close together, and check
 `tree.txt` before concluding that a layout moved.
+
+**The recordings window is posed, and the rest are not.** Its four sessions are
+written into a folder of its own for the exposure and deleted afterwards —
+these files get shown to people, and the real recordings folder is full of the
+names of actual meetings. Everything else in these pictures is this Mac saying
+what is true about it.
 
 **A download in progress is not among the states it can take.** The local
 model's row grows a progress bar and swaps its size for a running count while
