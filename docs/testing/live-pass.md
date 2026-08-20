@@ -166,9 +166,9 @@ project has been surprised by before — see `rca-002`.
 **C3 — The live transcript runs.** Text appears while the call is happening,
 not only afterwards.
 
-**C4 — Leaving stops it.** Leave the call. Recording stops within about ninety
-seconds — that is `stop_delay_seconds`, waiting to see whether the call really
-ended.
+**C4 — Leaving stops it.** Leave the call. Recording stops within about twenty
+seconds — `stop_delay_seconds` of quiet, plus up to one five-second tick before
+the rule is looked at.
 
 **C5 — The transcript folds away.** With the recording stopped, the live
 transcript section collapses and the window returns to its previous height. A
@@ -194,11 +194,12 @@ the other.
 (45 seconds by default). No session should be kept.
 
 Do not judge this by the timer. The recording keeps running until the far end
-has been quiet for `stop_delay` (90 seconds), so it will be around a minute and
-a half long before anything is decided — that wait is subtracted from the length
-before it is compared to the minimum, which is the whole of `.issues/008`. Wait
-for the recording to stop by itself, then look at the folder. Until 20 August
-2026 this check could not fail, because nothing could ever be short enough.
+has been quiet for `stop_delay` (15 seconds), so it will be a little longer
+than the call itself before anything is decided — that wait is subtracted from
+the length before it is compared to the minimum, which is the whole of
+`.issues/008`. Wait for the recording to stop by itself, then look at the
+folder. Until 20 August 2026 this check could not fail, because nothing could
+ever be short enough.
 
 **C10 — Quitting mid-recording asks first.** Start another call, and with the
 recording running press ⌘Q. An alert must name how long it has been recording

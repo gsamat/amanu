@@ -171,7 +171,7 @@ enum SettingsSchema {
                       "How long nobody may hold the mic, and the far end stay quiet, before it ends.",
                       "Сколько никто не держит микрофон и молчит дальняя сторона, прежде чем встреча "
                           + "кончится."),
-                  .number(unit: localised("seconds", "с")), default: 90),
+                  .number(unit: localised("seconds", "с")), default: 15),
             Entry(["auto_record", "min_duration_seconds"],
                   localised("Discard meetings shorter than", "Выбрасывать встречи короче"),
                   localised(
