@@ -339,3 +339,321 @@ private final class Ground: NSView {
         dirtyRect.fill()
     }
 }
+
+/// The two windows the suite above does not build, and the setup window at the
+/// one size a person never sees it.
+///
+/// `WindowShots` grew around the two windows that produce layout defects, and
+/// stopped there. But amanu has five windows, and a set of pictures meant to
+/// show somebody what the program looks like — in one language beside the
+/// other — cannot be missing the one that says whether it is recording and the
+/// one that lists what it recorded. Neither needs the appearance-switch pass:
+/// that is a diagnostic for forms built before their window exists, and these
+/// two build theirs in place.
+///
+/// Same switch, same directory, same two languages:
+///
+/// ```sh
+/// AMANU_SHOTS=/tmp/shots swift test --filter WindowGallery
+/// ```
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["AMANU_SHOTS"] != nil))
+struct WindowGallery {
+    private var directory: String {
+        ProcessInfo.processInfo.environment["AMANU_SHOTS"] ?? NSTemporaryDirectory()
+    }
+
+    private var language: InterfaceLanguage {
+        ProcessInfo.processInfo.environment["AMANU_SHOTS_LANGUAGE"]
+            .flatMap(InterfaceLanguage.init(rawValue:)) ?? .english
+    }
+
+    private var light: NSAppearance? { NSAppearance(named: .aqua) }
+    private var dark: NSAppearance? { NSAppearance(named: .darkAqua) }
+
+    /// The setup window at exactly the height of its own form.
+    ///
+    /// The pair in `WindowShots` is deliberately the wrong height twice: 760
+    /// is what a person gets and scrolls, 1600 is taller than the form so that
+    /// anything anchored to the bottom shows itself. Neither is the picture to
+    /// hand somebody who asked what the setup screen looks like — one is cut
+    /// off and the other has a band of empty window under it. This one is
+    /// measured: the form is laid out tall, its real height read back, and the
+    /// window closed onto it, so the whole screen is in one image with no
+    /// scrollbar and nothing to spare.
+    @Test("The setup window at the full height of its form")
+    @MainActor
+    func setupWhole() throws {
+        _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            NSApp.appearance = appearance
+            var window: SetupWindow?
+            appearance?.performAsCurrentDrawingAppearance { window = SetupWindow() }
+            owners.append(try #require(window))
+            let title = localised("amanu setup", "Первая настройка amanu")
+            let panel = try #require(NSApp.windows.last { $0.title == title })
+            panel.appearance = appearance
+
+            // Lay the form out somewhere it certainly fits, read what it came
+            // to, then take the window down to it. Asking a scroll view for
+            // its document's height before it has been given room to lay one
+            // out answers with the height it was given.
+            panel.setContentSize(NSSize(width: 700, height: 2000))
+            panel.contentView?.layoutSubtreeIfNeeded()
+            let content = try #require(panel.contentView)
+            let scroll = try #require(firstScrollView(in: content))
+            let document = try #require(scroll.documentView)
+            let chrome = content.bounds.height - scroll.bounds.height
+            panel.setContentSize(NSSize(
+                width: panel.contentLayoutRect.width,
+                height: ceil(document.bounds.height + chrome)))
+            try write(panel, "setup-\(name)-whole")
+        }
+    }
+
+    /// The status window, in the two states it is ever in.
+    ///
+    /// Idle is the one that is on screen all day, and the one whose wording
+    /// this release changed. Recording is the other shape of the window
+    /// entirely: the live transcript borrows the height while it runs, which
+    /// is the only time this window is bigger than a postage stamp.
+    @Test("The status window, idle and recording, in both appearances")
+    @MainActor
+    func statusWindow() throws {
+        _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            NSApp.appearance = appearance
+            var window: StatusWindow?
+            appearance?.performAsCurrentDrawingAppearance { window = StatusWindow() }
+            let status = try #require(window)
+            owners.append(status)
+            let panel = try #require(NSApp.windows.last { $0.title == "amanu" })
+            panel.appearance = appearance
+
+            status.update(state: .idle, elapsed: nil)
+            status.updateAutoRecord(enabled: true, decision: localised("ready", "готов"))
+            status.updateTranscription(localised(
+                "transcribes on this Mac", "расшифровывает на этом маке"))
+            status.updateLive(.init(
+                isRecording: false, isEnabled: true, entries: [], status: .idle))
+            try write(panel, "status-idle-\(name)")
+
+            status.update(state: .recording, elapsed: "12:04")
+            status.updateAutoRecord(
+                enabled: true,
+                decision: localised("Zoom on the mic for 12m", "Zoom на микрофоне 12 мин"))
+            status.updateLive(.init(
+                isRecording: true, isEnabled: true, entries: Self.conversation, status: .live))
+            try write(panel, "status-recording-\(name)")
+        }
+    }
+
+    /// The recordings window, over a folder made for the picture.
+    ///
+    /// Not over the real one: these files are for showing people, and the real
+    /// folder is full of the names of actual meetings. The fixture is four
+    /// sessions arranged to put every state the list can show in one frame —
+    /// finished, waiting its turn, refused, and a recording whose audio has
+    /// been cleaned out — with the newest selected so the detail side of the
+    /// window has something in it.
+    @Test("The recordings window, in both appearances")
+    @MainActor
+    func recordingsWindow() throws {
+        _ = NSApplication.shared
+        let spoken = InterfaceLanguage.current
+        InterfaceLanguage.current = language
+        defer { InterfaceLanguage.current = spoken }
+
+        let root = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            NSApp.appearance = appearance
+            var window: RecordingsWindow?
+            appearance?.performAsCurrentDrawingAppearance { window = RecordingsWindow(root: root) }
+            owners.append(try #require(window))
+            let title = localised("Recordings", "Записи")
+            let panel = try #require(NSApp.windows.last { $0.title == title })
+            panel.appearance = appearance
+            panel.setContentSize(NSSize(width: 860, height: 560))
+
+            let content = try #require(panel.contentView)
+            content.layoutSubtreeIfNeeded()
+            // The detail half of the window is empty until something is
+            // selected, and an empty half is not what the window looks like.
+            if let table = firstTableView(in: content), table.numberOfRows > 0 {
+                table.selectRowIndexes([0], byExtendingSelection: false)
+            }
+            try write(panel, "recordings-\(name)")
+        }
+    }
+
+    // MARK: - what the pictures are of
+
+    /// A few lines of a meeting, long enough to fill the transcript pane and
+    /// to run in both directions: the labels are the window's language, the
+    /// speech is whatever was said.
+    private static var conversation: [LiveTranscriptState.Entry] {
+        [
+            .speech(.init(speaker: .them, text: "Давай пройдёмся по релизу.",
+                          startMilliseconds: 0, isProvisional: false)),
+            .speech(.init(speaker: .you, text: "Yes — two changes and the notes are written.",
+                          startMilliseconds: 2600, isProvisional: false)),
+            .speech(.init(speaker: .them, text: "А ожидание после звонка починили?",
+                          startMilliseconds: 6100, isProvisional: false)),
+            .speech(.init(speaker: .you, text: "Fifteen seconds now, down from ninety.",
+                          startMilliseconds: 9400, isProvisional: true)),
+        ]
+    }
+
+    /// Four sessions on disk, covering the four things the list can say about
+    /// one. Written into a folder of its own so nothing here can be confused
+    /// for a real recording.
+    private static func fixture() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-gallery-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        try session(
+            in: root, named: "2026.08.20-1030",
+            meta: [
+                "started": "2026-08-20T10:30:00Z", "duration_seconds": 2760,
+                "title": localised("Release review", "Разбор релиза"),
+                "trigger": "mic-activity",
+            ],
+            transcript: true, speakers: true, summary: true)
+
+        try session(
+            in: root, named: "2026.08.19-1615",
+            meta: [
+                "started": "2026-08-19T16:15:00Z", "duration_seconds": 1500,
+                "title": localised("Weekly with Fyodor", "Планёрка с Фёдором"),
+                "trigger": "calendar",
+            ],
+            transcript: true, speakers: false, summary: false)
+
+        try session(
+            in: root, named: "2026.08.19-0905",
+            meta: [
+                "started": "2026-08-19T09:05:00Z", "duration_seconds": 480,
+                "title": localised("Call with the studio", "Звонок со студией"),
+                "trigger": "mic-activity",
+                SessionState.Key.transcriptionFailed:
+                    "no spoken audio in the recording",
+            ],
+            transcript: false, speakers: false, summary: false)
+
+        try session(
+            in: root, named: "2026.08.18-1400",
+            meta: [
+                "started": "2026-08-18T14:00:00Z", "duration_seconds": 3600,
+                "title": localised("Design conversation", "Разговор про дизайн"),
+                "trigger": "manual",
+            ],
+            transcript: true, speakers: true, summary: true)
+
+        return root
+    }
+
+    private static func session(
+        in root: URL, named name: String, meta: [String: Any],
+        transcript: Bool, speakers: Bool, summary: Bool
+    ) throws {
+        let dir = root.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: meta)
+            .write(to: dir.appendingPathComponent("meta.json"))
+
+        if transcript {
+            let json = Transcript(
+                engine: "parakeet", model: "v3", created_at: "2026-08-20T11:20:00Z",
+                segments: [
+                    .init(speaker: "me", start_ms: 0, end_ms: 2400,
+                          text: "Let's go through what's left."),
+                    .init(speaker: "them A", start_ms: 2400, end_ms: 6100,
+                          text: "Две правки и заметки к релизу."),
+                    .init(speaker: "them B", start_ms: 6100, end_ms: 9000,
+                          text: "I'll take the checklist."),
+                ]
+            )
+            try JSONEncoder().encode(json)
+                .write(to: dir.appendingPathComponent("transcript.json"))
+        }
+        if speakers {
+            try SpeakerNames(speakers: [
+                "them A": .init(name: "Фёдор", source: .model),
+                "them B": .init(name: "Мария", source: .manual),
+            ]).write(to: dir)
+        }
+        if summary {
+            try Data("# notes\n\nTwo changes, and the notes are written.\n".utf8)
+                .write(to: dir.appendingPathComponent("summary.md"))
+        }
+    }
+
+    // MARK: - finding things in a window
+
+    @MainActor
+    private func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        for sub in view.subviews {
+            if let scroll = firstScrollView(in: sub) { return scroll }
+        }
+        return nil
+    }
+
+    @MainActor
+    private func firstTableView(in view: NSView) -> NSTableView? {
+        if let table = view as? NSTableView { return table }
+        for sub in view.subviews {
+            if let table = firstTableView(in: sub) { return table }
+        }
+        return nil
+    }
+
+    // MARK: - taking the picture
+
+    /// The same exposure as `WindowShots.write(_:_:)`, and for the same
+    /// reasons — see the comment there about the background.
+    @MainActor
+    private func write(_ panel: NSWindow, _ name: String) throws {
+        let view = try #require(panel.contentView)
+        view.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        view.displayIfNeeded()
+
+        let bounds = view.bounds
+        let ground = GalleryGround(frame: bounds)
+        ground.autoresizingMask = [.width, .height]
+        view.addSubview(ground, positioned: .below, relativeTo: nil)
+        defer { ground.removeFromSuperview() }
+
+        let shot = try #require(view.bitmapImageRepForCachingDisplay(in: bounds))
+        view.cacheDisplay(in: bounds, to: shot)
+        let png = try #require(shot.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: "\(directory)/\(name).png"))
+    }
+}
+
+private final class GalleryGround: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.windowBackgroundColor.setFill()
+        dirtyRect.fill()
+    }
+}
