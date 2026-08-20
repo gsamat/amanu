@@ -45,6 +45,11 @@ final class StatusWindow {
     /// recorded — and a recorder that needs a big window to say so is a worse
     /// recorder. The live transcript is the one thing that needs room, so it
     /// borrows it while it runs and gives it back afterwards.
+    ///
+    /// The height here is only where the window starts. What is in it comes
+    /// and goes — the transcription line, the line saying why it is not
+    /// recording, the live section — so the height it actually needs is
+    /// measured; see `fittingHeight`.
     private static let compactSize = NSSize(width: 320, height: 210)
     private static let expandedHeight: CGFloat = 460
     private var liveTextVisible = false
@@ -251,12 +256,14 @@ final class StatusWindow {
     func updateTranscription(_ text: String?) {
         transcriptionLabel.stringValue = text ?? ""
         transcriptionLabel.isHidden = text == nil
+        growToFitContent()
     }
 
     func updateAutoRecord(enabled: Bool, decision: String?) {
         autoRecordCheckbox.state = enabled ? .on : .off
         decisionLabel.stringValue = decision ?? ""
         decisionLabel.isHidden = !enabled || decision == nil
+        growToFitContent()
     }
 
     func updateLive(_ snapshot: LiveTranscriptionCoordinator.Snapshot) {
@@ -311,6 +318,7 @@ final class StatusWindow {
             for: snapshot, revealed: liveRevealedAfterStop)
         showLiveText(visibility.showsTranscript)
         liveReveal.isHidden = !visibility.showsRevealLink
+        growToFitContent()
     }
 
     struct LiveTextVisibility: Equatable, Sendable {
@@ -361,9 +369,34 @@ final class StatusWindow {
         }
     }
 
+    /// The shortest window that holds what is in it now.
+    ///
+    /// Measured rather than assumed, because the constants above know nothing
+    /// about the rows that come and go, and the window kept being asked for a
+    /// frame shorter than its own content: 210 points of window for the 234
+    /// points of rows there are once both one-line statuses are on screen.
+    /// What comes of asking is the live transcript's checkbox drawn across
+    /// the Manage recordings button.
+    private var fittingHeight: CGFloat {
+        guard let content = panel.contentView else { return Self.compactSize.height }
+        content.layoutSubtreeIfNeeded()
+        return panel.frameRect(
+            forContentRect: NSRect(origin: .zero, size: content.fittingSize)).height
+    }
+
+    /// Grow to whatever a row that has just appeared needs. Only grow: the
+    /// window shrinks when the live transcript folds away, which has a height
+    /// to give back, and not every time a one-line status comes and goes.
+    private func growToFitContent() {
+        guard panel.frame.height < fittingHeight else { return }
+        resize(to: fittingHeight)
+    }
+
     /// Keep the title bar where it is: a window that grows downward off the
     /// screen edge is how a status window ends up half-visible.
     private func resize(to height: CGFloat) {
+        let height = max(height, fittingHeight)
+        guard height != panel.frame.height else { return }
         var frame = panel.frame
         frame.origin.y += frame.height - height
         frame.size.height = height
