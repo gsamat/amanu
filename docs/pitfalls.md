@@ -196,9 +196,16 @@ Padding before the attach leaves those out of the file, and every buffer after
 the restart is written earlier than it happened — 0.37 s per restart, measured
 against a Zoom cloud recording of the same call, and it never comes back.
 
-Enabling the voice unit reconfigures the input device, which posts the
-notification the restart listens for, so the restart path also has to ignore
-its own change (`settleWindow`) or it loops.
+**Our own change cannot be told from a dead engine, so do not try.** Enabling
+the voice unit reconfigures the input device, which posts the notification the
+restart listens for; restart on it and the restart starts the next one. But
+dismissing a change because we probably caused it is worse, and it fails
+silently: the same notification arrives when the engine has genuinely stopped,
+and a dismissed one means the microphone is simply never rebuilt. That cost 43
+seconds of a 67-second recording on the evening the window was added — engine
+stopped, change dismissed as ours, mic silent until the next route change
+happened along. What the window is for is buying time to ask the only question
+that has an answer: five seconds after the attach, are buffers still arriving?
 
 ## Banners need a bundle
 

@@ -98,13 +98,37 @@ waveform, and the offsets by cross-correlating three files.
 - The liveness check no longer deletes the file when it trips mid-session, and
   waits 3 s rather than 1 s there: the noise suppressor emits true digital
   zeros in a quiet room, in runs that reached 0.87 s in this very recording.
-- A settle window (1.5 s) ignores the configuration change our own rebuild
-  causes — enabling the voice unit reconfigures the device — and a storm guard
-  drops to raw capture if three restarts land inside 30 s anyway.
+- A change arriving within 1.5 s of an attach may be our own — enabling the
+  voice unit reconfigures the device — so the decision waits until 5 s after
+  the attach and is made on whether buffers are arriving, not on who is to
+  blame. A storm guard drops to raw capture if three restarts land inside 30 s
+  anyway.
 
 `RecordingSession` writes the restarts into `meta.json` as `mic_restarts`:
 when, how long the gap was, whether cancellation survived, and the input and
 output device on either side of the change.
+
+## Found on the way out
+
+The first version of the settle window simply *ignored* a change that arrived
+just after an attach, and that is a bug of the same family as the one this file
+is about: the notification is also what a stopped engine sends, and there is
+nothing in it to tell the two apart. Measured the same evening, on the build
+that was about to ship: 43 seconds of a 67-second recording with no microphone
+at all, one line in the log saying the change had been ignored, and `meta.json`
+reporting a healthy session. Hence the deferred, evidence-based decision above.
+
+Two more things the test runs settled, neither of them fixed here:
+
+- **A default-device change does not reconfigure a running engine.** Switching
+  the default input mid-recording — the thing you do when you pick another
+  microphone in Zoom — posts nothing, and capture carries on with the device it
+  started on. In the call above the restarts came from the AirPods themselves
+  arriving and leaving, not from the source being switched.
+- **Rebuilding a voice-processing route costs about 4 s** on an M-series Mac
+  (0.5 s debounce, the rest the aggregate). Every one of those seconds is
+  silence in the mic track. Raw capture comes back in a fraction of it, which
+  is presumably why nobody noticed the pad was short.
 
 ## Not done
 

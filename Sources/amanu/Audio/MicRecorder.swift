@@ -152,12 +152,27 @@ final class MicRecorder: @unchecked Sendable {
     /// below.
     private var attachedAt = Date.distantPast
 
-    /// How long after an attach a configuration change is read as our own
-    /// doing. Enabling the voice unit reconfigures the input device — it
-    /// builds an aggregate around it — and that posts the very notification
-    /// this class restarts on. Without the window, the first restart that
-    /// turns cancellation back on starts the second one.
+    /// How long after an attach a configuration change may be our own doing.
+    /// Enabling the voice unit reconfigures the input device — it builds an
+    /// aggregate around it — and that posts the very notification this class
+    /// restarts on, so restarting for it would start the next one.
+    ///
+    /// The window decides nothing by itself, because it cannot: the same
+    /// notification is posted when the engine has genuinely stopped, and at
+    /// the moment it arrives the two look alike. Inside the window the answer
+    /// waits for `settleDeadline`, by which time a healthy engine is
+    /// delivering buffers and a stopped one is not. Reading the window as
+    /// "ignore it" costs a mic track — measured on 20 August 2026: 43 seconds
+    /// of a 67-second recording silent, and nothing in the log but the line
+    /// saying the change had been ignored.
     private static let settleWindow: TimeInterval = 1.5
+    /// When that question gets answered, measured from the attach. Long enough
+    /// to cover a voice-processing route's warm-up — 1.7 to 2.8 s to the first
+    /// buffer on this Mac — and the worst case for how much audio a genuinely
+    /// dead engine costs before it is rebuilt.
+    private static let settleDeadline: TimeInterval = 5
+    /// A buffer this recent means capture is alive.
+    private static let aliveWithin: TimeInterval = 1
     /// Restarts within this window of each other, and the number of them that
     /// says the settle window isn't holding. Past it the route gets raw
     /// capture for the rest of the session: a track with an echo on it is a
@@ -456,19 +471,46 @@ final class MicRecorder: @unchecked Sendable {
     /// reconfiguration storms post several notifications — then restart.
     private func handleConfigChange() {
         guard isRecording, !restartPending else { return }
-        guard Date().timeIntervalSince(attachedAt) > Self.settleWindow else {
-            FileHandle.standardError.write(Data(
-                "mic: configuration change ignored — capture just restarted\n".utf8
-            ))
+        restartPending = true
+
+        if Date().timeIntervalSince(attachedAt) <= Self.settleWindow {
+            // Possibly our own attach reconfiguring the device. Wait for the
+            // new engine to prove itself rather than guessing whose change
+            // this is: buffers still arriving at the deadline means it is
+            // alive and the change was ours, and no buffers means it stopped
+            // and has to be rebuilt whoever caused it.
+            let wait = max(attachedAt.addingTimeInterval(Self.settleDeadline).timeIntervalSinceNow, 0.5)
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait) { [weak self] in
+                guard let self, self.isRecording else { return }
+                if self.audioIsFlowing {
+                    self.restartPending = false
+                    FileHandle.standardError.write(Data(
+                        "mic: configuration change was our own — capture is alive\n".utf8
+                    ))
+                    return
+                }
+                FileHandle.standardError.write(Data(
+                    "mic: no audio after the engine was reconfigured — restarting capture\n".utf8
+                ))
+                self.restartCapture()
+            }
             return
         }
-        restartPending = true
+
         FileHandle.standardError.write(Data(
             "mic: input device reconfigured (call app?) — restarting capture\n".utf8
         ))
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.restartCapture()
         }
+    }
+
+    /// Whether a buffer has landed recently enough to call capture alive. The
+    /// only evidence that separates a device we reconfigured from one that
+    /// stopped.
+    private var audioIsFlowing: Bool {
+        guard let last = lastBufferAt else { return false }
+        return Date().timeIntervalSince(last) < Self.aliveWithin
     }
 
     /// Rebuild the engine on the new route, keeping the file, the wall clock,
