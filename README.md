@@ -636,7 +636,7 @@ Optional, at `~/.config/amanu/config.json`:
     "mic_activity": true,
     "calendar": false,
     "start_delay_seconds": 12,
-    "stop_delay_seconds": 90,
+    "stop_delay_seconds": 15,
     "min_duration_seconds": 45,
     "silence_stop_minutes": 10,
     "max_duration_minutes": 300,

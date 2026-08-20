@@ -17,10 +17,18 @@ struct AutoRecordTests {
     /// The case from the issue: nineteen seconds of Zoom, then ninety seconds
     /// of amanu waiting to be sure the call was over, kept as a 99-second
     /// recording with 29 MB of audio and nothing in it.
+    ///
+    /// The wait it was measured under is written here rather than taken from
+    /// the defaults, which are now fifteen seconds: the point of the case is the
+    /// arithmetic, and it should keep failing the way it failed then no matter
+    /// what the default becomes.
     @Test("A nineteen-second join is thrown away despite the wait that follows it")
     func shortJoinIsDiscarded() {
+        var measured = settings
+        measured.stopDelay = 90
+
         #expect(AutoRecordController.shouldDiscard(
-            trigger: .micActivity, reason: "call-ended", duration: 99, settings: settings))
+            trigger: .micActivity, reason: "call-ended", duration: 99, settings: measured))
     }
 
     @Test("A real meeting is kept")

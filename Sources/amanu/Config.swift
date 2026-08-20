@@ -282,9 +282,9 @@ enum Config {
     /// The defaults encode one asymmetry: a missed meeting costs a click, an
     /// unwanted recording costs privacy and disk. So starting takes sustained
     /// evidence (a known call app holding the mic for `startDelay`), stopping
-    /// is generous (`stopDelay` of nobody on the mic), short auto-recordings
-    /// are thrown away entirely, and two independent backstops — silence and a
-    /// hard cap — end a session no matter what the mic says.
+    /// takes only `stopDelay`, short auto-recordings are thrown away entirely,
+    /// and two independent backstops — silence and a hard cap — end a session
+    /// no matter what the mic says.
     struct AutoRecordSettings {
         var enabled = true
         var micActivity = true
@@ -292,7 +292,21 @@ enum Config {
         /// How long a call app must hold the mic before this is a meeting.
         var startDelay: TimeInterval = 12
         /// How long nobody may hold the mic before the meeting is over.
-        var stopDelay: TimeInterval = 90
+        ///
+        /// Short, because the condition is already strong: the call app has
+        /// let go of the microphone *and* the far end has made no sound. A
+        /// minute and a half of that used to be tacked onto the end of every
+        /// recording for nothing.
+        ///
+        /// Not shorter than this, though. The mic is sampled once per
+        /// `AutoRecordController.tick` and any held sample clears the idle
+        /// clock, so 15 means four clean samples in a row — a whole tick of
+        /// margin over the two that anything below 10 would come down to.
+        /// The gap when a call app rebuilds its input unit (a device change
+        /// mid-call) is a second or two, nowhere near that; an app that closes
+        /// the input for longer would still fool this, and nobody has measured
+        /// one.
+        var stopDelay: TimeInterval = 15
         /// Auto-recordings shorter than this are deleted, not transcribed.
         var minDuration: TimeInterval = 45
         /// Hard ceiling on any auto-recording.
