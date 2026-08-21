@@ -25,7 +25,7 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 ```sh
 make app                                 # build + sign .build/Amanu.app
 cp -R .build/Amanu.app /Applications/    # replace the installed copy
-swift test                               # 278, of which 7 only run for shots
+swift test                               # 292, of which 7 only run for shots
 ```
 
 Quit the running app before replacing `/Applications/Amanu.app` — deleting a

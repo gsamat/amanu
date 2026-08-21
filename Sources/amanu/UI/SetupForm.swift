@@ -153,6 +153,22 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         "https://console.anthropic.com/settings/keys")
 
     private let recordingsPath = NSTextField(labelWithString: "")
+    private let menuBarIcon = NSSwitch()
+    private let dockIcon = NSSwitch()
+    /// Says what is left when both icons are off. Present only then: it is a
+    /// consequence, not a warning, and a line explaining how to get back to a
+    /// window you are looking at is noise until it is the only way.
+    private let noIconsNote: NSTextField = {
+        let label = SetupLayout.status()
+        label.lineBreakMode = .byWordWrapping
+        // Three, though two is enough in both languages at the width the
+        // setup window opens at: the settings window is narrower, and a
+        // sentence that is the only way back into the program is the last one
+        // that should end in an ellipsis.
+        label.maximumNumberOfLines = 3
+        label.preferredMaxLayoutWidth = 520
+        return label
+    }()
     private let autoRecord = NSSwitch()
 
     /// What the last look for `claude`, `codex` and ollama found, by card.
@@ -194,6 +210,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             localised("Summaries", "Саммари"),
             leading: summariesOn,
             content: summaryChoices()))
+
+        form.addArrangedSubview(SetupLayout.section(
+            localised("Where amanu shows up", "Где видно amanu"),
+            content: SetupLayout.group(
+                [SetupLayout.box([menuBarIconRow(), dockIconRow()]), noIconsNote],
+                spacing: SetupLayout.headerGap)))
 
         // No heading of its own: one switch is not a section, and it belongs
         // at the end because it is the thing that makes all of the above run
@@ -548,6 +570,39 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             spacing: SetupLayout.cardGap)
     }
 
+    /// The two places a person can find a running amanu, each of which can be
+    /// given up. Both, if they like: what is left then is the program itself,
+    /// which is opened the way any program is opened, and `noIconsNote` says
+    /// so at the moment it becomes true.
+    private func menuBarIconRow() -> NSView {
+        menuBarIcon.target = self
+        menuBarIcon.action = #selector(iconsChanged)
+        return SetupLayout.row(
+            leading: menuBarIcon,
+            title: SetupLayout.title(localised("In the menu bar", "В строке меню")),
+            detail: SetupLayout.detail(
+                localised(
+                    "The feather, with the clock beside it while a meeting records — and the "
+                        + "menu with everything in it.",
+                    "Перо, во время встречи рядом с ним часы, и меню со всем остальным."),
+                lines: 2, width: 520))
+    }
+
+    private func dockIconRow() -> NSView {
+        dockIcon.target = self
+        dockIcon.action = #selector(iconsChanged)
+        return SetupLayout.row(
+            leading: dockIcon,
+            title: SetupLayout.title(localised("In the Dock", "В доке")),
+            detail: SetupLayout.detail(
+                localised(
+                    "And in ⌘-Tab. The Dock cannot run out of room the way the menu bar can, "
+                        + "and clicking the icon shows the window.",
+                    "И в ⌘-Tab. В доке, в отличие от строки меню, место не кончается, "
+                        + "а по щелчку значка открывается окно."),
+                lines: 2, width: 520))
+    }
+
     private func autoRecordRow() -> NSView {
         autoRecord.target = self
         autoRecord.action = #selector(autoRecordToggled)
@@ -565,6 +620,19 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     private func link(_ title: String, _ url: String) -> NSButton {
         SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
+    }
+
+    /// What is left when neither icon is on, and nothing at all while either
+    /// is. Static and free of AppKit so the sentence can be checked without a
+    /// window: it is the only instruction amanu gives for reaching itself,
+    /// and it is shown exactly when it is the only way in.
+    nonisolated static func noIconsNote(menuBar: Bool, dock: Bool) -> String {
+        guard !menuBar, !dock else { return "" }
+        return localised(
+            "amanu keeps recording with no icon anywhere. To bring the window back, open Amanu "
+                + "again — from Spotlight, or from Applications.",
+            "amanu продолжит записывать, но её нигде не будет видно. Чтобы вернуть окно, "
+                + "откройте Amanu ещё раз — из Spotlight или из папки «Программы».")
     }
 
     /// "18 Aug" — enough to tell this week from last spring, and short enough
@@ -602,6 +670,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     @objc private func linkClicked(_ sender: NSButton) {
         guard let url = sender.identifier.flatMap({ URL(string: $0.rawValue) }) else { return }
         NSWorkspace.shared.open(url)
+    }
+
+    /// Written the moment they are clicked, and taken up the moment they are
+    /// written — the app reads the same file change and moves its icons. So
+    /// the switch that has just emptied the menu bar is on screen beside the
+    /// evidence of it, which is what makes turning both off a safe thing to
+    /// let anyone do.
+    ///
+    /// One action for both switches, because `Config.update` writes only what
+    /// differs: the half nobody touched costs a comparison and leaves the
+    /// file, and its timestamp, alone.
+    @objc private func iconsChanged() {
+        Config.update(path: ["menu_bar_icon"], value: menuBarIcon.state == .on ? nil : false)
+        Config.update(path: ["dock_icon"], value: dockIcon.state == .on ? nil : false)
     }
 
     @objc private func keepAudioChanged() {
@@ -1222,6 +1304,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         if backendIsKey { keyProvider.selectedSegment = summary.backend == "openai-api" ? 1 : 0 }
         showKeyProvider()
         for card in summaryCards.cards { card.isEnabled = summary.enabled }
+
+        menuBarIcon.state = Config.menuBarIcon() ? .on : .off
+        dockIcon.state = Config.dockIcon() ? .on : .off
+        noIconsNote.stringValue = Self.noIconsNote(
+            menuBar: Config.menuBarIcon(), dock: Config.dockIcon())
+        noIconsNote.isHidden = noIconsNote.stringValue.isEmpty
 
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
         autoRecord.state = autoRecordOn ? .on : .off

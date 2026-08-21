@@ -138,6 +138,41 @@ struct SetupOfferTests {
         #expect(menuBar.offeredItemTitles.contains("Setup…"))
     }
 
+    /// The icon can be given up, and the menu behind it is what makes that
+    /// safe to allow: it has to survive the removal intact, because the
+    /// callbacks wired to it are wired once and a rebuilt menu would be a
+    /// second one nobody had connected to anything.
+    @Test("The menu bar icon can be taken away and put back, menu and all")
+    func statusItemCanBeHidden() {
+        let menuBar = MenuBarController(visible: false)
+        defer { withExtendedLifetime(menuBar) {} }
+        #expect(!menuBar.isVisible)
+        #expect(menuBar.offeredItemTitles.contains("Start recording"))
+
+        menuBar.setVisible(true)
+        #expect(menuBar.isVisible)
+        #expect(menuBar.offeredItemTitles.contains("Start recording"))
+
+        menuBar.setVisible(false)
+        #expect(!menuBar.isVisible)
+    }
+
+    /// A meeting that started while the icon was off is the state the icon
+    /// has to come back showing. Drawing an idle feather over a running
+    /// recording is the one thing the menu bar must never do.
+    @Test("An icon put back mid-recording shows the recording")
+    func statusItemReturnsShowingTheRecording() {
+        let menuBar = MenuBarController(visible: false)
+        defer { withExtendedLifetime(menuBar) {} }
+
+        menuBar.update(state: .recording, elapsed: "1:23")
+        #expect(menuBar.statusItemTitle == "", "nothing to draw on while it is off")
+
+        menuBar.setVisible(true)
+        #expect(menuBar.statusItemTitle == " 1:23")
+        #expect(menuBar.offeredItemTitles.contains("Stop recording"))
+    }
+
     /// About is where a Mac user looks for a name, and there are two menus
     /// it could be missing from. In the application menu it is also first,
     /// which is where every Mac puts it.

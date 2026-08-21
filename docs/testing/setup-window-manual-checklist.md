@@ -242,6 +242,26 @@ for it any more.
   other yes/no in the window, and its symbol sits in the same column as the
   folder above it.
 
+## Where amanu shows up
+
+The two switches that can leave the program with nothing to click, so the
+whole point of the check is that both of them undo.
+
+- Turn **In the menu bar** off. Confirm the feather leaves the menu bar at
+  once, with no gap where it was, and that nothing opens when its old place is
+  clicked. Turn it back on and confirm the icon returns and its menu still
+  works — the same menu, with every item still doing what it did.
+- Turn **In the Dock** off. Confirm the Dock icon goes at once and amanu
+  leaves ⌘-Tab, while the window you are looking at stays open and usable.
+  Turn it on again and confirm the icon comes back.
+- Turn both off. Confirm the line under the box appears, saying amanu keeps
+  recording and how to bring the window back. Close every amanu window, then
+  open Amanu from Spotlight and confirm the status window comes back and
+  `pgrep amanu` still shows the one copy that was already running.
+- With both still off, start a recording from the window, quit and relaunch,
+  and confirm amanu comes up with no icon anywhere and the setting still off.
+  Then put both back on from Settings.
+
 **By hand** from here down — all of it needs a microphone, sound coming out of
 the Mac, and a few minutes of waiting.
 

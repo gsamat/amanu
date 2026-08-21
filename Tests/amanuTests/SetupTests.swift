@@ -509,6 +509,45 @@ struct SetupTests {
         #expect(toggle.action != nil)
     }
 
+    /// Both icons are in the form, and both are switches somebody listens to.
+    /// The pair is worth checking together: each is only safe to offer
+    /// because the other exists, and a form that grew one of them without the
+    /// other would be a form that can strand a running recorder.
+    @Test("Setup offers the menu bar and the Dock as two switches")
+    @MainActor
+    func iconSwitchesAreOffered() throws {
+        let setup = SetupWindow()
+        defer { withExtendedLifetime(setup) {} }
+        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
+
+        for title in ["In the menu bar", "In the Dock"] {
+            let label = try #require(
+                panel.contentView?.allDescendants
+                    .compactMap { $0 as? NSTextField }
+                    .first { $0.stringValue == title },
+                "\(title) is not in the form")
+            let row = try #require(label.superview?.superview as? NSStackView)
+            let toggle = try #require(row.arrangedSubviews.compactMap { $0 as? NSSwitch }.first)
+            #expect(toggle.target != nil)
+            #expect(toggle.action != nil)
+        }
+    }
+
+    /// The sentence that is the only way back into a program with no icon.
+    /// It has to appear exactly when it is true, and to say the two things
+    /// that matter in the order they matter: that recording carries on, and
+    /// how the window is reached.
+    @Test("Giving up both icons says how to get the window back")
+    func bothIconsOffExplainsItself() {
+        #expect(SetupForm.noIconsNote(menuBar: true, dock: true).isEmpty)
+        #expect(SetupForm.noIconsNote(menuBar: false, dock: true).isEmpty)
+        #expect(SetupForm.noIconsNote(menuBar: true, dock: false).isEmpty)
+
+        let note = SetupForm.noIconsNote(menuBar: false, dock: false)
+        #expect(note.contains("keeps recording"))
+        #expect(note.contains("open Amanu"))
+    }
+
     /// The window used to ask for a two-letter code in a text field, which
     /// nobody could answer from the window and which accepted anything typed
     /// into it. What replaced it has to keep the code out of sight and the

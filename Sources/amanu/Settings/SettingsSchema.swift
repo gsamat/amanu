@@ -383,7 +383,15 @@ enum SettingsSchema {
                       "Off makes amanu a menu-bar-only accessory — which the menu bar hides when it runs out of room.",
                       "Выключено — amanu живёт только в строке меню, а строка меню прячет значок, "
                           + "когда ей не хватает места."),
-                  .toggle, default: true, needsRestart: true),
+                  .toggle, default: true, askedInSetup: true),
+            Entry(["menu_bar_icon"],
+                  localised("Show in the menu bar", "Показывать в строке меню"),
+                  localised(
+                      "Off with the Dock icon too leaves amanu with no icon anywhere: open Amanu "
+                          + "again to bring its window back.",
+                      "Выключено вместе со значком в доке — amanu нигде не видно: чтобы вернуть "
+                          + "окно, откройте Amanu ещё раз."),
+                  .toggle, default: true, askedInSetup: true),
             Entry(["window"],
                   localised("Open the window at launch", "Открывать окно при запуске"),
                   localised(

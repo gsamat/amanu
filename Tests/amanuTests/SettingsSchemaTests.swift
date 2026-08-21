@@ -146,7 +146,7 @@ struct SettingsSchemaTests {
         #expect(!keys.isEmpty)
     }
 
-    /// The eight settings the setup form asks in full, and therefore the eight
+    /// The ten settings the setup form asks in full, and therefore the ten
     /// the Advanced tab leaves out. Written down rather than derived, because
     /// there is nothing to derive it from: setup asks these through cards,
     /// switches and an open panel, in its own vocabulary, and no signature in
@@ -180,6 +180,9 @@ struct SettingsSchemaTests {
             "recordings_dir",
             // The switch beside the Summaries heading.
             "summary.enabled",
+            // The two switches under "Where amanu shows up".
+            "menu_bar_icon",
+            "dock_icon",
         ])
     }
 
@@ -231,6 +234,7 @@ struct SettingsSchemaTests {
             "system_audio": "app",
             "calendar": true,
             "dock_icon": true,
+            "menu_bar_icon": true,
             "window": true,
             "user_name": "Samat Galimov",
             "transcription": [
