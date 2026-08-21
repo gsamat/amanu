@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>amanu — a meeting recorder for the Mac</title>
+    <meta name="description"
+        content="amanu records your meetings by itself, transcribes them on the Mac and leaves the recording, the transcript and the summary in a folder. macOS 15 or later, free and open source." />
+    <link rel="stylesheet" href="amanu.css" />
+    <link rel="icon" href="icon-180.png" />
+    <link rel="apple-touch-icon" href="icon-180.png" />
+    <link rel="alternate" hreflang="ru" href="https://samat.me/amanu/ru/" />
+    <link rel="alternate" hreflang="en" href="https://samat.me/amanu/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="amanu — a meeting recorder for the Mac" />
+    <meta property="og:description"
+        content="Records your meetings by itself, transcribes them on the Mac, and leaves the recording, the transcript and the summary in a folder." />
+    <meta property="og:image" content="https://samat.me/amanu/icon.png" />
+    <meta property="og:url" content="https://samat.me/amanu/" />
+    <meta name="twitter:card" content="summary" />
+
+    <!-- The same first-party counter as the rest of samat.me: /m takes a plain
+         GET and answers with a 1×1 gif, so no third-party script is loaded. -->
+    <script>
+        {
+            const u = new URL('/m', location.origin);
+            u.searchParams.set('p', location.pathname + location.search);
+            u.searchParams.set('t', document.title);
+            u.searchParams.set('s', [screen.width, screen.height, devicePixelRatio].join(','));
+            if (document.referrer) u.searchParams.set('r', document.referrer);
+            new Image().src = u;
+        }
+    </script>
+</head>
+
+<body>
+    <header class="hero">
+        <p class="lang"><a href="ru/">По-русски</a></p>
+        <img class="icon" src="icon.png" width="112" height="112"
+            alt="The amanu icon: a cream feather on a dark slate plate." />
+        <h1>amanu</h1>
+        <p class="tagline">A meeting recorder for the Mac. Afterwards <strong>the recording, the transcript and the
+                summary are in a folder</strong>.</p>
+        <p>
+            <a class="get" href="https://github.com/gsamat/amanu/releases/latest">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M7.25 1v8.19L4.53 6.47 3.47 7.53 8 12.06l4.53-4.53-1.06-1.06-2.72 2.72V1h-1.5z" />
+                    <path d="M2 11v2h12v-2h1.5v3.5h-15V11H2z" />
+                </svg>
+                Download for macOS
+            </a>
+        </p>
+        <p class="fineprint">Free, <a href="https://github.com/gsamat/amanu">open source</a>, signed and notarised.
+            macOS 15 or later, Apple Silicon or Intel.</p>
+    </header>
+
+    <div class="wrap wide">
+        <figure class="shot shot-status">
+            <picture>
+                <source srcset="shots/en/status-recording-dark.png" media="(prefers-color-scheme: dark)" />
+                <img src="shots/en/status-recording-light.png" width="320" height="428"
+                    alt="The amanu window while a meeting records: a red recording dot with the elapsed time, Stop and Pause, the automatic-recording checkbox saying “Zoom on the mic for 12m”, and a live transcript labelled You and Them." />
+            </picture>
+            <figcaption>Recording, with the optional live transcript underneath.</figcaption>
+        </figure>
+    </div>
+
+    <main class="wrap">
+        <section>
+            <h2>You don’t start it</h2>
+            <p class="lede">amanu starts recording when a call app takes the microphone, and stops when the call lets
+                it go. Zoom, Teams, Meet in a browser tab, Slack huddles, Telegram, FaceTime — no per-app integration
+                and nothing to click.</p>
+            <p>Only apps on a list count, because everything else that opens the microphone — dictation, Voice Memos,
+                a browser tab checking levels — would otherwise become a recording of whatever was in the room. A
+                missed meeting costs one click. A false one costs privacy.</p>
+            <div class="grid">
+                <div>
+                    <h3>Stopping is the part that has to be right</h3>
+                    <p>Three rules end a session: nobody on the mic and quiet on the far end, silence on both tracks,
+                        and a hard ceiling on length. The failure mode of getting this wrong is a fifteen-hour
+                        recording made overnight — which is a thing that has happened, to the program amanu descends
+                        from.</p>
+                </div>
+                <div>
+                    <h3>It says what it is thinking</h3>
+                    <p>“ready”, “Zoom on the mic for 7s”, “quiet for 40s”. Which is the difference between debugging a
+                        missed recording and guessing at it. One checkbox turns the whole thing off.</p>
+                </div>
+                <div>
+                    <h3>A call that lasted a moment isn’t a meeting</h3>
+                    <p>An automatic recording shorter than forty-five seconds is deleted rather than transcribed.
+                        Recordings you started yourself are never auto-stopped and never discarded: if you pressed the
+                        button, only you decide.</p>
+                </div>
+                <div>
+                    <h3>Only the call is on the far-end track</h3>
+                    <p>amanu taps the call app’s output, not everything the Mac plays, so notification dings and the
+                        video you opened afterwards stay out of the transcript — and “the far end went quiet” means the
+                        call ended.</p>
+                </div>
+            </div>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>It transcribes on the machine</h2>
+            <p class="lede">Local by default: NVIDIA’s parakeet, 25 European languages including Russian, running on
+                the Neural Engine after the meeting at roughly twenty seconds per hour of audio. Nothing leaves the
+                Mac.</p>
+            <p>Hand it an AssemblyAI or OpenAI key and it will use that instead — better on Russian, and it tells apart
+                several people sharing one side of the call. That is the one part that isn’t local, and amanu says so
+                out loud when the engine is chosen rather than in a paragraph nobody reads.</p>
+            <p>Recording writes two tracks on purpose — your microphone and the far end, separately. Speech models do
+                better on clean single-source audio, and mic-versus-system is two-party diarisation for free.</p>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>One folder per meeting</h2>
+            <p>Under <code>~/Recordings</code>, named so that a folder listing is readable on its own: the time first,
+                then the calendar’s title for the meeting, then the app that was holding the microphone.</p>
+            <div class="folder">
+                <span class="path mono">2026.08.17-1400 Integration sync (zoom.us)/</span>
+                <table>
+                    <tr>
+                        <td class="name mono">transcript.md</td>
+                        <td class="what">the transcript, laid out for reading, with names where they are known</td>
+                    </tr>
+                    <tr>
+                        <td class="name mono">summary.md</td>
+                        <td class="what">topic, key points, decisions, action items, open questions</td>
+                    </tr>
+                    <tr>
+                        <td class="name mono">transcript.json</td>
+                        <td class="what">the canonical transcript: which engine, and timed, speaker-tagged segments
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="name mono">speakers.json</td>
+                        <td class="what">who each label is, where the name came from, and the line that proves it</td>
+                    </tr>
+                    <tr>
+                        <td class="name mono">meta.json</td>
+                        <td class="what">times, duration, what triggered it, why it stopped, the meeting’s title and
+                            attendees</td>
+                    </tr>
+                    <tr>
+                        <td class="name mono">audio.m4a</td>
+                        <td class="what">kept only if you ask: your mic on the left channel, the far end on the right
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            <p class="muted" style="margin-top: 1rem;">The audio is deleted once the transcript exists, unless you turn
+                that off. A failed transcription always keeps it.</p>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>It works out who was talking</h2>
+            <p class="lede">A transcript comes out of a recogniser saying <code>me</code> and <code>them A</code>.
+                Before the summary is written, amanu puts real people to those labels — from the calendar’s attendee
+                list, and from the meeting itself, because people say each other’s names out loud.</p>
+            <p>Two rules stand between a model’s answer and the file. Only high confidence is applied: guessing from
+                who was invited doesn’t qualify. And the quote the answer came from has to exist — it is checked
+                against the transcript, because a model that invents a name usually invents its source too. A label
+                nobody could identify stays <code>them A</code>, which is honest. A wrong name is a transcript that
+                lies.</p>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>And writes down what was decided</h2>
+            <p class="lede">Topic, key points, decisions, action items, open questions — from the <code>claude</code>
+                or <code>codex</code> CLI already signed in on your Mac, from an API key, or from ollama with no
+                network at all.</p>
+            <p>The subscription comes before the metered key, and a spent allowance is not an error: the next backend
+                takes over. Naming and summarising both need a model, which a laptop on a train hasn’t got — so
+                neither fails. The session is marked as owing the work and picked up later. A meeting recorded on a
+                plane still gets its summary that evening.</p>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>What’s recorded, and what’s still owed on it</h2>
+            <p>Every session, newest first, with a column each for the transcript, the names and the summary, and what
+                state each of them is in. Select one and it shows how the meeting opened and, per speaker, their first
+                line and their longest — the two lines that identify a person when nobody said any names — with a field
+                to type the name yourself. A name typed there is never overwritten by a later run.</p>
+        </section>
+    </main>
+
+    <div class="wrap wide">
+        <figure class="shot shot-wide">
+            <picture>
+                <source srcset="shots/en/recordings-dark.png" media="(prefers-color-scheme: dark)" />
+                <img src="shots/en/recordings-light.png" width="860" height="592"
+                    alt="The recordings window: four meetings with their transcript, names and summary state, and below them the speakers of the selected session with name fields." />
+            </picture>
+            <figcaption>Finish processing, re-transcribe, open the folder, or move it to the Trash.</figcaption>
+        </figure>
+    </div>
+
+    <main class="wrap">
+        <section>
+            <h2>Built for the ways a recording is actually lost</h2>
+            <div class="grid">
+                <div>
+                    <h3>A crash mid-meeting costs nothing</h3>
+                    <p>Recording writes uncompressed audio, which has no packet table and no finalising step: whatever
+                        reached the disk plays. Compressed audio killed mid-file is undecodable to the last byte —
+                        measured here, 99 KB written and zero seconds recoverable. Compression happens afterwards, once
+                        the transcript exists.</p>
+                </div>
+                <div>
+                    <h3>An interrupted session is adopted</h3>
+                    <p>A live recording keeps a small manifest beside it. At the next launch amanu finds every one
+                        whose owner is gone, writes the file a clean stop would have written, and puts the session
+                        through the ordinary queue.</p>
+                </div>
+                <div>
+                    <h3>A track that stops growing says so</h3>
+                    <p>Both tracks are watched while recording: a stall is a notification then and there, and a line in
+                        the session’s metadata afterwards. A one-sided transcript should be explainable, not a
+                        mystery.</p>
+                </div>
+                <div>
+                    <h3>The microphone is followed, not inherited</h3>
+                    <p>Headphones connecting, AirPods coming out of an ear, the call app taking the input device —
+                        each rebuild is recorded with how much silence it cost. Switch microphones mid-meeting and the
+                        track moves with you.</p>
+                </div>
+            </div>
+        </section>
+
+        <hr class="rule" />
+
+        <section>
+            <h2>Three places to see whether it is recording</h2>
+            <p class="lede">A window, a Dock icon that turns red with the elapsed time as its badge, and the feather in
+                the menu bar. All three show one state, and any of them can be switched off.</p>
+            <p>Three, because a menu bar item is not a dependable place for the only control of a recorder. When the
+                menu bar runs out of room macOS parks the item off-screen — measured at x = −9406 on a laptop with a
+                notch — and a menu bar manager can hide it outright. It stays perfectly clickable and completely
+                invisible, which for a program whose whole job is answering “am I recording?” is the worst way it can
+                fail.</p>
+            <p class="muted">In English or in Russian, following whichever your Mac is set to.</p>
+        </section>
+
+        <section class="close">
+            <h2>Get amanu</h2>
+            <p>
+                <a class="get" href="https://github.com/gsamat/amanu/releases/latest">
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M7.25 1v8.19L4.53 6.47 3.47 7.53 8 12.06l4.53-4.53-1.06-1.06-2.72 2.72V1h-1.5z" />
+                        <path d="M2 11v2h12v-2h1.5v3.5h-15V11H2z" />
+                    </svg>
+                    Download for macOS
+                </a>
+            </p>
+            <p class="muted">Drag <code>Amanu.app</code> to Applications and open it. The disk image is signed with a
+                Developer ID certificate and carries a stapled notarisation ticket, so Gatekeeper opens it without
+                argument. Afterwards it updates itself, and an update that arrives during a meeting waits for the
+                meeting to end.</p>
+        </section>
+
+        <footer>
+            <p>Free and MIT-licensed. Written by <a href="https://samat.me">Samat Galimov</a>; a fork of <a
+                    href="https://github.com/digimata/quill">digimata/quill</a>, rewritten well past the point of a
+                patch.</p>
+            <p><a href="https://github.com/gsamat/amanu">Source and the long version of all of this</a> ·
+                <a href="https://github.com/gsamat/amanu/issues">Something wrong?</a> ·
+                <a href="mailto:s@samat.me">s@samat.me</a>
+            </p>
+            <p><em>Amanuensis</em> — the person who writes down what is said, from the Latin <em>servus a manu</em>,
+                “the slave of the hand”. The job is old; only the writing-down is new.</p>
+        </footer>
+    </main>
+</body>
+
+</html>
