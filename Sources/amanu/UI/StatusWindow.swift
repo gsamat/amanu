@@ -250,6 +250,18 @@ final class StatusWindow {
         panel.orderFront(nil)
     }
 
+    /// Bring the window up in front of everything, for someone who has just
+    /// asked for it by name — the menu item, a second launch, a notification.
+    ///
+    /// `show` is not enough on its own: ordering a window front while the app
+    /// is in the background moves it only within amanu's own layer, so a
+    /// window that was merely behind Safari stays behind Safari and the menu
+    /// item reads as having done nothing at all.
+    func bringToFront() {
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     /// What the window has in it, for the suite that builds it in both
     /// languages and looks for a sentence left behind in one of them.
     var view: NSView? { panel.contentView }

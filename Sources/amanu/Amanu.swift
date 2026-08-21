@@ -825,9 +825,11 @@ final class AppController {
         }
     }
 
-    /// Bring the status window up — from the menu, or a second launch of an
-    /// already-running amanu.
-    func showWindow() { window.show() }
+    /// Bring the status window up — from the menu, a notification, or a
+    /// second launch of an already-running amanu. All three are someone
+    /// asking for the window this second, so it comes forward rather than
+    /// waiting behind whatever they were looking at.
+    func showWindow() { window.bringToFront() }
 
     /// Settings, from either menu. Activating first because a click on the
     /// status item doesn't bring the app forward, and a settings window you
