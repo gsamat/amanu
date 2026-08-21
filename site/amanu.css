@@ -1,0 +1,411 @@
+/* amanu — the landing page. One stylesheet, no dependencies, no web fonts:
+   this page is served from the same folder as the appcast and should keep
+   working when nothing else on the network answers. */
+
+:root {
+    color-scheme: light dark;
+
+    --plate-top: #4b5a6f;
+    --plate-bottom: #212936;
+    --cream: #f3efe5;
+    --red: #e5484d;
+
+    --bg: #fbfaf7;
+    --fg: #1d2430;
+    --muted: #5d6675;
+    --rule: rgba(33, 41, 54, 0.13);
+    --card: #ffffff;
+    --card-rule: rgba(33, 41, 54, 0.1);
+    --link: #2f5480;
+    --shadow: 0 1px 2px rgba(33, 41, 54, 0.06), 0 12px 32px rgba(33, 41, 54, 0.1);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #12161d;
+        --fg: #e7e3d9;
+        --muted: #98a0ae;
+        --rule: rgba(243, 239, 229, 0.15);
+        --card: #191f28;
+        --card-rule: rgba(243, 239, 229, 0.11);
+        --link: #9dbbe2;
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 14px 40px rgba(0, 0, 0, 0.45);
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 400 17px/1.62 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+}
+
+a {
+    color: var(--link);
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+}
+
+code,
+.mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+}
+
+.wrap {
+    max-width: 44rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+}
+
+.wrap.wide {
+    max-width: 62rem;
+}
+
+/* ---------- the dark band at the top ---------- */
+
+.hero {
+    background: linear-gradient(170deg, var(--plate-top), var(--plate-bottom) 65%);
+    color: var(--cream);
+    padding: 3.5rem 0 4rem;
+    text-align: center;
+    position: relative;
+}
+
+.lang {
+    position: absolute;
+    top: 1.1rem;
+    right: 1.4rem;
+    font-size: 0.86rem;
+    letter-spacing: 0.02em;
+}
+
+.lang a {
+    color: rgba(243, 239, 229, 0.72);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(243, 239, 229, 0.3);
+    padding-bottom: 1px;
+}
+
+.lang a:hover {
+    color: var(--cream);
+    border-bottom-color: var(--cream);
+}
+
+.hero img.icon {
+    width: 112px;
+    height: 112px;
+    margin-bottom: 1.1rem;
+}
+
+.hero h1 {
+    font-size: 2.6rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.6rem;
+}
+
+.hero .tagline {
+    font-size: 1.24rem;
+    line-height: 1.45;
+    margin: 0 auto 2rem;
+    max-width: 30rem;
+    color: rgba(243, 239, 229, 0.88);
+}
+
+.hero .tagline strong {
+    font-weight: 600;
+    color: var(--cream);
+}
+
+.get {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    background: var(--cream);
+    color: #1a212c;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-decoration: none;
+    padding: 0.72rem 1.6rem;
+    border-radius: 10px;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.get:hover {
+    background: #ffffff;
+}
+
+.get svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+    opacity: 0.75;
+}
+
+.fineprint {
+    margin: 0.95rem 0 0;
+    font-size: 0.9rem;
+    color: rgba(243, 239, 229, 0.62);
+}
+
+.fineprint a {
+    color: rgba(243, 239, 229, 0.86);
+}
+
+/* ---------- screenshots ---------- */
+
+.shot {
+    margin: 0;
+}
+
+.shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 11px;
+    box-shadow: var(--shadow);
+}
+
+.shot figcaption {
+    margin-top: 0.9rem;
+    font-size: 0.92rem;
+    color: var(--muted);
+    text-align: center;
+}
+
+/* The status window rides up over the seam between the band and the page. */
+.shot-status {
+    max-width: 320px;
+    margin: -3rem auto 0;
+    position: relative;
+}
+
+.shot-wide {
+    margin-top: 2.4rem;
+}
+
+/* ---------- prose ---------- */
+
+section {
+    padding: 3.4rem 0 0;
+}
+
+section:last-of-type {
+    padding-bottom: 1rem;
+}
+
+h2 {
+    font-size: 1.55rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+    margin: 0 0 0.9rem;
+}
+
+p {
+    margin: 0 0 1.05rem;
+}
+
+.lede {
+    font-size: 1.1rem;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.rule {
+    border: 0;
+    border-top: 1px solid var(--rule);
+    margin: 3.4rem 0 0;
+}
+
+/* ---------- the two-column notes ---------- */
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 2.2rem;
+    margin: 1.8rem 0 0;
+}
+
+.grid h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 0.3rem;
+}
+
+.grid p {
+    margin: 0;
+    font-size: 0.97rem;
+    color: var(--muted);
+}
+
+@media (max-width: 640px) {
+    .grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 1.3rem;
+    }
+}
+
+/* ---------- the folder ---------- */
+
+.folder {
+    background: var(--card);
+    border: 1px solid var(--card-rule);
+    border-radius: 11px;
+    padding: 1.15rem 1.3rem;
+    margin: 1.6rem 0 0;
+}
+
+.folder .path {
+    color: var(--muted);
+    margin-bottom: 0.7rem;
+    display: block;
+}
+
+.folder table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.folder td {
+    padding: 0.4rem 0;
+    border-top: 1px solid var(--rule);
+    vertical-align: baseline;
+    font-size: 0.95rem;
+}
+
+.folder tr:first-child td {
+    border-top: 0;
+}
+
+.folder td.name {
+    white-space: nowrap;
+    padding-right: 1.2rem;
+    width: 1%;
+}
+
+.folder td.what {
+    color: var(--muted);
+}
+
+@media (max-width: 560px) {
+    .folder td {
+        display: block;
+        border: 0;
+        padding: 0;
+    }
+
+    .folder td.name {
+        width: auto;
+        padding-top: 0.7rem;
+    }
+
+    .folder td.what {
+        padding-bottom: 0.2rem;
+    }
+}
+
+/* ---------- the closing block ---------- */
+
+.close {
+    text-align: center;
+    padding: 3.6rem 0 0;
+}
+
+.close h2 {
+    margin-bottom: 1.2rem;
+}
+
+footer {
+    margin-top: 3.4rem;
+    border-top: 1px solid var(--rule);
+    padding: 1.8rem 0 3rem;
+    font-size: 0.92rem;
+    color: var(--muted);
+}
+
+footer p {
+    margin: 0 0 0.5rem;
+}
+
+footer p:last-child {
+    margin-bottom: 0;
+}
+
+/* The closing button sits on the page rather than on the dark band, so it
+   inverts: dark on the light page, cream on the dark one. */
+.close .get {
+    background: var(--plate-bottom);
+    color: var(--cream);
+    box-shadow: 0 6px 20px rgba(33, 41, 54, 0.22);
+}
+
+.close .get:hover {
+    background: var(--plate-top);
+}
+
+.close p.muted {
+    max-width: 34rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+    .close .get {
+        background: var(--cream);
+        color: #1a212c;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .close .get:hover {
+        background: #ffffff;
+    }
+}
+
+/* ---------- small screens ---------- */
+
+@media (max-width: 560px) {
+    .hero {
+        padding: 2.6rem 0 3.2rem;
+    }
+
+    .hero img.icon {
+        width: 88px;
+        height: 88px;
+    }
+
+    .hero h1 {
+        font-size: 2.1rem;
+    }
+
+    .hero .tagline {
+        font-size: 1.12rem;
+    }
+}
+
+/* The recordings window has too much in it to be read at phone width, so it keeps
+   its size and scrolls sideways inside its own figure instead. */
+@media (max-width: 700px) {
+    .shot-wide {
+        overflow-x: auto;
+        padding-bottom: 0.4rem;
+    }
+
+    .shot-wide img {
+        min-width: 620px;
+    }
+}
