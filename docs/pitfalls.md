@@ -128,6 +128,36 @@ Both paths have been run against the API for real — one request, and four —
 which is what `requestLimit` being an init parameter is for: proving the sliced
 path costs four minutes of audio rather than an hour of it.
 
+## The live engine reports the whole transcript, every chunk
+
+Nemotron's partial callback does not hand over the words it has just decoded.
+It hands over `tokenizer.decode(accumulatedTokenIds)` — everything the stream
+has said since it was loaded, again, on every chunk. Nothing in the callback
+says where one utterance ended and the next began, and nothing in it ever
+shrinks. Taken at face value it draws exactly two paragraphs, `You` and
+`Them`, each growing for the length of the meeting, each re-decoded from the
+whole token list every second or so. That is what it did until 21 August.
+
+So the pause is noticed here, in `LiveTranscriptionCoordinator`: a side that
+takes two seconds of audio without decoding a word has its block closed, and
+the engine is asked to `finish()` — which is what clears the accumulation the
+next block would otherwise be appended to.
+
+Two seconds *of audio*, not of clock. A stopwatch reads a cold model as a
+pause: the first chunks of a session can take longer to decode than they last,
+and the first thing the wall-clock version of this did was cut `Привет!
+Сегодня мы обсуждаем` in half. The audio is counted by the consumer that fed
+it, and whether the engine decoded anything from that audio is read
+synchronously, in the callback itself, through a lock — a hop onto the actor
+would arrive after the audio it belongs to had already been counted as
+silence.
+
+Reports decoded before `finish()` landed are still on their way when it does,
+and they still carry the closed text with them. `CumulativePartials` subtracts
+what is already on screen, so a repeat says nothing and a repeat with two new
+words says the two words — including the full stop the engine so often decodes
+a beat after the pause it belongs to, which opens no block of its own.
+
 ## The words are in the code, not in a bundle
 
 amanu speaks English and Russian, and both versions of every sentence sit side

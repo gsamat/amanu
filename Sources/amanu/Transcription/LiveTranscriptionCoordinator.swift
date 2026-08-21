@@ -1,6 +1,7 @@
 @preconcurrency import AVFoundation
 import FluidAudio
 import Foundation
+import os.lock
 
 /// Runs the optional low-latency transcript beside the durable recorder. The
 /// two speakers get independent streaming state while sharing the heavyweight
@@ -32,7 +33,7 @@ actor LiveTranscriptionCoordinator {
         let system: LiveAudioBufferRelay.Sink
     }
 
-    private enum Source: Sendable {
+    private enum Source: Sendable, Hashable {
         case mic
         case system
 
@@ -52,11 +53,19 @@ actor LiveTranscriptionCoordinator {
     private var attach: (@Sendable (SessionSinks?) -> Void)?
     private var pendingSinks: SessionSinks?
     private var drops: [Date] = []
+    /// The engine reports one running transcript per speaker and never says
+    /// where an utterance ended, so the pause is what ends it here.
+    private var partials = CumulativePartials()
+    private var silentSeconds: [Source: Double] = [:]
+    /// Set by the engine's callback the moment it decodes something, and read
+    /// by the consumer that fed it. Both run outside this actor, and a hop
+    /// through it would arrive after the audio it belongs to had been counted.
+    private var decodedSomething: [Source: OSAllocatedUnfairLock<Bool>] = [:]
 
     private var loadTask: Task<Void, Never>?
     private var consumerTasks: [Task<Void, Never>] = []
     private var continuations: [AsyncStream<AudioPacket>.Continuation] = []
-    private var managers: [StreamingNemotronMultilingualAsrManager] = []
+    private var managers: [Source: StreamingNemotronMultilingualAsrManager] = [:]
     private var sharedModels: SharedNemotronMultilingualModels?
 
     init(modelStore: LiveTranscriptionModelStore = .init()) {
@@ -132,6 +141,12 @@ actor LiveTranscriptionCoordinator {
             return
         }
         drops.removeAll(keepingCapacity: true)
+        partials.reset()
+        silentSeconds.removeAll(keepingCapacity: true)
+        decodedSomething = [
+            .mic: .init(initialState: false),
+            .system: .init(initialState: false),
+        ]
 
         let micPair = AsyncStream<AudioPacket>.makeStream(
             bufferingPolicy: .bufferingOldest(48))
@@ -202,10 +217,14 @@ actor LiveTranscriptionCoordinator {
                 return
             }
 
-            managers = [micManager, systemManager]
+            managers = [.mic: micManager, .system: systemManager]
             consumerTasks = [
-                consume(mic, with: micManager, epoch: epoch),
-                consume(system, with: systemManager, epoch: epoch),
+                consume(
+                    mic, from: .mic, with: micManager,
+                    spoken: decodedSomething[.mic], epoch: epoch),
+                consume(
+                    system, from: .system, with: systemManager,
+                    spoken: decodedSomething[.system], epoch: epoch),
             ]
             status = .live
             publish()
@@ -225,21 +244,33 @@ actor LiveTranscriptionCoordinator {
         source: Source,
         epoch: Int
     ) async {
+        let pulse = decodedSomething[source]
         await manager.setPartialCallback { [weak self] text in
+            pulse?.withLock { $0 = true }
             Task { await self?.received(text, from: source, epoch: epoch) }
         }
     }
 
     nonisolated private func consume(
         _ stream: AsyncStream<AudioPacket>,
+        from source: Source,
         with manager: StreamingNemotronMultilingualAsrManager,
+        spoken pulse: OSAllocatedUnfairLock<Bool>?,
         epoch: Int
     ) -> Task<Void, Never> {
         Task { [weak self] in
             do {
                 for await packet in stream {
                     guard !Task.isCancelled else { return }
+                    let seconds = Double(packet.buffer.frameLength)
+                        / packet.buffer.format.sampleRate
                     _ = try await manager.process(audioBuffer: packet.buffer)
+                    let spoken = pulse?.withLock { decoded -> Bool in
+                        defer { decoded = false }
+                        return decoded
+                    } ?? false
+                    await self?.decoded(
+                        seconds: seconds, spoken: spoken, from: source, epoch: epoch)
                 }
             } catch is CancellationError {
                 return
@@ -250,6 +281,8 @@ actor LiveTranscriptionCoordinator {
     }
 
     private func received(_ text: String, from source: Source, epoch: Int) {
+        guard transcript.epoch == epoch else { return }
+        guard let text = partials.text(from: text, for: source.speaker) else { return }
         let milliseconds = Int(Date().timeIntervalSince(startedAt) * 1000)
         transcript.applyPartial(
             speaker: source.speaker,
@@ -258,6 +291,39 @@ actor LiveTranscriptionCoordinator {
             epoch: epoch
         )
         publish()
+    }
+
+    /// How much audio a side has to go through without decoding a word before
+    /// its block is closed. Tokens only arrive while someone is speaking, so a
+    /// gap in them is a pause — the audio needs no second listen to hear it.
+    ///
+    /// Measured in audio rather than on the clock: the model can fall a couple
+    /// of seconds behind while it warms up, and a stopwatch reads that as a
+    /// pause and cuts the sentence it is still working through.
+    private static let pauseEndingABlock: Double = 2
+
+    private func decoded(
+        seconds: Double, spoken: Bool, from source: Source, epoch: Int
+    ) async {
+        guard transcript.epoch == epoch else { return }
+        guard !spoken else {
+            silentSeconds[source] = 0
+            return
+        }
+        let silence = (silentSeconds[source] ?? 0) + seconds
+        silentSeconds[source] = silence
+        guard silence >= Self.pauseEndingABlock else { return }
+        await endSegment(on: source, epoch: epoch)
+    }
+
+    /// Closes the block and asks the engine to commit, which clears the
+    /// accumulation the next block would otherwise be appended to — the whole
+    /// meeting decoded again on every chunk, into one paragraph per speaker.
+    private func endSegment(on source: Source, epoch: Int) async {
+        guard transcript.endSegment(speaker: source.speaker, epoch: epoch) else { return }
+        partials.close(source.speaker)
+        publish()
+        _ = try? await managers[source]?.finish()
     }
 
     /// A dropped buffer here and there is what a bounded queue is for. Live
@@ -313,7 +379,7 @@ actor LiveTranscriptionCoordinator {
         continuations.removeAll(keepingCapacity: false)
         consumerTasks.forEach { $0.cancel() }
         consumerTasks.removeAll(keepingCapacity: false)
-        let oldManagers = managers
+        let oldManagers = Array(managers.values)
         managers.removeAll(keepingCapacity: false)
         return (oldLoad, oldManagers)
     }
