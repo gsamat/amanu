@@ -43,6 +43,83 @@ struct LiveTranscriptTests {
         ])
     }
 
+    @Test("A pause closes the block and the next words open another")
+    func pauseEndsABlock() {
+        var state = LiveTranscriptState()
+        let epoch = state.beginRecording(enabled: true)
+
+        state.applyPartial(
+            speaker: .you, text: "Привет", startMilliseconds: 100, epoch: epoch)
+        let closed = state.endSegment(speaker: .you, epoch: epoch)
+        #expect(closed)
+        state.applyPartial(
+            speaker: .you, text: "Как дела", startMilliseconds: 9_000, epoch: epoch)
+
+        #expect(state.entries == [
+            .speech(.init(
+                speaker: .you,
+                text: "Привет",
+                startMilliseconds: 100,
+                isProvisional: false
+            )),
+            .speech(.init(
+                speaker: .you,
+                text: "Как дела",
+                startMilliseconds: 9_000,
+                isProvisional: true
+            )),
+        ])
+    }
+
+    @Test("Closing twice, or in a stale epoch, closes nothing")
+    func endSegmentIsIdempotent() {
+        var state = LiveTranscriptState()
+        let epoch = state.beginRecording(enabled: true)
+        state.applyPartial(
+            speaker: .them, text: "Слово", startMilliseconds: 10, epoch: epoch)
+
+        let closed = state.endSegment(speaker: .them, epoch: epoch)
+        let again = state.endSegment(speaker: .them, epoch: epoch)
+        let otherSide = state.endSegment(speaker: .you, epoch: epoch)
+        let stale = state.endSegment(speaker: .them, epoch: epoch - 1)
+        #expect(closed)
+        #expect(!again)
+        #expect(!otherSide)
+        #expect(!stale)
+        #expect(state.entries.count == 1)
+    }
+
+    @Test("The running transcript is split at the block already on screen")
+    func cumulativePartialsSplit() {
+        var partials = CumulativePartials()
+
+        let first = partials.text(from: "Привет", for: .you)
+        let revised = partials.text(from: "Привет, мир", for: .you)
+        partials.close(.you)
+
+        // Still decoded before the engine was asked to commit: the closed text
+        // comes back, sometimes with the full stop that ended it.
+        let stale = partials.text(from: "Привет, мир", for: .you)
+        let staleWithStop = partials.text(from: "Привет, мир.", for: .you)
+        let carriedOver = partials.text(from: "Привет, мир. Как дела", for: .you)
+        // And once the engine has cleared its own accumulation, the report is
+        // the new block from the first word — never from the full stop that
+        // ended the block before it.
+        let afterCommit = partials.text(from: ". Как дела, друг", for: .you)
+        let nothingButAStop = partials.text(from: ".", for: .them)
+        // The other side keeps its own reckoning.
+        let otherSide = partials.text(from: "Привет, мир", for: .them)
+
+        #expect(first == "Привет")
+        #expect(revised == "Привет, мир")
+        #expect(stale == nil)
+        #expect(staleWithStop == nil)
+        #expect(carriedOver == "Как дела")
+        #expect(afterCommit == "Как дела, друг")
+        #expect(nothingButAStop == nil)
+        #expect(otherSide == "Привет, мир")
+    }
+
     @Test("Disabling freezes text and re-enabling starts a marked epoch")
     func disableAndResume() {
         var state = LiveTranscriptState()
@@ -278,16 +355,42 @@ struct LiveTranscriptTests {
         }
         let sinks = try #require(attached.withLock { $0 })
 
-        func readFixture() throws -> AVAudioPCMBuffer {
-            let file = try AVAudioFile(forReading: URL(fileURLWithPath: audioPath))
+        func readFixture(_ path: String) throws -> AVAudioPCMBuffer {
+            let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
             let frames = AVAudioFrameCount(file.length)
             let buffer = try #require(AVAudioPCMBuffer(
                 pcmFormat: file.processingFormat, frameCapacity: frames))
             try file.read(into: buffer)
             return buffer
         }
-        sinks.mic(try readFixture())
-        sinks.system(try readFixture())
+        // The recorders hand over what their taps give them, a fraction of a
+        // second at a time, and the pause between blocks is measured in the
+        // audio that goes by: feeding whole files in one buffer would be a
+        // different pipeline from the one being tested.
+        // Twice realtime rather than all at once: the queue between the sinks
+        // and the model holds a few seconds, and a test that fills it in one go
+        // is testing the overload path instead.
+        func feed(_ buffer: AVAudioPCMBuffer, to sink: LiveAudioBufferRelay.Sink) async throws {
+            let slice = AVAudioFrameCount(buffer.format.sampleRate / 10)
+            var offset = AVAudioFrameCount(0)
+            while offset < buffer.frameLength {
+                let frames = min(slice, buffer.frameLength - offset)
+                let piece = try #require(
+                    AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: frames))
+                piece.frameLength = frames
+                for channel in 0..<Int(buffer.format.channelCount) {
+                    guard let source = buffer.floatChannelData?[channel],
+                          let destination = piece.floatChannelData?[channel]
+                    else { continue }
+                    destination.update(from: source + Int(offset), count: Int(frames))
+                }
+                sink(piece)
+                offset += frames
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        try await feed(try readFixture(audioPath), to: sinks.mic)
+        try await feed(try readFixture(audioPath), to: sinks.system)
 
         // A cold CoreML preload can take 10–15 seconds even though inference
         // itself is much faster than realtime. The recorders queue audio while
@@ -310,6 +413,59 @@ struct LiveTranscriptTests {
         }
         #expect(Set(blocks.map(\.speaker)) == [.you, .them])
         #expect(blocks.allSatisfy { !$0.text.isEmpty })
+
+        // Three seconds of silence, then more speech. The engine goes on
+        // reporting the whole session's transcript, so what is checked here is
+        // that the pause was noticed on both sides and the words after it
+        // opened blocks of their own instead of growing the first two.
+        let secondPath = ProcessInfo.processInfo.environment["AMANU_LIVE_TEST_AUDIO_2"]
+            ?? audioPath
+        func silence(like example: AVAudioPCMBuffer, seconds: Double) throws
+            -> AVAudioPCMBuffer
+        {
+            let frames = AVAudioFrameCount(example.format.sampleRate * seconds)
+            let buffer = try #require(
+                AVAudioPCMBuffer(pcmFormat: example.format, frameCapacity: frames))
+            buffer.frameLength = frames
+            for channel in 0..<Int(buffer.format.channelCount) {
+                buffer.floatChannelData?[channel].update(
+                    repeating: 0, count: Int(frames))
+            }
+            return buffer
+        }
+        let quiet = try silence(like: try readFixture(audioPath), seconds: 3)
+        try await feed(quiet, to: sinks.mic)
+        try await feed(quiet, to: sinks.system)
+        try await feed(try readFixture(secondPath), to: sinks.mic)
+        try await feed(try readFixture(secondPath), to: sinks.system)
+
+        for _ in 0..<600 {
+            let counts = blocksBySpeaker(updates).mapValues(\.count)
+            if (counts[.you] ?? 0) >= 2, (counts[.them] ?? 0) >= 2 { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        let split = blocksBySpeaker(updates)
+        #expect((split[.you]?.count ?? 0) >= 2)
+        #expect((split[.them]?.count ?? 0) >= 2)
+        for blocks in split.values {
+            // The block the pause closed keeps its own words: the report the
+            // engine repeats must not come back as the opening of the next.
+            #expect(blocks.dropLast().allSatisfy { !$0.isProvisional })
+            for (earlier, later) in zip(blocks, blocks.dropFirst()) {
+                #expect(!later.text.hasPrefix(earlier.text))
+            }
+        }
         await coordinator.finishRecording()
+    }
+
+    private func blocksBySpeaker(
+        _ updates: OSAllocatedUnfairLock<LiveTranscriptionCoordinator.Snapshot?>
+    ) -> [LiveTranscriptState.Speaker: [LiveTranscriptState.Block]] {
+        let entries = updates.withLock { $0?.entries } ?? []
+        return Dictionary(grouping: entries.compactMap { entry in
+            if case .speech(let block) = entry { return block }
+            return nil
+        }, by: \.speaker)
     }
 }

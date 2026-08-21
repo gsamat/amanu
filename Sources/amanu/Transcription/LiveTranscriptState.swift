@@ -108,6 +108,22 @@ struct LiveTranscriptState: Sendable {
         orderCurrentEpochSpeech()
     }
 
+    /// Ends a speaker's block, so the next words from that side open a new
+    /// one. Nothing else closes a block while the recording runs: the engine
+    /// reports one ever-growing transcript per speaker and never says where
+    /// an utterance ended, which is why the pause has to be noticed here.
+    @discardableResult
+    mutating func endSegment(speaker: Speaker, epoch resultEpoch: Int) -> Bool {
+        guard isEnabled, resultEpoch == epoch else { return false }
+        guard let index = provisionalIndex.removeValue(forKey: speaker),
+              entries.indices.contains(index),
+              case .speech(var block) = entries[index], block.isProvisional
+        else { return false }
+        block.isProvisional = false
+        entries[index] = .speech(block)
+        return true
+    }
+
     mutating func finishRecording() {
         freezeProvisionalBlocks()
         isEnabled = false
@@ -150,5 +166,57 @@ struct LiveTranscriptState: Sendable {
                 provisionalIndex[block.speaker] = index
             }
         }
+    }
+}
+
+/// The streaming engine reports the whole session's transcript on every
+/// chunk, so a block that has already been closed keeps arriving as the head
+/// of the next report. This subtracts what is already on screen and hands
+/// back only what belongs to the block being written now.
+struct CumulativePartials: Sendable {
+    private var latest: [LiveTranscriptState.Speaker: String] = [:]
+    private var closed: [LiveTranscriptState.Speaker: String] = [:]
+
+    /// What the current block should say, or nil when the report carries
+    /// nothing beyond the blocks already closed.
+    mutating func text(
+        from report: String,
+        for speaker: LiveTranscriptState.Speaker
+    ) -> String? {
+        latest[speaker] = report
+        var rest = Substring(report)
+        if let shown = closed[speaker], report.hasPrefix(shown) {
+            rest = rest.dropFirst(shown.count)
+        }
+        // Punctuation belongs to the sentence that has already been closed —
+        // the full stop it ended on often arrives a beat after the pause did.
+        // No block opens on one, and a report that adds nothing but a comma
+        // adds nothing at all.
+        while let first = rest.first,
+              first.isWhitespace || Self.trailingMarks.contains(first) {
+            rest = rest.dropFirst()
+        }
+        return rest.isEmpty ? nil : String(rest)
+    }
+
+    private static let trailingMarks: Set<Character> = [
+        ",", ".", "!", "?", ";", ":", "…", "。", "、", "—", "–", "-",
+    ]
+
+    /// Remembers everything seen from this speaker so far as spoken for.
+    ///
+    /// Asking the engine to commit clears its own accumulation, but reports
+    /// decoded before that landed are still on their way, and they carry the
+    /// closed text with them. Holding the whole report rather than the block's
+    /// text is also what keeps the split working when the engine did not clear
+    /// anything at all.
+    mutating func close(_ speaker: LiveTranscriptState.Speaker) {
+        guard let full = latest[speaker] else { return }
+        closed[speaker] = full
+    }
+
+    mutating func reset() {
+        latest.removeAll(keepingCapacity: true)
+        closed.removeAll(keepingCapacity: true)
     }
 }
