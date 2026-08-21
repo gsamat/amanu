@@ -174,6 +174,67 @@ those four were found the day the comparison started splitting on `\n` and on
 ` · ` and asking the question phrase by phrase. Compare the smallest thing
 that is a sentence, not the largest thing that is a string.
 
+## A capture restart is where echo cancellation and the wall clock get lost
+
+The input device is reconfigured under a recording several times in an
+ordinary meeting — a call app taking it, headphones connecting, AirPods
+leaving an ear — and each time `MicRecorder` rebuilds its engine. Two things
+have to survive that rebuild, and neither says anything when it doesn't.
+
+**Voice processing has to be turned back on.** Restarting raw looks harmless
+during a call, on the reasoning that the call app is cancelling echo anyway.
+It is not: the call app cancels what it sends, and amanu taps the device
+itself. A raw restart means the mic track writes down whatever the speakers
+play, and on 20 August 2026 it did — the far end at −3 dB on our own track for
+35 minutes, loud enough to be voted onto our side of the meeting by speaker
+attribution. `.issues/rca-003`.
+
+**The silence pad belongs after the attach, not before it.** Only the first
+buffer of the new engine knows how long the route was actually down; starting
+a device costs hundreds of milliseconds beyond the last buffer of the old one.
+Padding before the attach leaves those out of the file, and every buffer after
+the restart is written earlier than it happened — 0.37 s per restart, measured
+against a Zoom cloud recording of the same call, and it never comes back.
+
+**Our own change cannot be told from a dead engine, so do not try.** Enabling
+the voice unit reconfigures the input device, which posts the notification the
+restart listens for; restart on it and the restart starts the next one. But
+dismissing a change because we probably caused it is worse, and it fails
+silently: the same notification arrives when the engine has genuinely stopped,
+and a dismissed one means the microphone is simply never rebuilt. That cost 43
+seconds of a 67-second recording on the evening the window was added — engine
+stopped, change dismissed as ours, mic silent until the next route change
+happened along. What the window is for is buying time to ask the only question
+that has an answer: five seconds after the attach, are buffers still arriving?
+
+## The microphone has to be followed; it is not inherited
+
+`AVAudioEngine` binds to the default input when it starts and stays there.
+Change the default under a running engine and nothing at all happens — no
+`AVAudioEngineConfigurationChange`, no error, the same microphone in the file
+as before. So the mic track follows two things of its own accord: a listener on
+`kAudioHardwarePropertyDefaultInputDevice`, and the session's 15-second tick
+asking `MicRoute` whether the answer has changed. Remove either and choosing
+another microphone mid-meeting leaves amanu recording the old one, silently,
+for the rest of the call.
+
+The device the *call app* is on is a different question from the default, and
+the more correct one — Zoom can be on a microphone the system was never told
+about. `kAudioProcessPropertyDevices` with an input scope answers it per
+process. Two traps in the answer: a process doing duplex I/O lists its output
+device there too (amanu's own capture reports the speakers next to the
+microphone), and the device has to be bound explicitly with
+`AUAudioUnit.setDeviceID` before any format is read, because with voice
+processing the unit builds its aggregate around whatever it was pointed at.
+
+**Setting a default device can silently do nothing.** `AudioObjectSetPropertyData`
+on `kAudioHardwarePropertyDefaultInputDevice` returns `noErr` for a device
+macOS will not make default — Zoom's hidden `ZoomAudioDevice` is one — and the
+default stays where it was. Anything that switches devices, test harness
+included, has to read the property back rather than trust the status. A whole
+evening's conclusion about route changes was drawn from a switch that never
+happened.
+
 ## Banners need a bundle
 
 `UNUserNotificationCenter` has nothing to post under in a bare build, so

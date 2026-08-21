@@ -125,7 +125,10 @@ final class RecordingSession {
                 : .everything
         try system.start(writingTo: dir.appendingPathComponent("system.caf"), scope: scope)
         do {
-            try mic.start(writingTo: dir.appendingPathComponent("mic.caf"))
+            // The mic track follows the same call the tap does: the microphone
+            // that app is listening to is the one being spoken into, and it is
+            // not always the system default.
+            try mic.start(writingTo: dir.appendingPathComponent("mic.caf"), callApps: tapFamilies)
         } catch {
             system.stop()
             throw error
@@ -180,6 +183,14 @@ final class RecordingSession {
         meta.merge(context.metaFields) { current, _ in current }
         if pausedFor > 0 { meta["paused_seconds"] = Int(pausedFor) }
         if !trackEverStalled.isEmpty { meta["stalled_tracks"] = trackEverStalled.sorted() }
+        // Every route change the mic track survived: headphones connecting,
+        // AirPods leaving an ear, a call app taking the device. Each one is a
+        // seam in the track, and a transcript that goes strange after one is
+        // explained here rather than guessed at.
+        let restarts = mic.restarts
+        if !restarts.isEmpty {
+            meta["mic_restarts"] = restarts.map { $0.meta(iso: iso) }
+        }
 
         Self.write(meta: meta, to: dir)
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(Self.manifestFile))
@@ -477,6 +488,15 @@ final class RecordingSession {
         }
 
         followCallApp(now: now)
+
+        // Which microphone is the right one is not settled once at the start.
+        // The call app can move to another device without anything
+        // system-wide changing, and a default that changes under a running
+        // engine is silent in every other way, so the question is asked again
+        // on every tick. Both are cheap; being on the wrong microphone for an
+        // hour is not.
+        mic.follow(callApps: tapFamilies)
+        mic.checkRoute()
 
         // Refresh the manifest once both first buffers have landed, so a crash
         // recovers with the same clock alignment a clean stop would have had.

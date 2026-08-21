@@ -99,6 +99,29 @@ enum AudioProcesses {
         return process.bundleID
     }
 
+    /// The devices a process is running input on — which microphone the call
+    /// app is actually listening to, asked of the system rather than inferred
+    /// from whatever happens to be the default.
+    ///
+    /// A process doing duplex I/O lists its output device here too (amanu's
+    /// own voice-processing capture reports the speakers alongside the
+    /// microphone), so callers filter by `AudioDevices.hasInput`.
+    static func inputDevices(of process: Process) -> [AudioObjectID] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyDevices,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(process.object, &address, 0, nil, &size) == noErr,
+              size > 0
+        else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(process.object, &address, 0, nil, &size, &ids) == noErr
+        else { return [] }
+        return ids
+    }
+
     // MARK: -
 
     @available(macOS 14.4, *)

@@ -853,6 +853,20 @@ for 45 seconds notifies you then and there, and the fact is recorded in
 `meta.json` as `stalled_tracks` — a one-sided transcript should be explainable
 afterwards, not a mystery.
 
+Route changes are recorded the same way. Headphones connecting, AirPods coming
+out of an ear, a call app taking the input device — each one rebuilds the mic
+engine, and each rebuild is written to `meta.json` as an entry in
+`mic_restarts`: when it happened, how much of the track is the silence covering
+it, whether echo cancellation survived, and the input and output device on
+either side of the change. The rebuild keeps cancellation on, because amanu
+taps the device rather than the call app's output, and a raw mic writes down
+whatever the speakers are playing (`.issues/rca-003`).
+
+The microphone itself is followed rather than inherited: whichever one the call
+app is listening to, and the system default when there is no answer. Choose a
+different microphone mid-meeting — in the call app or in System Settings — and
+the track moves with you a few seconds later, and says so in `mic_restarts`.
+
 ## Gotchas
 
 - With `system_audio: "all"` the tap records *everything* the Mac plays —
