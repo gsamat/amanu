@@ -6,77 +6,92 @@ import Testing
 /// The status window against the one thing its layout can get wrong.
 ///
 /// Its rows come and go — the transcription line, the line saying why it is
-/// not recording, the live section — and its height was three constants that
-/// knew nothing about them. A window frame shorter than its content view does
-/// not squeeze the content: the content keeps the height its constraints ask
-/// for and slides up out of the content rect, so the rows at the bottom are
-/// drawn across each other. That is what this walks the window looking for.
+/// not recording, the live section — and twice now a running copy has been
+/// found drawing the live transcript's checkbox across the Manage recordings
+/// button. Both times the rows disagreed with the window they were in: once
+/// because the window was asked to be shorter than they are, once because the
+/// rows were laid out for a window 22 points shorter than the one they were
+/// in and stayed that way through a resize.
+///
+/// So what this checks is the arrangement itself — every row exactly the
+/// stack's spacing below the one above it — rather than the window's height,
+/// which is only one of the ways it has gone wrong.
 @Suite(.serialized)
 struct StatusWindowLayoutTests {
-    @Test("Every row the status window can show fits in the window")
+    @Test("Every row the status window can show sits under the row above it")
     @MainActor
-    func everyStateFits() throws {
+    func everyStateIsAnArrangement() throws {
         _ = NSApplication.shared
+        UserDefaults.standard.removeObject(forKey: "NSWindow Frame amanu.status")
         let window = StatusWindow()
-        let content = try #require(window.view)
-        let panel = try #require(content.window)
+        let panel = try #require(window.view?.window)
+        window.show()
 
-        func check(_ state: String) {
-            content.layoutSubtreeIfNeeded()
-            #expect(content.fittingSize.height <= panel.contentLayoutRect.height + 0.5,
-                    "\(state): the window is shorter than what is in it")
-            for row in content.subviews where !row.isHidden {
-                #expect(row.frame.minY >= -0.5 && row.frame.maxY <= content.bounds.height + 0.5,
-                        "\(state): a row is outside the window")
-            }
-            #expect(overlaps(in: content).isEmpty,
-                    "\(state): rows drawn across each other: \(overlaps(in: content))")
-        }
-
-        // Idle, which is how the window sits all day.
-        window.update(state: .idle, elapsed: nil)
-        window.updateTranscription("transcribes on this Mac")
-        window.updateAutoRecord(enabled: true, decision: nil)
-        window.updateLive(.init(isRecording: false, isEnabled: true, entries: [], status: .idle))
-        check("idle")
-
-        // A recording, which adds the line saying why it is running. This is
-        // the one that overlapped: the row appeared, the window did not grow.
-        window.update(state: .recording, elapsed: "3:06")
-        window.updateAutoRecord(enabled: true, decision: "manual recording in progress")
-        window.updateLive(.init(
-            isRecording: true, isEnabled: false, entries: [], status: .paused))
-        check("recording, live off")
-
-        // The transcript borrowing the height, and giving it back.
         let speech = LiveTranscriptState.Entry.speech(.init(
             speaker: .you, text: "amanu", startMilliseconds: 0, isProvisional: false))
+
+        // Idle, which is how the window sits all day. The transcription line
+        // is never spoken to here, exactly as it is never spoken to on a Mac
+        // with nothing to transcribe.
+        window.update(state: .idle, elapsed: nil)
+        window.updateAutoRecord(enabled: true, decision: nil)
+        window.updateLive(.init(isRecording: false, isEnabled: false, entries: [], status: .idle))
+        check(window, panel, "idle, and never told about transcription")
+
+        // A recording, which adds the line saying why it is running.
+        window.update(state: .recording, elapsed: "3:06")
+        window.updateAutoRecord(enabled: true, decision: "manual recording in progress")
+        window.updateLive(.init(isRecording: true, isEnabled: false, entries: [], status: .paused))
+        check(window, panel, "recording, live off")
+
+        // And the transcription line on top of that.
+        window.updateTranscription("transcribing 2026.08.21-1000")
+        check(window, panel, "recording while transcribing")
+
+        // The transcript borrowing the height, and giving it back.
         window.updateLive(.init(
             isRecording: true, isEnabled: true, entries: [speech], status: .live))
-        check("recording, transcript open")
-
+        check(window, panel, "recording, transcript open")
         window.update(state: .idle, elapsed: nil)
+        window.updateTranscription(nil)
         window.updateAutoRecord(enabled: true, decision: nil)
         window.updateLive(.init(
             isRecording: false, isEnabled: true, entries: [speech], status: .idle))
-        check("stopped, transcript folded away")
+        check(window, panel, "stopped, transcript folded away")
+
+        // A window somebody has dragged about, and one squeezed smaller than
+        // its rows: fewer rows may fit, but no two may share a place.
+        for height in [420.0, 300.0, 240.0, 180.0, 320.0] as [CGFloat] {
+            var frame = panel.frame
+            frame.size.height = height
+            panel.setFrame(frame, display: true, animate: false)
+            window.updateAutoRecord(enabled: true, decision: "mic held by corespeechd")
+            check(window, panel, "window forced to \(height)", fitting: false)
+        }
 
         withExtendedLifetime(window) {}
     }
 
-    /// Which rows share vertical space with the row above them, by the words
-    /// on them, so a failure says what collided rather than that something did.
+    /// Every visible row exactly `spacing` below the one above it, the first
+    /// at the top inset, and — unless the window has been forced smaller than
+    /// its rows — a window tall enough to hold them.
     @MainActor
-    private func overlaps(in content: NSView) -> [String] {
-        let rows = content.subviews
-            .filter { !$0.isHidden }
-            .sorted { $0.frame.maxY > $1.frame.maxY }
-        var found: [String] = []
-        for (above, below) in zip(rows, rows.dropFirst())
-        where below.frame.maxY > above.frame.minY + 0.5 {
-            found.append("\(describe(above)) / \(describe(below))")
+    private func check(
+        _ window: StatusWindow, _ panel: NSWindow, _ state: String, fitting: Bool = true
+    ) {
+        let rows = window.rowsView
+        rows.layoutSubtreeIfNeeded()
+        let shown = rows.views.filter { !$0.isHidden }
+        var expected = rows.edgeInsets.top
+        for row in shown {
+            let top = rows.bounds.height - row.frame.maxY
+            #expect(abs(top - expected) < 0.5,
+                    "\(state): \(describe(row)) is at \(top), not \(expected)")
+            expected = top + row.frame.height + rows.spacing
         }
-        return found
+        guard fitting else { return }
+        #expect(rows.fittingSize.height <= panel.contentLayoutRect.height + 0.5,
+                "\(state): the window is shorter than what is in it")
     }
 
     @MainActor

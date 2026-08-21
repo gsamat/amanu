@@ -258,6 +258,35 @@ names its colours in `tintLayer()`, which is called through the view's own
 appearance and again whenever that appearance changes. Setting
 `layer.borderColor` anywhere else is the bug coming back.
 
+## A stack view is not a window's content view
+
+An `NSStackView` put in `window.contentView` with its
+`translatesAutoresizingMaskIntoConstraints` turned off is sized by its own
+constraints rather than by the window, and the two can then disagree. A
+running copy of amanu was found with the status window's rows laid out for a
+window 22 points shorter than the one they were in — the Live transcript
+checkbox drawn across the Manage recordings button — and resizing the window
+through the accessibility API moved nothing at all, which is how a frozen
+layout tells you what it is. Nothing in the code asked for that; it is what
+comes of the window's size and the layout engine each believing the other
+follows.
+
+The rows now hang from the top of a plain `NSView` content view, which
+resizes with the window because that is all an ordinary view does, and the
+constraint that stretches them to the bottom is `.defaultLow` so that a
+window too short for its rows shows fewer of them rather than two in the
+same place. Anything that measures the window's height measures the stack —
+`fittingSize` on the content view answers for the container.
+
+Two smaller things from the same window, both worth keeping in mind for any
+`NSStackView`. A row with an empty label in it is still a row: the
+transcription line, never spoken to on a Mac with nothing to transcribe, was
+22 points of blank window from launch until the first transcription. And a
+nested stack hugs its contents loosely, so spare height in the window went
+*into* the last row rather than under it, and the checkbox floated out of
+the corner it belongs in; a required vertical content hugging priority is
+what stops it, relaxed only while the live transcript needs the room.
+
 ## Asking macOS what it has granted is not free
 
 Measured inside the signed bundle on 19 August 2026, on an M-series Mac with

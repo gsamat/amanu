@@ -21,6 +21,8 @@ final class StatusWindow {
     var onShowRecordings: (() -> Void)?
 
     private let panel: NSWindow
+    /// The rows, kept because the window's height is measured from them.
+    private let rows = NSStackView()
     private let icon = NSImageView()
     private let stateLabel = NSTextField(labelWithString: localised("idle", "не записывает"))
     private let transcriptionLabel = NSTextField(labelWithString: "")
@@ -83,6 +85,12 @@ final class StatusWindow {
         decisionLabel.font = .systemFont(ofSize: 11)
         decisionLabel.textColor = .secondaryLabelColor
         decisionLabel.lineBreakMode = .byTruncatingTail
+        // Both start with nothing to say and are told later — the
+        // transcription line, on a Mac with nothing to transcribe, is never
+        // told at all. An empty label is still a row: it left a blank line
+        // under the state and 22 points of window paying for it.
+        transcriptionLabel.isHidden = true
+        decisionLabel.isHidden = true
 
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -145,6 +153,13 @@ final class StatusWindow {
         liveSection.orientation = .vertical
         liveSection.alignment = .leading
         liveSection.spacing = 6
+        // Slack in the window belongs at the bottom of it, not inside the
+        // last row. A nested stack hugs its contents loosely, so a window
+        // with room to spare handed the spare room to this one, and the
+        // checkbox floated up out of the corner it belongs in and into the
+        // Manage recordings button. It only gives when it has a transcript
+        // to show; `showLiveText` says when that is.
+        liveSection.setContentHuggingPriority(.required, for: .vertical)
         // The live transcript runs a local streaming model. On an Intel Mac
         // there is none, so the checkbox would be an offer that turns itself
         // back off — hidden instead, and the window stays compact.
@@ -169,27 +184,49 @@ final class StatusWindow {
         buttons.distribution = .fillEqually
         buttons.spacing = 8
 
-        let content = NSStackView(views: [
+        rows.setViews([
             header, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel,
             openFolder, manage, liveSection,
-        ])
-        content.orientation = .vertical
-        content.alignment = .leading
-        content.spacing = 8
-        content.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
-        content.translatesAutoresizingMaskIntoConstraints = false
+        ], in: .top)
+        rows.orientation = .vertical
+        rows.alignment = .leading
+        rows.spacing = 8
+        rows.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        rows.translatesAutoresizingMaskIntoConstraints = false
+
+        // The rows live in a plain view rather than being the window's own
+        // content view. A stack view put there directly is sized by its own
+        // constraints instead of by the window, and the two can then disagree
+        // — a running copy was found with its rows laid out for a window 22
+        // points shorter than the one they were in, unmoved by resizing it —
+        // which is the state that draws one row over another. An ordinary
+        // view resizes with the window, always, and the rows hang from its
+        // top edge.
+        let container = NSView()
+        container.addSubview(rows)
+        panel.contentView = container
 
         // Buttons and the one-line statuses stretch to the window's width; a
         // long "why isn't it recording" line then truncates instead of
         // resizing the window on every tick.
-        panel.contentView = content
+        let fill = rows.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        // Weak on purpose: the rows reach the bottom of a window with room to
+        // spare, which is how the live transcript grows into one, and this
+        // gives way rather than squeezing the rows together in a window with
+        // none. Too short a window then shows fewer rows; it never shows two
+        // in the same place.
+        fill.priority = .defaultLow
         NSLayoutConstraint.activate([
-            buttons.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
-            transcriptionLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
-            decisionLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
-            openFolder.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
-            manage.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
-            liveSection.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -32),
+            rows.topAnchor.constraint(equalTo: container.topAnchor),
+            rows.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            rows.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            fill,
+            buttons.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            transcriptionLabel.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            decisionLabel.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            openFolder.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            manage.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            liveSection.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
             liveScroll.widthAnchor.constraint(equalTo: liveSection.widthAnchor),
             liveScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 140),
         ])
@@ -216,6 +253,9 @@ final class StatusWindow {
     /// What the window has in it, for the suite that builds it in both
     /// languages and looks for a sentence left behind in one of them.
     var view: NSView? { panel.contentView }
+
+    /// The rows themselves, for a test that measures where they ended up.
+    var rowsView: NSStackView { rows }
 
     var isVisible: Bool { panel.isVisible }
 
@@ -255,7 +295,7 @@ final class StatusWindow {
 
     func updateTranscription(_ text: String?) {
         transcriptionLabel.stringValue = text ?? ""
-        transcriptionLabel.isHidden = text == nil
+        transcriptionLabel.isHidden = text?.isEmpty != false
         growToFitContent()
     }
 
@@ -353,6 +393,7 @@ final class StatusWindow {
         guard visible != liveTextVisible else { return }
         liveTextVisible = visible
         liveScroll.isHidden = !visible
+        liveSection.setContentHuggingPriority(visible ? .defaultLow : .required, for: .vertical)
         setRevealTitle(showing: visible)
 
         if visible {
@@ -378,10 +419,9 @@ final class StatusWindow {
     /// What comes of asking is the live transcript's checkbox drawn across
     /// the Manage recordings button.
     private var fittingHeight: CGFloat {
-        guard let content = panel.contentView else { return Self.compactSize.height }
-        content.layoutSubtreeIfNeeded()
+        rows.layoutSubtreeIfNeeded()
         return panel.frameRect(
-            forContentRect: NSRect(origin: .zero, size: content.fittingSize)).height
+            forContentRect: NSRect(origin: .zero, size: rows.fittingSize)).height
     }
 
     /// Grow to whatever a row that has just appeared needs. Only grow: the
