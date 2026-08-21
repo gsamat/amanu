@@ -1,8 +1,14 @@
 import AppKit
 
 /// Status bar item in the top-right of the menu bar. Shows recording state at
-/// a glance and provides the only persistent control surface for the daemon
-/// (since we run as `.accessory` — no dock icon, no main window).
+/// a glance, and carries the menu that is amanu's fullest control surface.
+///
+/// The item can be taken away — `menu_bar_icon: false` — so it is held as an
+/// optional and the menu is kept apart from it. That way the menu outlives
+/// every removal: it is built once, the callbacks wired to it stay wired, and
+/// putting the icon back is handing the same menu to a new status item rather
+/// than rebuilding a second one that would have to be kept in step with the
+/// first.
 @MainActor
 final class MenuBarController {
     enum State: Equatable {
@@ -11,7 +17,13 @@ final class MenuBarController {
         case paused
     }
 
-    private let statusItem: NSStatusItem
+    private let menu: NSMenu
+    /// Nil while the icon is switched off.
+    private var statusItem: NSStatusItem?
+    /// What the icon would be showing if it were here, so that one put back
+    /// mid-meeting shows the meeting rather than an idle feather.
+    private var state: State = .idle
+    private var elapsed: String?
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
     private let toggleItem: NSMenuItem
@@ -33,10 +45,8 @@ final class MenuBarController {
     var onShowAbout: (() -> Void)?
     var onQuit: (() -> Void)?
 
-    init() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-
-        let menu = NSMenu()
+    init(visible: Bool = true) {
+        menu = NSMenu()
         menu.autoenablesItems = false
 
         stateLabel = NSMenuItem(
@@ -163,10 +173,32 @@ final class MenuBarController {
             item.target = self
         }
 
-        statusItem.menu = menu
-        statusItem.button?.imagePosition = .imageLeft
         update(state: .idle, elapsed: nil)
+        setVisible(visible)
     }
+
+    /// Put the icon in the menu bar, or take it away.
+    ///
+    /// Removal is real rather than a zero-width item: a status item with no
+    /// width still occupies its slot, still opens its menu when the place it
+    /// used to be is clicked, and still counts against the room the menu bar
+    /// has — so a person who turned the icon off would keep bumping into it.
+    func setVisible(_ visible: Bool) {
+        guard visible != (statusItem != nil) else { return }
+        if visible {
+            let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+            item.menu = menu
+            item.button?.imagePosition = .imageLeft
+            statusItem = item
+            update(state: state, elapsed: elapsed)
+        } else {
+            statusItem.map(NSStatusBar.system.removeStatusItem)
+            statusItem = nil
+        }
+    }
+
+    /// Whether the icon is currently in the menu bar.
+    var isVisible: Bool { statusItem != nil }
 
     /// Show or hide **Check for updates…**. Only a real application bundle
     /// can be replaced by Sparkle, so only a real application bundle offers it.
@@ -187,13 +219,13 @@ final class MenuBarController {
     /// The items a person would actually see. Two of them come and go, and
     /// this is how anything outside asks which are on offer.
     var offeredItemTitles: [String] {
-        (statusItem.menu?.items ?? []).filter { !$0.isHidden }.map(\.title)
+        menu.items.filter { !$0.isHidden }.map(\.title)
     }
 
     /// What the item says beside its icon in the menu bar, which is words as
     /// well as a clock — "paused" is in there, and it is the one string in
     /// this class that is not in the menu at all.
-    var statusItemTitle: String { statusItem.button?.title ?? "" }
+    var statusItemTitle: String { statusItem?.button?.title ?? "" }
 
     /// Reflect recording state in the icon and the menu. Called once a second
     /// while recording.
@@ -206,30 +238,35 @@ final class MenuBarController {
     /// must never be invisible (upstream issue #15). Drawing the colour into a
     /// non-template image takes the system out of the decision.
     func update(state: State, elapsed: String?) {
+        // Remembered whether or not there is an icon to draw it on: the menu
+        // says the same things the icon does, and both are wanted the moment
+        // the icon comes back.
+        self.state = state
+        self.elapsed = elapsed
         switch state {
         case .idle:
             stateLabel.title = localised("idle", "не записывает")
             toggleItem.title = localised("Start recording", "Начать запись")
             pauseItem.title = localised("Pause", "Пауза")
             pauseItem.isEnabled = false
-            statusItem.button?.image = Self.icon(color: nil)
-            statusItem.button?.title = ""
+            statusItem?.button?.image = Self.icon(color: nil)
+            statusItem?.button?.title = ""
         case .recording:
             stateLabel.title = localised("● recording · ", "● запись · ") + (elapsed ?? "0:00")
             toggleItem.title = localised("Stop recording", "Остановить запись")
             pauseItem.title = localised("Pause", "Пауза")
             pauseItem.isEnabled = true
-            statusItem.button?.image = Self.icon(color: .systemRed)
+            statusItem?.button?.image = Self.icon(color: .systemRed)
             // The elapsed time next to the icon is the difference between
             // "something is recording" and "I know it's recording" at a glance.
-            statusItem.button?.title = " \(elapsed ?? "0:00")"
+            statusItem?.button?.title = " \(elapsed ?? "0:00")"
         case .paused:
             stateLabel.title = localised("❙❙ paused · ", "❙❙ пауза · ") + (elapsed ?? "0:00")
             toggleItem.title = localised("Stop recording", "Остановить запись")
             pauseItem.title = localised("Resume", "Продолжить")
             pauseItem.isEnabled = true
-            statusItem.button?.image = Self.icon(color: .systemOrange)
-            statusItem.button?.title =
+            statusItem?.button?.image = Self.icon(color: .systemOrange)
+            statusItem?.button?.title =
                 " " + (elapsed ?? "0:00") + localised(" paused", " пауза")
         }
     }

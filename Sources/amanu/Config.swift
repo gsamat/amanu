@@ -374,6 +374,16 @@ enum Config {
         load()?["dock_icon"] as? Bool ?? true
     }
 
+    /// Show amanu's feather in the menu bar, with the clock beside it while a
+    /// meeting is being recorded. On by default, and it may be turned off
+    /// together with the Dock icon: with neither, amanu is a program with no
+    /// icon anywhere, and the way back to its window is to open Amanu again —
+    /// from Spotlight or from Applications, which reaches the copy already
+    /// running rather than starting a second one.
+    static func menuBarIcon() -> Bool {
+        load()?["menu_bar_icon"] as? Bool ?? true
+    }
+
     /// Open the status window at launch. Off for anyone who'd rather start
     /// from the Dock icon each time.
     static func showWindowAtLaunch() -> Bool {

@@ -389,7 +389,7 @@ struct Doctor: ParsableCommand {
 @MainActor
 final class AppController {
     private let root: URL
-    private let menuBar = MenuBarController()
+    private let menuBar = MenuBarController(visible: Config.menuBarIcon())
     private let window = StatusWindow()
     /// Built on first use. It is thirty-odd controls, and amanu spends nearly
     /// all of its life recording rather than being configured.
@@ -525,6 +525,7 @@ final class AppController {
         offerSetup()
         configWatch = ConfigWatch.observe { [weak self] in
             self?.window.updateLivePreference(enabled: Config.liveTranscriptionEnabled())
+            self?.applyIconPreferences()
         }
         setupRequestObserver = SetupRequest.observe { [weak self] in self?.showSetup() }
         activateObserver = SingleInstance.observe { [weak self] in self?.showWindow() }
@@ -536,6 +537,26 @@ final class AppController {
         } else {
             startAutomaticFeatures(requestCalendarAccess: true)
         }
+    }
+
+    /// Where amanu is visible: the menu bar, the Dock, both, or neither.
+    ///
+    /// Applied while running rather than at the next launch, which is the
+    /// whole reason the two switches are safe to offer. Turning off the last
+    /// icon leaves a program with nowhere to click, and someone who has just
+    /// done it by accident should be able to see what happened and put it
+    /// back in the window they are already standing in — not restart the
+    /// program to find out.
+    private func applyIconPreferences() {
+        menuBar.setVisible(Config.menuBarIcon())
+
+        let wanted: NSApplication.ActivationPolicy = Config.dockIcon() ? .regular : .accessory
+        guard NSApp.activationPolicy() != wanted else { return }
+        NSApp.setActivationPolicy(wanted)
+        // Coming back to .regular hands the menu bar to whatever was in front
+        // while amanu had no place in the switcher, so its own windows are
+        // left in front of an application menu belonging to someone else.
+        if wanted == .regular { NSApp.activate(ignoringOtherApps: true) }
     }
 
     /// Start the background behavior only after the first-run decision. The

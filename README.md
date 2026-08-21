@@ -220,8 +220,15 @@ notch — and a menu bar manager can hide it outright. The item stays perfectly
 clickable and completely invisible, which for a program whose entire job is
 answering "am I recording?" is the worst way it can fail.
 
-`dock_icon: false` returns amanu to a menu-bar-only accessory; `window: false`
-stops the window opening at launch.
+Both icons can be given up, in **Where amanu shows up** in setup or in
+Settings: `menu_bar_icon: false` takes the feather out of the menu bar,
+`dock_icon: false` returns amanu to a menu-bar-only accessory, and either
+switch takes effect as it is clicked rather than at the next launch. With both
+off amanu goes on recording with no icon anywhere, and the way back to the
+window is to open Amanu again — from Spotlight, or from Applications, which
+reaches the copy already running rather than starting a second one. The form
+says so at the moment the second switch goes off. `window: false` stops the
+window opening at launch.
 
 All three are in English or in Russian, following whichever your Mac is set
 to. `interface_language` in the config overrules that — it is under
@@ -715,6 +722,10 @@ Optional, at `~/.config/amanu/config.json`:
   whatever this says.
 - `dock_icon` — show amanu in the Dock and ⌘-Tab (default on). `false` makes
   it a menu-bar-only accessory again.
+- `menu_bar_icon` — show the feather in the menu bar (default on). `false`
+  takes it away, along with the menu hanging off it. Off together with
+  `dock_icon` leaves amanu recording with no icon anywhere; opening Amanu
+  again brings its window back.
 - `window` — open the status window at launch (default on).
 - `keep_audio` — keep audio after a successful transcript (default off). Audio
   is always kept when transcription fails. Turning this on is what makes
