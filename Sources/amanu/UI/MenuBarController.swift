@@ -189,6 +189,16 @@ final class MenuBarController {
             let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             item.menu = menu
             item.button?.imagePosition = .imageLeft
+            // The clock ticks once a second, and in the menu bar font every
+            // digit has its own width — so 1:19 becoming 1:20 changes the
+            // length of the title and the whole item jitters sideways under
+            // the eye. Asking the same font for its tabular figures sets the
+            // numerals on one common advance and holds the item still; the
+            // font itself is left alone, since the only thing wrong with it
+            // was the spacing of ten glyphs.
+            if let button = item.button, let font = button.font {
+                button.font = Self.tabularFigures(of: font)
+            }
             statusItem = item
             update(state: state, elapsed: elapsed)
         } else {
@@ -285,6 +295,22 @@ final class MenuBarController {
         autoRecordItem.state = enabled ? .on : .off
         autoRecordStatus.title = decision.map { "   \($0)" } ?? ""
         autoRecordStatus.isHidden = !enabled || decision == nil
+    }
+
+    /// The same font, asked for its tabular figures — the numerals redrawn on
+    /// one shared advance, everything else untouched. If the face has no such
+    /// variant the descriptor comes back without it and the font is returned
+    /// as it was, which is the right answer: proportional digits beat none.
+    private static func tabularFigures(of font: NSFont) -> NSFont {
+        let descriptor = font.fontDescriptor.addingAttributes([
+            .featureSettings: [
+                [
+                    NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+                    NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
+                ]
+            ]
+        ])
+        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 
     /// Menu-bar status icons are nominally 18pt tall; 16 leaves a little air.
