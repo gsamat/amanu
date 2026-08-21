@@ -48,6 +48,12 @@ final class MenuBarController {
     init(visible: Bool = true) {
         menu = NSMenu()
         menu.autoenablesItems = false
+        // The first line of the menu carries the same clock the icon does,
+        // and it ticks while the menu is open. Setting the font on the menu
+        // rather than on that one item is what keeps the rest of it alone:
+        // an item drawn from an attributed title loses the grey the system
+        // gives a disabled one, and the state line is disabled.
+        menu.font = NSFont.menuFont(ofSize: 0).tabularFigures
 
         stateLabel = NSMenuItem(
             title: localised("idle", "не записывает"), action: nil, keyEquivalent: "")
@@ -197,7 +203,7 @@ final class MenuBarController {
             // font itself is left alone, since the only thing wrong with it
             // was the spacing of ten glyphs.
             if let button = item.button, let font = button.font {
-                button.font = Self.tabularFigures(of: font)
+                button.font = font.tabularFigures
             }
             statusItem = item
             update(state: state, elapsed: elapsed)
@@ -295,22 +301,6 @@ final class MenuBarController {
         autoRecordItem.state = enabled ? .on : .off
         autoRecordStatus.title = decision.map { "   \($0)" } ?? ""
         autoRecordStatus.isHidden = !enabled || decision == nil
-    }
-
-    /// The same font, asked for its tabular figures — the numerals redrawn on
-    /// one shared advance, everything else untouched. If the face has no such
-    /// variant the descriptor comes back without it and the font is returned
-    /// as it was, which is the right answer: proportional digits beat none.
-    private static func tabularFigures(of font: NSFont) -> NSFont {
-        let descriptor = font.fontDescriptor.addingAttributes([
-            .featureSettings: [
-                [
-                    NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
-                    NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector,
-                ]
-            ]
-        ])
-        return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
     }
 
     /// Menu-bar status icons are nominally 18pt tall; 16 leaves a little air.
