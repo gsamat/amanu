@@ -78,7 +78,7 @@ final class StatusWindow {
         panel.isReleasedWhenClosed = false
         panel.minSize = Self.compactSize
 
-        stateLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        stateLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium).tabularFigures
         transcriptionLabel.font = .systemFont(ofSize: 11)
         transcriptionLabel.textColor = .secondaryLabelColor
         transcriptionLabel.lineBreakMode = .byTruncatingTail
