@@ -146,6 +146,11 @@ def main():
         ))
         and 'mailto:s@samat.me' not in html,
     )
+    check(
+        "подпись к статусу без «уже»",
+        "<figcaption>Встреча идёт — Amanu пишет.</figcaption>" in html
+        and "Amanu уже пишет" not in html,
+    )
 
     # Verified outbound facts. The download goes straight to the published DMG:
     # the asset name carries the version, so /releases/latest/download cannot
