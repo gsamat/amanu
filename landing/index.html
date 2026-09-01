@@ -1,12 +1,16 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Amanu — автоматическая запись и расшифровка онлайн-встреч</title>
+    <title>Amanu — automatic recording and transcription for online meetings</title>
     <meta name="description"
-        content="Amanu записывает и расшифровывает онлайн-встречи сама: Zoom, Google Meet, Телеграм, Вацап. Определяет говорящих, пишет выжимки, умеет работать локально без интернета. Бесплатно, открытый исходный код, macOS." />
+        content="Amanu records and transcribes online meetings automatically: Zoom, Google Meet, Telegram, and WhatsApp. It identifies speakers, writes high-quality summaries, and can run locally without internet access. Free, open source, and built for macOS." />
+    <link rel="canonical" href="https://amanu.me/" />
+    <link rel="alternate" hreflang="en" href="https://amanu.me/" />
+    <link rel="alternate" hreflang="ru" href="https://amanu.me/ru/" />
+    <link rel="alternate" hreflang="x-default" href="https://amanu.me/" />
     <link rel="stylesheet" href="style.css" />
     <link rel="icon" href="assets/icon-180.png" />
     <link rel="apple-touch-icon" href="assets/icon-180.png" />
@@ -14,27 +18,32 @@
 
 <body>
     <header class="masthead">
-        <a class="brand" href="#top" aria-label="Amanu — к началу страницы">
+        <a class="brand" href="#top" aria-label="Amanu — back to the top">
             <img src="assets/icon.png" width="40" height="40"
-                alt="Иконка Amanu: кремовое перо на тёмно-графитовой плашке." />
+                alt="Amanu icon: a cream quill on a dark graphite background." />
             <span class="brand-name">Amanu</span>
         </a>
-        <p class="rec-badge" aria-hidden="true">
-            <span class="rec-dot"></span>
-            <span class="rec-word">запись</span>
-            <span class="rec-time" id="rec-time">00:00</span>
-        </p>
+        <div class="masthead-aside">
+            <p class="rec-badge" aria-hidden="true">
+                <span class="rec-dot"></span>
+                <span class="rec-word">recording</span>
+                <span class="rec-time" id="rec-time">00:00</span>
+            </p>
+            <nav class="lang" aria-label="Language">
+                <span class="lang-current" aria-current="true" lang="en">EN</span>
+                <span class="lang-sep" aria-hidden="true">·</span>
+                <a href="/ru/" lang="ru" hreflang="ru">RU<span class="vh"> — Русская версия</span></a>
+            </nav>
+        </div>
     </header>
 
     <main id="top">
-
-        <!-- ═══ Протокол, запись № 1: что это ═══ -->
         <section class="hero">
             <div class="hero-text">
-                <h1>Записывает и&nbsp;расшифровывает онлайн-встречи. <em class="self">Автоматом.</em></h1>
-                <p class="lede">Amanu работает с&nbsp;любыми звонками — Zoom, Google Meet, Телеграм,
-                    Вацап. Запускает и&nbsp;останавливает запись автоматически, определяет говорящих
-                    и&nbsp;пишет качественную выжимку каждой встречи.</p>
+                <h1>Records and transcribes online meetings. <em class="self">Automatically.</em></h1>
+                <p class="lede">Amanu works with any call — Zoom, Google Meet, Telegram,
+                    WhatsApp. It starts and stops recording on its own, identifies speakers,
+                    and writes a high-quality summary of every meeting.</p>
                 <p class="cta-row">
                     <a class="btn" href="https://github.com/gsamat/amanu/releases/download/v0.4.10/amanu-v0.4.10-macos-universal.dmg">
                         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -42,61 +51,54 @@
                                 d="M7.25 1v8.19L4.53 6.47 3.47 7.53 8 12.06l4.53-4.53-1.06-1.06-2.72 2.72V1h-1.5z" />
                             <path d="M2 11v2h12v-2h1.5v3.5h-15V11H2z" />
                         </svg>
-                        Скачать для macOS
+                        Download for macOS
                     </a>
                 </p>
-                <p class="fineprint">Бесплатно · <a href="https://github.com/gsamat/amanu">открытый
-                        исходный код</a> · нотаризован Apple</p>
+                <p class="fineprint">Free · <a href="https://github.com/gsamat/amanu">open source</a>
+                    · Notarized by Apple</p>
             </div>
             <figure class="shot shot-status">
                 <picture>
                     <source srcset="assets/shots/status-recording-dark.png" media="(prefers-color-scheme: dark)" />
                     <img src="assets/shots/status-recording-light.png" width="320" height="428"
-                        alt="Окно Amanu во время записи: красная точка и время «запись · 12:04», кнопки «Остановить запись» и «Пауза», включённая галочка «Записывать встречи сама» и расшифровка на ходу с репликами «Вы» и «Они»." />
+                        alt="Amanu recording window with a red status dot, timer, stop and pause controls, automatic meeting recording enabled, and a live speaker-by-speaker transcript." />
                 </picture>
-                <figcaption>Встреча идёт — Amanu пишет.</figcaption>
+                <figcaption>The meeting is underway — Amanu is recording.</figcaption>
             </figure>
         </section>
 
-        <!-- ═══ 00:00 — старт ═══ -->
         <section class="entry">
             <p class="tc" aria-hidden="true">00:00</p>
             <div class="entry-body">
-                <p class="statement">Запускает и&nbsp;останавливает запись автоматически.</p>
+                <p class="statement">Starts and stops recording automatically.</p>
             </div>
         </section>
 
-        <!-- ═══ 00:07 — кто говорит ═══ -->
         <section class="entry">
             <p class="tc" aria-hidden="true">00:07</p>
             <div class="entry-body">
-                <h2>Диаризация</h2>
-                <p>в&nbsp;расшифровке реплики разложены по&nbsp;людям,
-                    а&nbsp;не&nbsp;слиты в&nbsp;один поток.</p>
+                <h2>Speaker diarization</h2>
+                <p>The transcript is separated by speaker instead of being merged into a single stream.</p>
             </div>
         </section>
 
-        <!-- ═══ 52:40 — после встречи ═══ -->
         <section class="entry">
             <p class="tc" aria-hidden="true">52:40</p>
             <div class="entry-body">
-                <h2>Качественные выжимки</h2>
-                <p>В&nbsp;других подобных программах, создатели экономят токены:
-                    на&nbsp;больших масштабах это позволяет заработать ценой качества
-                    выжимки.</p>
-                <p>Я&nbsp;считаю, что нужно экономить наше время, а&nbsp;модели пусть
-                    работают по-полной, тем более если у&nbsp;вас уже есть подписка
-                    на&nbsp;клод или chatgpt.</p>
+                <h2>High-quality summaries</h2>
+                <p>Other apps like it economize on tokens. At scale, that improves their margins
+                    at the expense of summary quality.</p>
+                <p>I think it makes more sense to save our time and let the models do their best
+                    work — especially if you already pay for Claude or ChatGPT.</p>
             </div>
         </section>
 
-        <!-- ═══ 52:41 — где всё это лежит ═══ -->
         <section class="entry">
             <p class="tc" aria-hidden="true">52:41</p>
             <div class="entry-body">
-                <h2>Все данные хранятся у&nbsp;вас локально</h2>
-                <p>Одна встреча — одна папка, внутри аудиофайл, расшифровка, выжимка.
-                    Очень удобно дать доступ нейросетям.</p>
+                <h2>All your data stays local</h2>
+                <p>One meeting, one folder: the audio, transcript, and summary live together.
+                    It is easy to give your AI tools access to it.</p>
             </div>
         </section>
 
@@ -104,36 +106,34 @@
             <picture>
                 <source srcset="assets/shots/recordings-dark.png" media="(prefers-color-scheme: dark)" />
                 <img src="assets/shots/recordings-light.png" width="860" height="592"
-                    alt="Окно «Записи»: список встреч со столбцами «Расшифровка», «Имена» и «Саммари», ниже — говорящие выбранной встречи с полями для имён, подписанными «Фёдор» и «Мария»." />
+                    alt="Amanu recordings window with a meeting list, transcript, speaker names, summary status, and editable names for the selected meeting." />
             </picture>
-            <figcaption>Каждая встреча: расшифровка, имена говорящих, выжимка.</figcaption>
+            <figcaption>Every meeting: transcript, speaker names, and summary.</figcaption>
         </figure>
 
-        <!-- ═══ Локально или облако ═══ -->
         <section class="entry">
             <p class="tc tc-blank" aria-hidden="true">&nbsp;</p>
             <div class="entry-body split">
                 <div>
-                    <h2>Всё это — локально</h2>
-                    <p>Amanu умеет записывать, расшифровывать и&nbsp;писать выжимки
-                        без&nbsp;доступа к&nbsp;интернету, прямо на&nbsp;вашем маке.</p>
+                    <h2>Everything can run locally</h2>
+                    <p>Amanu can record, transcribe, and write summaries without internet access,
+                        right on your Mac.</p>
                 </div>
                 <div>
-                    <h2>Или мощнее — по&nbsp;ключу</h2>
-                    <p>Хотите — подключите мощные платные модели: Amanu умеет использовать
-                        ваши подписки и&nbsp;API-ключи.</p>
+                    <h2>Or use more powerful models</h2>
+                    <p>If you prefer, connect powerful paid models: Amanu can use your subscriptions
+                        and API keys.</p>
                 </div>
             </div>
         </section>
 
-        <!-- ═══ Бесплатно и открыто ═══ -->
         <section class="entry close">
             <p class="tc tc-blank" aria-hidden="true">&nbsp;</p>
             <div class="entry-body">
-                <h2>Бесплатно и&nbsp;открыто</h2>
-                <p>Amanu полностью бесплатная: <a href="https://github.com/gsamat/amanu">открытый
-                        исходный код</a> и&nbsp;нотаризован Apple. Установка лёгкая — скачайте
-                    и&nbsp;откройте.</p>
+                <h2>Free and open source</h2>
+                <p>Amanu is completely free: its <a href="https://github.com/gsamat/amanu">source code
+                        is open</a>, and the app is Notarized by Apple. Installation is simple —
+                    download it and open it.</p>
                 <p class="cta-row">
                     <a class="btn" href="https://github.com/gsamat/amanu/releases/download/v0.4.10/amanu-v0.4.10-macos-universal.dmg">
                         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -141,38 +141,38 @@
                                 d="M7.25 1v8.19L4.53 6.47 3.47 7.53 8 12.06l4.53-4.53-1.06-1.06-2.72 2.72V1h-1.5z" />
                             <path d="M2 11v2h12v-2h1.5v3.5h-15V11H2z" />
                         </svg>
-                        Скачать для macOS
+                        Download for macOS
                     </a>
                 </p>
             </div>
         </section>
 
-        <!-- ═══ Windows ═══ -->
         <section class="entry windows">
             <p class="tc tc-blank" aria-hidden="true">&nbsp;</p>
             <div class="entry-body">
-                <h2>А&nbsp;Windows?</h2>
-                <p>Пока Amanu работает только на&nbsp;macOS. Если вы заинтересованы
-                    в&nbsp;Windows-версии — оставьте свой имейл:</p>
+                <h2>What about Windows?</h2>
+                <p>For now, Amanu is available for macOS only. If you are interested in a Windows
+                    version, send me an email:</p>
                 <p class="cta-row">
                     <a class="btn btn-ghost"
-                        href="mailto:amanu-windows@samat.me?subject=Amanu%20%D0%B4%D0%BB%D1%8F%20Windows&amp;body=%D0%A1%D0%BE%D0%BE%D0%B1%D1%89%D0%B8%D1%82%D0%B5%20%D0%BC%D0%BD%D0%B5%2C%20%D0%BA%D0%BE%D0%B3%D0%B4%D0%B0%20%D0%BF%D0%BE%D1%8F%D0%B2%D0%B8%D1%82%D1%81%D1%8F%20windows%20%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F%2C%20%D0%BF%D0%BE%D0%B6%D0%B0%D0%BB%D1%83%D0%B9%D1%81%D1%82%D0%B0%21">
-                        Написать про Windows-версию
+                        href="mailto:amanu-windows@samat.me?subject=Amanu%20for%20Windows&amp;body=Please%20let%20me%20know%20when%20the%20Windows%20version%20is%20available%21">
+                        Ask about the Windows version
                     </a>
                 </p>
-                <p class="fineprint">Кнопка откроет письмо в&nbsp;вашей почте — просто отправьте его.</p>
+                <p class="fineprint">The button opens a ready-to-send message in your email app.</p>
             </div>
         </section>
     </main>
 
     <footer>
-        <p><a href="https://github.com/gsamat/amanu">Исходный код</a> ·
-            <a href="https://samat.me/ru">Самат Галимов</a></p>
+        <p><a href="https://github.com/gsamat/amanu">Source code</a> ·
+            <a href="https://samat.me/">Samat Galimov</a> ·
+            <a href="/ru/" lang="ru" hreflang="ru">Русский</a></p>
     </footer>
 
     <script>
-        // First-party счётчик на том же сервере, что у сайта подкаста и CTOdaily.
-        // Никаких сторонних скриптов: обычный запрос за пикселем на /m.
+        // First-party analytics shared with the podcast site and CTOdaily.
+        // No third-party script: just a tracking pixel request to /m.
         (function () {
             var url = new URL('/m', location.origin);
             url.searchParams.set('p', location.pathname);
@@ -182,7 +182,7 @@
             new Image().src = url;
         })();
 
-        // Декоративный счётчик записи в шапке. При prefers-reduced-motion не тикает.
+        // Decorative recording timer. It stays still when reduced motion is enabled.
         (function () {
             var el = document.getElementById('rec-time');
             if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;

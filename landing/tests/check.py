@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Automated checks for the amanu landing page.
+"""Automated checks for the bilingual Amanu landing page.
 
-Observable structure and behaviour only: the page exists, is Russian,
-links to the real release, keeps every resource local, stays honest about
-the Windows form, and respects reduced motion and both colour schemes.
-No checks on exact wording.
+Observable structure and behaviour only: English is the default, Russian lives
+at /ru/, language metadata and switching are reciprocal, releases are real,
+resources stay local, and accessibility plus colour/motion preferences hold.
 """
 
 import re
@@ -14,7 +13,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 LANDING = Path(__file__).resolve().parent.parent
-INDEX = LANDING / "index.html"
+EN_INDEX = LANDING / "index.html"
+RU_INDEX = LANDING / "ru" / "index.html"
+DMG = (
+    "https://github.com/gsamat/amanu/releases/download/"
+    "v0.4.10/amanu-v0.4.10-macos-universal.dmg"
+)
 
 failures = []
 
@@ -34,16 +38,19 @@ class PageParser(HTMLParser):
         self.title = ""
         self._in_title = False
         self.meta_description = None
-        self.links = []            # <a href>
-        self.resources = []        # (tag, url) for img/src, srcset, link href, script src, source srcset
-        self.imgs = []             # dicts of attrs
-        self.forms = []            # action attrs
+        self.links = []
+        self.anchors = []
+        self.resources = []
+        self.imgs = []
+        self.forms = []
         self.script_srcs = []
         self.inline_scripts = []
         self._in_script = False
         self.onclick_count = 0
         self.positive_tabindex = 0
         self.stylesheets = []
+        self.alternates = []
+        self.canonicals = []
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -62,6 +69,7 @@ class PageParser(HTMLParser):
             self.meta_description = a.get("content")
         elif tag == "a":
             self.links.append(a.get("href", ""))
+            self.anchors.append(a)
         elif tag == "img":
             self.imgs.append(a)
             if a.get("src"):
@@ -73,9 +81,15 @@ class PageParser(HTMLParser):
                     self.resources.append(("source", url))
         elif tag == "link":
             href = a.get("href", "")
-            self.resources.append(("link", href))
-            if "stylesheet" in a.get("rel", ""):
+            rel = a.get("rel", "").split()
+            if "stylesheet" in rel:
                 self.stylesheets.append(href)
+            if any(item in rel for item in ("stylesheet", "icon", "apple-touch-icon")):
+                self.resources.append(("link", href))
+            if "alternate" in rel:
+                self.alternates.append((a.get("hreflang"), href))
+            if "canonical" in rel:
+                self.canonicals.append(href)
         elif tag == "script":
             self._in_script = True
             if a.get("src"):
@@ -96,168 +110,236 @@ class PageParser(HTMLParser):
             self.inline_scripts.append(data)
 
 
+def parse_page(path):
+    html = path.read_text(encoding="utf-8")
+    parser = PageParser()
+    parser.feed(html)
+    return html, parser
+
+
 def is_external(url):
     s = urlsplit(url)
     return s.scheme in ("http", "https") or url.startswith("//")
 
 
-def resolves_locally(url):
+def resolves_locally(page_path, url):
     s = urlsplit(url)
     if s.scheme or url.startswith("//"):
         return False
     path = unquote(s.path)
     if not path:
-        return True  # pure fragment
-    return (LANDING / path).is_file()
+        return True
+    if path.startswith("/"):
+        return (LANDING / path.lstrip("/")).is_file()
+    return (page_path.parent / path).resolve().is_file()
 
 
 def main():
-    check("index.html существует", INDEX.is_file())
-    if not INDEX.is_file():
+    check("английская главная существует", EN_INDEX.is_file())
+    check("русская версия существует в /ru/", RU_INDEX.is_file())
+    if not EN_INDEX.is_file() or not RU_INDEX.is_file():
         return finish()
 
-    html = INDEX.read_text(encoding="utf-8")
-    p = PageParser()
-    p.feed(html)
+    en_html, en = parse_page(EN_INDEX)
+    ru_html, ru = parse_page(RU_INDEX)
+    pages = (("EN", EN_INDEX, en_html, en), ("RU", RU_INDEX, ru_html, ru))
 
-    # Language and document basics
-    check("lang=ru на <html>", p.html_lang == "ru", f"lang={p.html_lang!r}")
-    check("ровно один <h1>", p.h1_count == 1, f"h1×{p.h1_count}")
-    check("<title> непустой", bool(p.title.strip()))
-    check("meta description непустой", bool(p.meta_description and p.meta_description.strip()))
+    # Routes, metadata, and reciprocal language navigation.
+    check("lang=en на главной", en.html_lang == "en", f"lang={en.html_lang!r}")
+    check("lang=ru в /ru/", ru.html_lang == "ru", f"lang={ru.html_lang!r}")
+    check("canonical главной", en.canonicals == ["https://amanu.me/"], str(en.canonicals))
+    check("canonical русской версии", ru.canonicals == ["https://amanu.me/ru/"], str(ru.canonicals))
+    expected_alternates = {
+        ("en", "https://amanu.me/"),
+        ("ru", "https://amanu.me/ru/"),
+        ("x-default", "https://amanu.me/"),
+    }
+    for label, _, _, page in pages:
+        check(
+            f"{label}: полная карта hreflang",
+            set(page.alternates) == expected_alternates,
+            str(page.alternates),
+        )
+        check(f"{label}: ровно один <h1>", page.h1_count == 1, f"h1×{page.h1_count}")
+        check(f"{label}: <title> непустой", bool(page.title.strip()))
+        check(
+            f"{label}: meta description непустой",
+            bool(page.meta_description and page.meta_description.strip()),
+        )
 
-    # Requested public wording and attribution.
-    readable_html = html.replace("&nbsp;", " ")
+    en_to_ru = [a for a in en.anchors if a.get("href") == "/ru/"]
+    ru_to_en = [a for a in ru.anchors if a.get("href") == "/"]
     check(
-        "бинарник назван нотаризованным Apple",
-        readable_html.count("нотаризован Apple") == 2
-        and "подписанный бинарник" not in readable_html,
+        "EN: переключатель ведёт на русский и подписан семантически",
+        len(en_to_ru) == 2
+        and all(a.get("lang") == "ru" and a.get("hreflang") == "ru" for a in en_to_ru),
+        str(en_to_ru),
     )
     check(
-        "заголовок про локальные данные без точки",
-        "<h2>Все данные хранятся у вас локально</h2>" in readable_html,
+        "RU: переключатель ведёт на английский и подписан семантически",
+        len(ru_to_en) == 2
+        and all(a.get("lang") == "en" and a.get("hreflang") == "en" for a in ru_to_en),
+        str(ru_to_en),
+    )
+    for label, html, lang in (("EN", en_html, "en"), ("RU", ru_html, "ru")):
+        check(
+            f"{label}: текущий язык объявлен в шапке",
+            bool(re.search(
+                rf'<span class="lang-current" aria-current="true" lang="{lang}">',
+                html,
+            )),
+        )
+
+    # Requested Russian copy and attribution remain intact after moving to /ru/.
+    readable_ru = ru_html.replace("&nbsp;", " ")
+    check(
+        "RU: бинарник назван нотаризованным Apple",
+        readable_ru.count("нотаризован Apple") == 2
+        and "подписанный бинарник" not in readable_ru,
     )
     check(
-        "в футере Самат Галимов со ссылкой на samat.me/ru",
+        "RU: заголовок про локальные данные без точки",
+        "<h2>Все данные хранятся у вас локально</h2>" in readable_ru,
+    )
+    check(
+        "RU: в футере Самат Галимов со ссылкой на samat.me/ru",
         bool(re.search(
             r'<footer>.*<a href="https://samat\.me/ru">Самат Галимов</a>.*</footer>',
-            html,
+            ru_html,
             re.S,
         ))
-        and 'mailto:s@samat.me' not in html,
+        and "mailto:s@samat.me" not in ru_html,
     )
     check(
-        "подпись к статусу без «уже»",
-        "<figcaption>Встреча идёт — Amanu пишет.</figcaption>" in html
-        and "Amanu уже пишет" not in html,
+        "RU: подпись к статусу без «уже»",
+        "<figcaption>Встреча идёт — Amanu пишет.</figcaption>" in ru_html
+        and "Amanu уже пишет" not in ru_html,
     )
 
-    # Verified outbound facts. The download goes straight to the published DMG:
-    # the asset name carries the version, so /releases/latest/download cannot
-    # be built reliably.
-    DMG = ("https://github.com/gsamat/amanu/releases/download/"
-           "v0.4.10/amanu-v0.4.10-macos-universal.dmg")
-    check("обе кнопки ведут прямо на DMG", p.links.count(DMG) == 2,
-          f"ссылок на DMG: {p.links.count(DMG)}")
-    check(
-        "ни одна ссылка не осталась на releases/latest",
-        not any("releases/latest" in h for h in p.links),
-        str([h for h in p.links if "releases/latest" in h]),
-    )
-    check(
-        "ссылка на исходный код",
-        any(re.search(r"github\.com/gsamat/amanu/?$", h) for h in p.links),
-    )
-
-    # Honest Windows-interest block: a mailto that opens a ready letter to the
-    # address collecting the interest, and no form pretending to submit anywhere.
-    windows_mailto = [h for h in p.links if h.startswith("mailto:amanu-windows@samat.me")]
-    check("mailto для Windows-интереса на amanu-windows@samat.me", bool(windows_mailto))
-    if windows_mailto:
-        q = parse_qs(urlsplit(windows_mailto[0]).query)
-        body = (q.get("body") or [""])[0]
+    # Public links, local resources, scripts, and accessibility on both pages.
+    expected_windows_bodies = {
+        "EN": "Please let me know when the Windows version is available!",
+        "RU": "Сообщите мне, когда появится windows версия, пожалуйста!",
+    }
+    for label, path, html, page in pages:
         check(
-            "в письме про Windows готовое тело",
-            body.strip() == "Сообщите мне, когда появится windows версия, пожалуйста!",
-            f"body={body!r}",
+            f"{label}: обе кнопки ведут прямо на DMG",
+            page.links.count(DMG) == 2,
+            f"ссылок на DMG: {page.links.count(DMG)}",
         )
+        check(
+            f"{label}: нет ссылок на releases/latest",
+            not any("releases/latest" in href for href in page.links),
+        )
+        check(
+            f"{label}: ссылка на исходный код",
+            any(re.search(r"github\.com/gsamat/amanu/?$", href) for href in page.links),
+        )
+
+        windows_mailto = [
+            href for href in page.links
+            if href.startswith("mailto:amanu-windows@samat.me")
+        ]
+        check(f"{label}: mailto для Windows-интереса", bool(windows_mailto))
+        if windows_mailto:
+            query = parse_qs(urlsplit(windows_mailto[0]).query)
+            body = (query.get("body") or [""])[0]
+            check(
+                f"{label}: в письме про Windows готовое тело",
+                body.strip() == expected_windows_bodies[label],
+                f"body={body!r}",
+            )
+        check(
+            f"{label}: нет формы с сетевым action",
+            all(not action or action.startswith("mailto:") for action in page.forms),
+        )
+        check(f"{label}: нет внешних <script src>", not page.script_srcs, str(page.script_srcs))
+        check(
+            f"{label}: нет внешних ресурсов (img/link/source)",
+            all(not is_external(url) for _, url in page.resources),
+            str([url for _, url in page.resources if is_external(url)]),
+        )
+        check(
+            f"{label}: все локальные ресурсы существуют",
+            all(resolves_locally(path, url) for _, url in page.resources),
+            str([url for _, url in page.resources if not resolves_locally(path, url)]),
+        )
+        scripts = "\n".join(page.inline_scripts)
+        check(
+            f"{label}: инлайн-скрипты не ходят на чужие домены",
+            not re.search(r"fetch\(|XMLHttpRequest|https?://", scripts),
+        )
+        check(
+            f"{label}: просмотр считается через first-party /m",
+            bool(re.search(r"new URL\(['\"]\/m['\"],\s*location\.origin\)", scripts))
+            and "location.pathname" in scripts
+            and "document.title" in scripts
+            and "screen.width" in scripts
+            and "document.referrer" in scripts
+            and "new Image().src" in scripts,
+        )
+        check(f"{label}: у всех <img> есть alt", all("alt" in attrs for attrs in page.imgs))
+        check(
+            f"{label}: у всех <img> есть width и height",
+            all("width" in attrs and "height" in attrs for attrs in page.imgs),
+        )
+        check(f"{label}: нет inline-обработчиков on*", page.onclick_count == 0)
+        check(f"{label}: нет tabindex > 0", page.positive_tabindex == 0)
+        check(
+            f"{label}: скриншоты в обеих темах",
+            any("dark" in url for _, url in page.resources)
+            and any("light" in url for _, url in page.resources),
+        )
+
+        entries = re.findall(r'<section class="entry[^"]*">(.*?)</section>', html, re.S)
+        timed = [entry for entry in entries if re.search(r'<p class="tc"[^>]*>\s*\d', entry)]
+        check(
+            f"{label}: четыре записи протокола с таймкодами",
+            len(timed) == 4,
+            f"с таймкодом: {len(timed)}",
+        )
+        if entries:
+            first = entries[0]
+            check(f"{label}: первая запись без заголовка", "<h2" not in first)
+            check(
+                f"{label}: первая запись — одна фраза",
+                len(re.findall(r"<p[ >]", first)) == 2,
+            )
+
+    en_accent = re.search(r'<em class="self">(.*?)</em>', en_html, re.S)
+    ru_accent = re.search(r'<em class="self">(.*?)</em>', ru_html, re.S)
     check(
-        "нет формы с сетевым action",
-        all(not a or a.startswith("mailto:") for a in p.forms),
-        f"forms={p.forms}",
+        "EN: акцент в заголовке — Automatically",
+        bool(en_accent) and "Automatically" in en_accent.group(1),
+    )
+    check(
+        "RU: акцент в заголовке — «Автоматом»",
+        bool(ru_accent) and "Автоматом" in ru_accent.group(1),
     )
 
-    # Self-contained: no external scripts, no external resources at all.
-    check("нет внешних <script src>", not p.script_srcs, str(p.script_srcs))
-    check(
-        "нет внешних ресурсов (img/link/source)",
-        all(not is_external(u) for _, u in p.resources),
-        str([u for _, u in p.resources if is_external(u)]),
-    )
-    check(
-        "все локальные ресурсы существуют",
-        all(resolves_locally(u) for _, u in p.resources),
-        str([u for _, u in p.resources if not resolves_locally(u)]),
-    )
-    scripts = "\n".join(p.inline_scripts)
-    check(
-        "инлайн-скрипты не ходят на чужие домены",
-        not re.search(r"fetch\(|XMLHttpRequest|https?://", scripts),
-    )
-    check(
-        "просмотр считается через first-party /m",
-        bool(re.search(r"new URL\(['\"]\/m['\"],\s*location\.origin\)", scripts))
-        and "location.pathname" in scripts
-        and "document.title" in scripts
-        and "screen.width" in scripts
-        and "document.referrer" in scripts
-        and "new Image().src" in scripts,
-    )
-
-    # Accessibility basics
-    check("у всех <img> есть alt", all("alt" in a for a in p.imgs))
-    check(
-        "у всех <img> есть width и height",
-        all("width" in a and "height" in a for a in p.imgs),
-    )
-    check("нет inline-обработчиков on*", p.onclick_count == 0)
-    check("нет tabindex > 0", p.positive_tabindex == 0)
-
-    # CSS: gather inline <style> and local stylesheets
-    css = "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", html, re.S))
-    for href in p.stylesheets:
-        f = LANDING / unquote(urlsplit(href).path)
-        if f.is_file():
-            css += "\n" + f.read_text(encoding="utf-8")
+    # Shared CSS and the Claude Code-recommended responsive masthead treatment.
+    css = (LANDING / "style.css").read_text(encoding="utf-8")
     check("CSS есть", bool(css.strip()))
     check("CSS уважает prefers-reduced-motion", "prefers-reduced-motion" in css)
-    check("CSS поддерживает тёмную тему", "prefers-color-scheme: dark" in css or "prefers-color-scheme:dark" in css)
+    check(
+        "CSS поддерживает тёмную тему",
+        "prefers-color-scheme: dark" in css or "prefers-color-scheme:dark" in css,
+    )
     check(
         "CSS не тянет внешние url()/@import",
         not re.search(r"url\(\s*['\"]?(https?:)?//|@import\s+['\"]?(https?:)?//", css),
     )
-
-    # Local ru screenshots are actually used (both colour schemes)
     check(
-        "скриншоты в обеих темах",
-        any("dark" in u for _, u in p.resources) and any("light" in u for _, u in p.resources),
+        "переключатель собран с индикатором в правой части шапки",
+        ".masthead-aside" in css and ".lang" in css,
     )
-
-    # The first entry is one statement, not a heading with a subtitle under it.
-    entries = re.findall(r'<section class="entry[^"]*">(.*?)</section>', html, re.S)
-    timed = [e for e in entries if re.search(r'<p class="tc"[^>]*>\s*\d', e)]
-    check("четыре записи протокола с таймкодами", len(timed) == 4, f"с таймкодом: {len(timed)}")
-    if entries:
-        first = entries[0]
-        check("первая запись без заголовка", "<h2" not in first)
-        check("первая запись — одна фраза", len(re.findall(r"<p[ >]", first)) == 2, first[:120])
-
-    # The hero accent word the brief asks for.
-    accent = re.search(r'<em class="self">(.*?)</em>', html, re.S)
     check(
-        "акцент в заголовке — «Автоматом»",
-        bool(accent) and "Автоматом" in accent.group(1),
-        accent.group(1) if accent else "нет em.self",
+        "на узком экране декоративный индикатор скрывается",
+        bool(re.search(
+            r"@media\s*\(max-width:\s*480px\).*?\.rec-badge\s*\{[^}]*display:\s*none",
+            css,
+            re.S,
+        )),
     )
 
     return finish()
