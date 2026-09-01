@@ -126,6 +126,27 @@ def main():
     check("<title> непустой", bool(p.title.strip()))
     check("meta description непустой", bool(p.meta_description and p.meta_description.strip()))
 
+    # Requested public wording and attribution.
+    readable_html = html.replace("&nbsp;", " ")
+    check(
+        "бинарник назван нотаризованным Apple",
+        readable_html.count("нотаризован Apple") == 2
+        and "подписанный бинарник" not in readable_html,
+    )
+    check(
+        "заголовок про локальные данные без точки",
+        "<h2>Все данные хранятся у вас локально</h2>" in readable_html,
+    )
+    check(
+        "в футере Самат Галимов со ссылкой на samat.me/ru",
+        bool(re.search(
+            r'<footer>.*<a href="https://samat\.me/ru">Самат Галимов</a>.*</footer>',
+            html,
+            re.S,
+        ))
+        and 'mailto:s@samat.me' not in html,
+    )
+
     # Verified outbound facts. The download goes straight to the published DMG:
     # the asset name carries the version, so /releases/latest/download cannot
     # be built reliably.
