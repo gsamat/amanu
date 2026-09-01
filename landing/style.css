@@ -1,0 +1,389 @@
+/* Amanu — лендинг-«протокол». Бумага и чернила из иконки, красная точка записи
+   как единственный акцент. Никаких внешних ресурсов: системные шрифты. */
+
+:root {
+    --paper: #f4f0e5;
+    --paper-raised: #fbf8f0;
+    --ink: #232b39;
+    --ink-soft: #4c5567;
+    --hairline: rgba(35, 43, 57, 0.22);
+    --hairline-faint: rgba(35, 43, 57, 0.12);
+    --red: #cc3a24;
+    --btn-bg: #232b39;
+    --btn-fg: #f4f0e5;
+    --serif: ui-serif, "New York", Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --paper: #1d2430;
+        --paper-raised: #242c3a;
+        --ink: #ece7d8;
+        --ink-soft: #a8adb9;
+        --hairline: rgba(236, 231, 216, 0.28);
+        --hairline-faint: rgba(236, 231, 216, 0.14);
+        --red: #f0604a;
+        --btn-bg: #ece7d8;
+        --btn-fg: #1d2430;
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html {
+    color-scheme: light dark;
+}
+
+body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-size: 1.125rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+a {
+    color: inherit;
+    text-decoration-color: var(--hairline);
+    text-underline-offset: 0.2em;
+}
+
+a:hover {
+    text-decoration-color: var(--red);
+}
+
+:focus-visible {
+    outline: 2px solid var(--red);
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+
+/* ── Шапка: имя слева, «идущая запись» справа ── */
+
+.masthead {
+    max-width: 66rem;
+    margin: 0 auto;
+    padding: 1.4rem 1.5rem 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.7rem;
+    text-decoration: none;
+}
+
+.brand img {
+    border-radius: 9px;
+    display: block;
+}
+
+.brand-name {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.rec-badge {
+    margin: 0;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5em;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--red);
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    padding: 0.35em 0.9em;
+}
+
+.rec-dot {
+    width: 0.55em;
+    height: 0.55em;
+    border-radius: 50%;
+    background: var(--red);
+    align-self: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .rec-dot {
+        animation: rec-pulse 1.6s ease-in-out infinite;
+    }
+
+    @keyframes rec-pulse {
+        50% {
+            opacity: 0.25;
+        }
+    }
+}
+
+/* ── Герой ── */
+
+main {
+    max-width: 66rem;
+    margin: 0 auto;
+    padding: 0 1.5rem 2rem;
+}
+
+.hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 3rem;
+    align-items: center;
+    padding: 4.5rem 0 4rem;
+    border-bottom: 1px solid var(--hairline);
+}
+
+.hero h1 {
+    font-size: clamp(2.1rem, 5.2vw, 3.4rem);
+    line-height: 1.08;
+    letter-spacing: -0.015em;
+    font-weight: 600;
+    margin: 0 0 1.1rem;
+    text-wrap: balance;
+}
+
+.self {
+    font-style: italic;
+    color: var(--red);
+}
+
+.lede {
+    font-size: 1.2rem;
+    color: var(--ink-soft);
+    max-width: 34em;
+    margin: 0 0 1.8rem;
+}
+
+.cta-row {
+    margin: 0 0 0.9rem;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6em;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    text-decoration: none;
+    padding: 0.85em 1.5em;
+    border-radius: 999px;
+}
+
+.btn svg {
+    fill: currentColor;
+}
+
+.btn:hover {
+    background: var(--red);
+    color: #fff;
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--hairline);
+}
+
+.btn-ghost:hover {
+    background: transparent;
+    color: var(--red);
+    border-color: var(--red);
+}
+
+.fineprint {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    margin: 0;
+}
+
+/* ── Скриншоты ── */
+
+.shot {
+    margin: 0;
+}
+
+.shot img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    box-shadow: 0 18px 44px -22px rgba(20, 26, 38, 0.45);
+    background: var(--paper-raised);
+}
+
+.shot figcaption {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    margin-top: 0.9rem;
+}
+
+.shot-status {
+    justify-self: end;
+}
+
+.shot-status img {
+    width: min(320px, 100%);
+}
+
+.shot-wide {
+    padding: 1rem 0 3.5rem;
+    border-bottom: 1px solid var(--hairline);
+}
+
+.shot-wide img {
+    margin-inline: auto;
+}
+
+.shot-wide figcaption {
+    text-align: center;
+}
+
+/* ── Записи протокола: таймкод в левом поле ── */
+
+.entry {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 3rem 0;
+    border-bottom: 1px solid var(--hairline-faint);
+}
+
+.entry:last-of-type {
+    border-bottom: 0;
+}
+
+.tc {
+    margin: 0.45rem 0 0;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--red);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.entry-body {
+    max-width: 40em;
+}
+
+.entry h2 {
+    font-size: clamp(1.45rem, 3vw, 1.9rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+    margin: 0 0 0.7rem;
+    text-wrap: balance;
+}
+
+.entry p {
+    margin: 0 0 1rem;
+    color: var(--ink-soft);
+}
+
+/* Запись без заголовка: одна фраза, набранная как заголовок. */
+.entry .statement {
+    font-size: clamp(1.45rem, 3vw, 1.9rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+    color: var(--ink);
+    text-wrap: balance;
+}
+
+.entry p:last-child {
+    margin-bottom: 0;
+}
+
+.split {
+    max-width: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2.5rem;
+}
+
+.close {
+    border-bottom: 1px solid var(--hairline);
+}
+
+.windows .entry-body {
+    background: var(--paper-raised);
+    border: 1px solid var(--hairline-faint);
+    border-radius: 14px;
+    padding: 1.8rem 2rem;
+}
+
+/* ── Подвал ── */
+
+footer {
+    max-width: 66rem;
+    margin: 0 auto;
+    padding: 0 1.5rem 3rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+}
+
+footer p {
+    border-top: 1px solid var(--hairline);
+    padding-top: 1.4rem;
+    margin: 0;
+}
+
+/* ── Телефон ── */
+
+@media (max-width: 720px) {
+    .hero {
+        grid-template-columns: 1fr;
+        gap: 2.5rem;
+        padding: 3rem 0;
+    }
+
+    .shot-status {
+        justify-self: center;
+    }
+
+    .entry {
+        grid-template-columns: 1fr;
+        gap: 0.4rem;
+        padding: 2.2rem 0;
+    }
+
+    .tc {
+        text-align: left;
+        margin: 0;
+    }
+
+    .tc-blank {
+        display: none;
+    }
+
+    .split {
+        grid-template-columns: 1fr;
+        gap: 1.8rem;
+    }
+
+    .windows .entry-body {
+        padding: 1.4rem 1.3rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+    }
+}
