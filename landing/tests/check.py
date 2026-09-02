@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 LANDING = Path(__file__).resolve().parent.parent
 EN_INDEX = LANDING / "index.html"
 RU_INDEX = LANDING / "ru" / "index.html"
+NGINX = LANDING / "deploy" / "nginx" / "amanu.conf"
 DMG = (
     "https://github.com/gsamat/amanu/releases/download/"
     "v0.4.10/amanu-v0.4.10-macos-universal.dmg"
@@ -170,24 +171,22 @@ def main():
     en_to_ru = [a for a in en.anchors if a.get("href") == "/ru/"]
     ru_to_en = [a for a in ru.anchors if a.get("href") == "/"]
     check(
-        "EN: переключатель ведёт на русский и подписан семантически",
-        len(en_to_ru) == 2
+        "EN: единственный переключатель в футере ведёт на русский",
+        len(en_to_ru) == 1
         and all(a.get("lang") == "ru" and a.get("hreflang") == "ru" for a in en_to_ru),
         str(en_to_ru),
     )
     check(
-        "RU: переключатель ведёт на английский и подписан семантически",
-        len(ru_to_en) == 2
+        "RU: единственный переключатель в футере ведёт на английский",
+        len(ru_to_en) == 1
         and all(a.get("lang") == "en" and a.get("hreflang") == "en" for a in ru_to_en),
         str(ru_to_en),
     )
-    for label, html, lang in (("EN", en_html, "en"), ("RU", ru_html, "ru")):
+    for label, html in (("EN", en_html), ("RU", ru_html)):
+        masthead = re.search(r'<header class="masthead">(.*?)</header>', html, re.S)
         check(
-            f"{label}: текущий язык объявлен в шапке",
-            bool(re.search(
-                rf'<span class="lang-current" aria-current="true" lang="{lang}">',
-                html,
-            )),
+            f"{label}: в шапке нет переключателя языка",
+            bool(masthead) and 'class="lang"' not in masthead.group(1),
         )
 
     # Requested Russian copy and attribution remain intact after moving to /ru/.
@@ -317,7 +316,7 @@ def main():
         bool(ru_accent) and "Автоматом" in ru_accent.group(1),
     )
 
-    # Shared CSS and the Claude Code-recommended responsive masthead treatment.
+    # Shared CSS.
     css = (LANDING / "style.css").read_text(encoding="utf-8")
     check("CSS есть", bool(css.strip()))
     check("CSS уважает prefers-reduced-motion", "prefers-reduced-motion" in css)
@@ -329,17 +328,48 @@ def main():
         "CSS не тянет внешние url()/@import",
         not re.search(r"url\(\s*['\"]?(https?:)?//|@import\s+['\"]?(https?:)?//", css),
     )
-    check(
-        "переключатель собран с индикатором в правой части шапки",
-        ".masthead-aside" in css and ".lang" in css,
+
+    # The same server-side language detection as samat.me: an independent `ru`
+    # language tag anywhere in Accept-Language wins. Otherwise `/` serves English.
+    nginx = NGINX.read_text(encoding="utf-8")
+    language_map = re.search(
+        r'map\s+\$http_accept_language\s+\$amanu_home_is_ru\s*\{(.*?)\}',
+        nginx,
+        re.S,
+    )
+    check("nginx выбирает язык по Accept-Language", bool(language_map))
+    if language_map:
+        rule = re.search(r'"~\*([^\"]+)"\s+1\s*;', language_map.group(1))
+        check("nginx ищет ru как отдельный языковой тег", bool(rule))
+        if rule:
+            matcher = re.compile(rule.group(1), re.I)
+            cases = {
+                "ru-RU,ru;q=0.9,en;q=0.8": True,
+                "en-US,en;q=0.9,ru;q=0.1": True,
+                "fr-FR,fr;q=0.9": False,
+                "en-RU,en;q=0.9": False,
+                "": False,
+            }
+            for header, expected in cases.items():
+                check(
+                    f"Accept-Language {header or 'пустой'} → "
+                    + ("RU" if expected else "EN"),
+                    bool(matcher.search(header)) is expected,
+                )
+    root_location = re.search(
+        r"location\s*=\s*/\s*\{(.*?)\n\s*\}\s*\n\s*location\s+/",
+        nginx,
+        re.S,
     )
     check(
-        "на узком экране декоративный индикатор скрывается",
-        bool(re.search(
-            r"@media\s*\(max-width:\s*480px\).*?\.rec-badge\s*\{[^}]*display:\s*none",
-            css,
-            re.S,
-        )),
+        "русский браузер получает временный редирект на /ru/",
+        bool(root_location)
+        and "if ($amanu_home_is_ru)" in root_location.group(1)
+        and "return 302 /ru/;" in root_location.group(1),
+    )
+    check(
+        "без русского корень отдаёт английский index.html",
+        bool(root_location) and "try_files /index.html =404;" in root_location.group(1),
     )
 
     return finish()

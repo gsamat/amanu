@@ -63,15 +63,6 @@ a:hover {
     border-radius: 2px;
 }
 
-.vh {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-}
-
 /* ── Шапка: имя слева, «идущая запись» справа ── */
 
 .masthead {
@@ -100,43 +91,6 @@ a:hover {
     font-size: 1.25rem;
     font-weight: 600;
     letter-spacing: 0.01em;
-}
-
-.masthead-aside {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-}
-
-.lang {
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    letter-spacing: 0.06em;
-}
-
-.lang a,
-.lang .lang-current {
-    padding: 0.5rem 0.35rem;
-    text-decoration: none;
-}
-
-.lang .lang-current {
-    color: var(--ink);
-}
-
-.lang a {
-    color: var(--ink-soft);
-}
-
-.lang a:hover {
-    color: var(--red);
-}
-
-.lang-sep {
-    color: var(--hairline);
 }
 
 .rec-badge {
@@ -424,16 +378,6 @@ footer p {
 
     .windows .entry-body {
         padding: 1.4rem 1.3rem;
-    }
-}
-
-@media (max-width: 480px) {
-    .masthead {
-        padding-top: 1.1rem;
-    }
-
-    .rec-badge {
-        display: none;
     }
 }
 
