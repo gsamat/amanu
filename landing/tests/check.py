@@ -236,6 +236,11 @@ def main():
         "есть подписка на клод или chatgpt." in flat_ru
         and "нужно экономить наше время" not in flat_ru,
     )
+    check(
+        "EN: Windows-кнопка обещает уведомление",
+        bool(re.search(r">\s*Notify me when Windows is available\s*</a>", en_html))
+        and "Ask about the Windows version" not in en_html,
+    )
 
     # Public links, local resources, scripts, and accessibility on both pages.
     expected_windows_bodies = {
