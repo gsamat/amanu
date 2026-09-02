@@ -196,6 +196,7 @@ def main():
 
     # Requested Russian copy and attribution remain intact after moving to /ru/.
     readable_ru = ru_html.replace("&nbsp;", " ")
+    flat_ru = re.sub(r"\s+", " ", readable_ru)
     check(
         "RU: бинарник назван нотаризованным Apple",
         readable_ru.count("нотаризован Apple") == 2
@@ -218,6 +219,12 @@ def main():
         "RU: подпись к статусу без «уже»",
         "<figcaption>Встреча идёт — Amanu пишет.</figcaption>" in ru_html
         and "Amanu уже пишет" not in ru_html,
+    )
+    check(
+        "RU: модели должны работают по-полной",
+        "Я считаю, что модели должны работают по-полной, тем более если у вас уже "
+        "есть подписка на клод или chatgpt." in flat_ru
+        and "нужно экономить наше время" not in flat_ru,
     )
 
     # Public links, local resources, scripts, and accessibility on both pages.
