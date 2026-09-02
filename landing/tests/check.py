@@ -6,6 +6,7 @@ at /ru/, language metadata and switching are reciprocal, releases are real,
 resources stay local, and accessibility plus colour/motion preferences hold.
 """
 
+import hashlib
 import re
 import sys
 from html.parser import HTMLParser
@@ -335,6 +336,34 @@ def main():
     check(
         "RU: акцент в заголовке — «Автоматом»",
         bool(ru_accent) and "Автоматом" in ru_accent.group(1),
+    )
+
+    expected_en_shots = {
+        "status-recording-light.png": "6be840b63607ff4b04f3b2ac5287bf0848c86c1400d5387cfda3c4821fc819fa",
+        "status-recording-dark.png": "655eb94699c51cdbf161630f8b1cb47788dbe0e2766e9df751af1c93c4fbf74d",
+        "recordings-light.png": "6d5b556b5c805e8cc94b2ce25849eee6ceeeda96a24f2d51b0bf53ada9ae91d1",
+        "recordings-dark.png": "8c9cceb44e629b2e7a95c559a48e373f27e776eda6d3a850a63450b05f7f0d5f",
+    }
+    en_shot_urls = {url for _, url in en.resources if "/shots/" in url}
+    check(
+        "EN: страница использует отдельные английские скриншоты",
+        en_shot_urls == {
+            f"/assets/shots/en/{filename}" for filename in expected_en_shots
+        },
+        str(sorted(en_shot_urls)),
+    )
+    for filename, digest in expected_en_shots.items():
+        shot = LANDING / "assets" / "shots" / "en" / filename
+        check(f"EN: {filename} существует", shot.is_file())
+        if shot.is_file():
+            actual = hashlib.sha256(shot.read_bytes()).hexdigest()
+            check(f"EN: {filename} — английский снимок", actual == digest, actual)
+
+    ru_shot_urls = {url for _, url in ru.resources if "shots/" in url}
+    check(
+        "RU: страница сохранила русские скриншоты",
+        len(ru_shot_urls) == 4 and all("/en/" not in url for url in ru_shot_urls),
+        str(sorted(ru_shot_urls)),
     )
 
     # Shared CSS.
