@@ -72,6 +72,7 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 step "1/8  tests"
+python3 -m unittest Tests/scripts/test_update_site_download_links.py
 swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
@@ -184,8 +185,10 @@ fi
 
 step "8/8  publishing"
 gh release edit "$TAG" --repo "$REPO" --draft=false --latest
-# Only now, with the download live, does the feed start pointing at it.
-git -C "$SITE" add amanu/appcast.xml
+# Only now, with the download live, do the feed and the two landing pages
+# start pointing at it.
+python3 scripts/update-site-download-links.py "$SITE" "$ASSET_URL"
+git -C "$SITE" add amanu/appcast.xml amanu/index.html amanu/ru/index.html
 git -C "$SITE" commit -q -m "amanu $VERSION in the appcast" || true
 git -C "$SITE" push -q
 rsync -az "$SITE/amanu/" reina:/var/www/samat/amanu/
@@ -194,6 +197,12 @@ step "verifying what the world now sees"
 curl -fsS https://samat.me/amanu/appcast.xml > dist/published-appcast.xml
 diff -q "$APPCAST" dist/published-appcast.xml \
     || die "the published feed is not the file we signed"
+curl -fsS https://samat.me/amanu/ > dist/published-amanu.html
+curl -fsS https://samat.me/amanu/ru/ > dist/published-amanu-ru.html
+grep -qF "href=\"$ASSET_URL\"" dist/published-amanu.html \
+    || die "the English landing page does not point at the released disk image"
+grep -qF "href=\"$ASSET_URL\"" dist/published-amanu-ru.html \
+    || die "the Russian landing page does not point at the released disk image"
 ASSET_HEAD=$(curl -fsSIL "$ASSET_URL")
 grep -qE '^HTTP/[0-9.]+ 200' <<<"$ASSET_HEAD" \
     || die "the release asset the feed points at is not downloadable"
