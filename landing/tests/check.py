@@ -169,7 +169,7 @@ def main():
         )
 
     en_to_ru = [a for a in en.anchors if a.get("href") == "/ru/"]
-    ru_to_en = [a for a in ru.anchors if a.get("href") == "/"]
+    ru_to_en = [a for a in ru.anchors if a.get("href") == "/en/"]
     check(
         "EN: единственный переключатель в футере ведёт на русский",
         len(en_to_ru) == 1
@@ -181,6 +181,11 @@ def main():
         len(ru_to_en) == 1
         and all(a.get("lang") == "en" and a.get("hreflang") == "en" for a in ru_to_en),
         str(ru_to_en),
+    )
+    check(
+        "EN: ресурсы абсолютны и работают на ручном адресе /en/",
+        all(url.startswith("/") for _, url in en.resources),
+        str(en.resources),
     )
     for label, html in (("EN", en_html), ("RU", ru_html)):
         masthead = re.search(r'<header class="masthead">(.*?)</header>', html, re.S)
@@ -370,6 +375,11 @@ def main():
     check(
         "без русского корень отдаёт английский index.html",
         bool(root_location) and "try_files /index.html =404;" in root_location.group(1),
+    )
+    explicit_english = re.search(r"location\s*=\s*/en/\s*\{(.*?)\}", nginx, re.S)
+    check(
+        "явный /en/ отдаёт английский без повторной детекции",
+        bool(explicit_english) and "try_files /index.html =404;" in explicit_english.group(1),
     )
 
     return finish()
