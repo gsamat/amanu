@@ -117,6 +117,11 @@ actor LiveTranscriptionCoordinator {
         isRecording = false
         status = .idle
         publish()
+        // AppController's closures capture the recording session, while this
+        // actor lives for the whole app. Keeping them here keeps its mic engine
+        // and an explicitly enabled voice-processing route alive after Stop.
+        update = nil
+        attach = nil
 
         // In contrast to a temporary toggle, meeting stop is a hard memory
         // boundary: wait for an in-progress preload and both managers to let

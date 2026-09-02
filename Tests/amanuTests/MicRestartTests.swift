@@ -10,6 +10,31 @@ import Testing
 /// clock, and the record left behind for the person reading meta.json a day
 /// later.
 struct MicRestartTests {
+    @Test("Capture metadata distinguishes requested processing from what ran")
+    func captureMetadataRecordsTheExperiment() throws {
+        let capture = MicRecorder.Capture(
+            requestedVoiceProcessing: true,
+            initialVoiceProcessing: true,
+            finalVoiceProcessing: false,
+            inputDevice: "MacBook Air Microphone",
+            outputDevice: "MacBook Air Speakers",
+            sampleRate: 48_000,
+            channels: 1,
+            sampleFormat: "float32")
+
+        let meta = capture.meta
+        #expect(meta["requested_voice_processing"] as? Bool == true)
+        #expect(meta["initial_voice_processing"] as? Bool == true)
+        #expect(meta["final_voice_processing"] as? Bool == false)
+        #expect(meta["fell_back_to_raw"] as? Bool == true)
+        #expect(meta["input_device"] as? String == "MacBook Air Microphone")
+        #expect(meta["output_device"] as? String == "MacBook Air Speakers")
+        #expect(meta["sample_rate_hz"] as? Int == 48_000)
+        #expect(meta["channels"] as? Int == 1)
+        #expect(meta["sample_format"] as? String == "float32")
+        #expect(JSONSerialization.isValidJSONObject(meta))
+    }
+
     @Test func aGapWorthPaddingBecomesFrames() {
         #expect(MicRecorder.silenceFrames(gap: 0.5, sampleRate: 48000) == 24000)
         #expect(MicRecorder.silenceFrames(gap: 1.72, sampleRate: 16000) == 27520)

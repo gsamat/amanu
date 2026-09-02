@@ -100,12 +100,37 @@ struct EchoFilterTests {
         #expect(out.count == 1, "kept: \(out)")
     }
 
-    @Test("Suffixed far-side labels are not treated as the system track")
-    func ignoresSuffixedLabels() {
+    @Test("Multichannel side labels still identify a duplicated mic segment")
+    func filtersSuffixedSideLabels() {
         let segments = [
             Self.seg("them A", 1000, 4000, "So the quarterly reports are due on Friday."),
-            Self.seg("me", 1100, 4100, "So the quarterly reports are due on Friday."),
+            Self.seg("me B", 1100, 4100, "So the quarterly reports are due on Friday."),
         ]
-        #expect(EchoFilter.dropEchoes(segments).count == 2)
+        #expect(EchoFilter.dropEchoes(segments).map(\.speaker) == ["them A"])
+    }
+
+    /// A real raw-mic meeting produced one mic speaker for the acoustic copy
+    /// of the far end. Most of its utterances matched exactly enough to drop,
+    /// while short ASR near-misses such as "рассказов" → "рассказа" survived.
+    @Test("Short near-misses are dropped for an echo-dominated mic speaker")
+    func dropsNearMissesFromEchoDominatedSpeaker() {
+        var segments: [Transcript.Segment] = []
+        for index in 0..<20 {
+            let start = index * 2000
+            segments.append(Self.seg("them A", start, start + 1000, "точное эхо"))
+            segments.append(Self.seg("me A", start + 100, start + 1100, "точное эхо"))
+        }
+        segments.append(Self.seg("them A", 41_000, 42_000, "рассказов"))
+        segments.append(Self.seg("me A", 41_100, 42_100, "рассказа"))
+        segments.append(Self.seg(
+            "me B", 41_200, 42_000, "давай вернемся к главному вопросу"))
+        segments.append(Self.seg(
+            "me A", 45_000, 46_000, "это уже мой собственный ответ"))
+
+        let out = Self.speakers(segments)
+
+        #expect(!out.contains("me A: рассказа"))
+        #expect(out.contains("me B: давай вернемся к главному вопросу"))
+        #expect(out.contains("me A: это уже мой собственный ответ"))
     }
 }

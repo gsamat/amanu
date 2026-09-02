@@ -11,8 +11,9 @@ import Foundation
 /// them. Matching is word-level and fuzzy because the two tracks transcribe
 /// the same audio slightly differently (the acoustic copy is degraded), and
 /// them windows are padded because the room path lags the system tap and the
-/// segmenter draws boundaries loosely. Thresholds were tuned on a real echoed
-/// session: 477 duplicate segments dropped, zero genuine cross-talk lost.
+/// segmenter draws boundaries loosely. With multichannel diarization, a mic
+/// speaker overwhelmingly proven to be that acoustic copy also loses its
+/// short overlapping ASR near-misses; non-overlapping speech is still kept.
 ///
 /// `mic_voice_processing` prevents the echo at capture; this pass guards
 /// sessions recorded raw (or where the voice unit fell back).
@@ -22,19 +23,66 @@ enum EchoFilter {
     private static let overlapPadMs = 400
     /// Word containment at or above this marks a me segment as echo.
     private static let containmentThreshold = 0.7
+    /// A channel-qualified mic speaker with this much evidence can be treated
+    /// as the far end's acoustic copy. Unsuffixed `me` is never classified:
+    /// per-track engines use it for every local voice, including the user.
+    private static let echoSpeakerMinimumSegments = 20
+    private static let echoSpeakerMatchRatio = 0.8
 
     /// Returns `segments` without the me segments judged to be echo.
     /// Preserves order; no-op when a track is missing.
     static func dropEchoes(_ segments: [Transcript.Segment]) -> [Transcript.Segment] {
-        let them = segments.filter { $0.speaker == "them" }
+        let them = segments.filter { isSide($0.speaker, "them") }
         guard !them.isEmpty else { return segments }
-        return segments.filter { $0.speaker != "me" || !isEcho($0, of: them) }
+
+        let mic: [(index: Int, speaker: String, overlaps: Bool, directEcho: Bool)] =
+            segments.enumerated().compactMap { index, segment in
+            guard isSide(segment.speaker, "me") else { return nil }
+            let overlapping = overlappingThem(for: segment, in: them)
+            return (
+                index: index,
+                speaker: segment.speaker,
+                overlaps: !overlapping.isEmpty,
+                directEcho: isEcho(segment, of: overlapping)
+            )
+        }
+        let bySpeaker = Dictionary(grouping: mic.filter { $0.speaker != "me" }) {
+            $0.speaker
+        }
+        let echoSpeakers: Set<String> = Set(bySpeaker.compactMap { speaker, evidence -> String? in
+            guard evidence.count >= echoSpeakerMinimumSegments else { return nil }
+            let matches = evidence.count(where: \.directEcho)
+            return Double(matches) / Double(evidence.count) >= echoSpeakerMatchRatio
+                ? speaker
+                : nil
+        })
+        let dropped = Set(mic.compactMap { evidence in
+            evidence.directEcho || (evidence.overlaps && echoSpeakers.contains(evidence.speaker))
+                ? evidence.index
+                : nil
+        })
+        return segments.enumerated().compactMap { index, segment in
+            dropped.contains(index) ? nil : segment
+        }
     }
 
-    private static func isEcho(_ me: Transcript.Segment, of them: [Transcript.Segment]) -> Bool {
-        let overlapping = them.filter {
+    private static func isSide(_ speaker: String, _ side: String) -> Bool {
+        speaker == side || speaker.hasPrefix("\(side) ")
+    }
+
+    private static func overlappingThem(
+        for me: Transcript.Segment,
+        in them: [Transcript.Segment]
+    ) -> [Transcript.Segment] {
+        them.filter {
             min(me.end_ms, $0.end_ms + overlapPadMs) > max(me.start_ms, $0.start_ms - overlapPadMs)
         }
+    }
+
+    private static func isEcho(
+        _ me: Transcript.Segment,
+        of overlapping: [Transcript.Segment]
+    ) -> Bool {
         guard !overlapping.isEmpty else { return false }
 
         let meWords = words(me.text)

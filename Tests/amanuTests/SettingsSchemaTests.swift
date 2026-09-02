@@ -25,6 +25,21 @@ struct SettingsSchemaTests {
         }
     }
 
+    @Test("Echo cancellation is opt-in so recording does not change playback")
+    func micVoiceProcessingDefaultsOff() throws {
+        let audio = try #require(SettingsSchema.sections.first { $0.title == localised("Audio", "Звук") })
+        let voice = try #require(audio.entries.first { $0.path == ["mic_voice_processing"] })
+        #expect(voice.defaultValue as? Bool == false)
+    }
+
+    @Test("An empty config records the raw microphone")
+    func emptyConfigUsesRawMic() {
+        #expect(!Config.micVoiceProcessing(in: nil))
+        #expect(!Config.micVoiceProcessing(in: [:]))
+        #expect(Config.micVoiceProcessing(in: ["mic_voice_processing": true]))
+        #expect(!Config.micVoiceProcessing(in: ["mic_voice_processing": false]))
+    }
+
     @Test("Setting a toggle to its default clears the key instead of writing it")
     func toggleAtDefaultClears() {
         let onByDefault = Self.entry(.toggle, default: true)

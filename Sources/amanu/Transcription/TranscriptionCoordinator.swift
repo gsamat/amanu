@@ -4,9 +4,9 @@ import Foundation
 ///
 /// Per-track engines (parakeet) get mic.caf → "me" and system.caf → "them";
 /// each track's segments are shifted by its start offset and merged by
-/// timestamp. Diarizing engines (assemblyai) instead get a single mixed.m4a
-/// laid out on that same shared clock, and their anonymous speaker labels are
-/// mapped back onto me/them from the source tracks' energy.
+/// timestamp. AssemblyAI gets aligned stereo and returns channel-qualified
+/// speaker labels. Mixed engines still get one mixed.m4a and map anonymous
+/// labels back onto me/them from the source tracks' energy.
 ///
 /// Either way the result is transcript.json (canonical) plus transcript.md
 /// (readable). The filesystem is the queue —
@@ -20,9 +20,11 @@ actor TranscriptionCoordinator {
         case failed(session: String)
     }
 
-    /// The single mixed-down file diarizing engines transcribe. Derived from
-    /// the tracks, so it's regenerated whenever it's missing.
+    /// The single mixed-down file used by engines that cannot consume the two
+    /// channels directly. Derived from the tracks and regenerated when absent.
     private static let mixedFile = "mixed.m4a"
+    private static let multichannelFile = "multichannel.m4a"
+    private static let multichannelTemporary = "multichannel.tmp.m4a"
 
     /// How many times a session may fail before the queue stops offering it.
     /// The queue lives in the filesystem and is rescanned at every launch, so
@@ -215,7 +217,11 @@ actor TranscriptionCoordinator {
     /// future attempt is pure waste. Delete `transcription_failed` from
     /// meta.json to offer it to the queue again.
     private func engineIsCloud() -> Bool {
-        engine?.input == .mixed
+        guard let input = engine?.input else { return false }
+        switch input {
+        case .perTrack: return false
+        case .multichannel, .mixed: return true
+        }
     }
 
     /// Network-shaped failures, the ones a local engine can rescue. A bad key
@@ -283,6 +289,8 @@ actor TranscriptionCoordinator {
         let engine = try await preparedEngine()
 
         var merged: [Transcript.Segment]
+        var echoFilterRan = false
+        var echoesDropped = 0
         switch engine.input {
         case .perTrack:
             merged = try await transcribePerTrack(dir, meta: meta, engine: engine)
@@ -292,13 +300,29 @@ actor TranscriptionCoordinator {
             // their voice on it too. A diarizing engine sees the mix once, so
             // there's no duplicate for a filter to find.
             if Config.transcriptEchoFilter() {
+                echoFilterRan = true
                 let before = merged.count
                 merged = EchoFilter.dropEchoes(merged)
+                echoesDropped = before - merged.count
                 if merged.count != before {
                     log(dir, "echo filter dropped \(before - merged.count) "
                         + "mic segment(s) duplicating system audio")
                 }
             }
+        case .multichannel:
+            merged = try await transcribeMultichannel(dir, meta: meta, engine: engine)
+            merged.sort { $0.start_ms < $1.start_ms }
+            if Config.transcriptEchoFilter() {
+                echoFilterRan = true
+                let before = merged.count
+                merged = EchoFilter.dropEchoes(merged)
+                echoesDropped = before - merged.count
+                if echoesDropped > 0 {
+                    log(dir, "echo filter dropped \(echoesDropped) "
+                        + "mic segment(s) duplicating system audio")
+                }
+            }
+            merged = MultichannelSpeakerLabels.collapseSingleSides(merged)
         case .mixed:
             merged = try await transcribeMixed(dir, meta: meta, engine: engine)
             merged.sort { $0.start_ms < $1.start_ms }
@@ -311,6 +335,13 @@ actor TranscriptionCoordinator {
             segments: merged
         )
         try transcript.write(to: dir)
+        SessionState.update(dir, with: [
+            "transcription_input": engine.input.metadataName,
+            "echo_filter": [
+                "ran": echoFilterRan,
+                "dropped_segments": echoesDropped,
+            ],
+        ])
         log(dir, "done — \(merged.count) segments")
 
         // The audio was recorded uncompressed so it would survive a crash, and
@@ -324,6 +355,49 @@ actor TranscriptionCoordinator {
         // the gigabyte wait for a model it isn't going to be shown to would be
         // paying twice for nothing.
         TrackCompressor.settle(sessionDir: dir)
+    }
+
+    /// One pass over aligned stereo. AssemblyAI's one-based channel labels
+    /// carry the side directly (`1A` is mic, `2A` is system), so this path does
+    /// no envelope comparison and remains correct when the raw mic contains a
+    /// quieter acoustic copy of the far end.
+    private func transcribeMultichannel(
+        _ dir: URL,
+        meta: SessionMeta,
+        engine: TranscriptionEngine
+    ) async throws -> [Transcript.Segment] {
+        let sharedArchive = meta.tracks.count == 2
+            && meta.tracks.allSatisfy { $0.file == meta.tracks[0].file && $0.channel != nil }
+        let audio = sharedArchive
+            ? dir.appendingPathComponent(meta.tracks[0].file)
+            : dir.appendingPathComponent(Self.multichannelFile)
+
+        if !sharedArchive && !FileManager.default.fileExists(atPath: audio.path) {
+            let temporary = dir.appendingPathComponent(Self.multichannelTemporary)
+            let mic = meta.track(for: "me").map {
+                TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent($0.file), offsetMs: $0.offsetMs)
+            }
+            let system = meta.track(for: "them").map {
+                TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent($0.file), offsetMs: $0.offsetMs)
+            }
+            log(dir, "aligning tracks → \(Self.multichannelFile)")
+            do {
+                try await Task.detached(priority: .utility) {
+                    _ = try TrackCompressor.encodeStereo(
+                        mic: mic, system: system, to: temporary)
+                    try? FileManager.default.removeItem(at: audio)
+                    try FileManager.default.moveItem(at: temporary, to: audio)
+                }.value
+            } catch {
+                try? FileManager.default.removeItem(at: temporary)
+                throw error
+            }
+        }
+
+        log(dir, "transcribing \(audio.lastPathComponent) (\(engine.name))")
+        return MultichannelSpeakerLabels.map(try await engine.transcribe(audio))
     }
 
     /// One pass per track, speaker taken from the track itself.

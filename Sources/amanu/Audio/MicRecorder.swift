@@ -12,16 +12,17 @@ import os.lock
 /// mono. Buffers stream straight to disk — nothing is held in memory, so
 /// session length is unbounded.
 ///
-/// With voice processing on (the default), Apple's echo canceller subtracts
-/// speaker playback from the mic so the system track doesn't bleed into the
-/// mic track. VoiceProcessingIO is a duplex unit, not an input effect: it
+/// Raw capture is the default so recording never reroutes or attenuates what
+/// the person hears. With voice processing explicitly enabled, Apple's echo
+/// canceller subtracts speaker playback from the mic. VoiceProcessingIO is a
+/// duplex unit, not an input effect: it
 /// needs a rendered output path and one explicit mono client format on both
 /// sides, or it silently delivers zeroed buffers (rca-001). A first-second
 /// liveness check catches routes where even the correct graph stays silent
 /// and restarts capture raw.
 ///
 /// A route change mid-meeting rebuilds the engine, and the rebuild keeps both
-/// of those properties: the same echo cancellation, and the same wall clock.
+/// of those properties: the chosen processing mode and the same wall clock.
 /// Losing either is silent at the time and obvious a day later — see
 /// `restartCapture`.
 final class MicRecorder: @unchecked Sendable {
@@ -72,10 +73,61 @@ final class MicRecorder: @unchecked Sendable {
         }
     }
 
+    /// What the microphone capture actually did, rather than what the config
+    /// asked it to do. The distinction is the point of the experiment: a voice
+    /// route can refuse to start or can begin with signal and later fall back
+    /// to raw capture after a liveness failure or restart storm.
+    struct Capture {
+        let requestedVoiceProcessing: Bool
+        let initialVoiceProcessing: Bool
+        let finalVoiceProcessing: Bool
+        let inputDevice: String?
+        let outputDevice: String?
+        let sampleRate: Double?
+        let channels: Int?
+        let sampleFormat: String?
+
+        var meta: [String: Any] {
+            var fields: [String: Any] = [
+                "requested_voice_processing": requestedVoiceProcessing,
+                "initial_voice_processing": initialVoiceProcessing,
+                "final_voice_processing": finalVoiceProcessing,
+                "fell_back_to_raw": requestedVoiceProcessing
+                    && (!initialVoiceProcessing || !finalVoiceProcessing),
+            ]
+            if let inputDevice { fields["input_device"] = inputDevice }
+            if let outputDevice { fields["output_device"] = outputDevice }
+            if let sampleRate { fields["sample_rate_hz"] = Int(sampleRate.rounded()) }
+            if let channels { fields["channels"] = channels }
+            if let sampleFormat { fields["sample_format"] = sampleFormat }
+            return fields
+        }
+    }
+
     private var engine = AVAudioEngine()
     private let liveAudio = LiveAudioBufferRelay()
     private var url: URL?
     private(set) var isRecording = false
+    private var requestedVoiceProcessing = false
+    private var initialVoiceProcessing = false
+    private var finalVoiceProcessing = false
+    private var initialInputDevice: String?
+    private var initialOutputDevice: String?
+    private var captureSampleRate: Double?
+    private var captureChannels: Int?
+    private var captureSampleFormat: String?
+
+    var capture: Capture {
+        Capture(
+            requestedVoiceProcessing: requestedVoiceProcessing,
+            initialVoiceProcessing: initialVoiceProcessing,
+            finalVoiceProcessing: finalVoiceProcessing,
+            inputDevice: initialInputDevice,
+            outputDevice: initialOutputDevice,
+            sampleRate: captureSampleRate,
+            channels: captureChannels,
+            sampleFormat: captureSampleFormat)
+    }
 
     // Thread-safe shared state: accessed from both the main thread and the
     // audio-tap callback (background audio thread) without further sync.
@@ -217,10 +269,20 @@ final class MicRecorder: @unchecked Sendable {
         guard !isRecording else { return }
         self.url = url
         followedCallApps = callApps
-        try attach(voiceProcessing: Config.micVoiceProcessing())
+        requestedVoiceProcessing = Config.micVoiceProcessing()
+        try attach(voiceProcessing: requestedVoiceProcessing)
         isRecording = true
         inputDevice = AudioDevices.name(of: boundDevice) ?? AudioDevices.defaultInputName()
         outputDevice = AudioDevices.defaultOutputName()
+        initialVoiceProcessing = engine.inputNode.isVoiceProcessingEnabled
+        finalVoiceProcessing = initialVoiceProcessing
+        initialInputDevice = inputDevice
+        initialOutputDevice = outputDevice
+        if let format = file?.processingFormat {
+            captureSampleRate = format.sampleRate
+            captureChannels = Int(format.channelCount)
+            captureSampleFormat = Self.name(of: format.commonFormat)
+        }
         // A call app (FaceTime, Zoom) grabbing the mic reconfigures the input
         // device and stops the engine mid-session; without this observer the
         // track just ends there (2026.07.28: 1.7s mic on a 19min call).
@@ -271,6 +333,7 @@ final class MicRecorder: @unchecked Sendable {
     func stop() {
         guard isRecording else { return }
         isRecording = false
+        finalVoiceProcessing = engine.inputNode.isVoiceProcessingEnabled
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
             self.configObserver = nil
@@ -392,10 +455,22 @@ final class MicRecorder: @unchecked Sendable {
         }
         attachedAt = Date()
         skipBinding = false
+        finalVoiceProcessing = input.isVoiceProcessingEnabled
 
         let report = "mic: voiceProcessing=\(input.isVoiceProcessingEnabled) "
             + "input=\(input.outputFormat(forBus: 0)) tap=\(monoFormat)\n"
         FileHandle.standardError.write(Data(report.utf8))
+    }
+
+    private static func name(of format: AVAudioCommonFormat) -> String {
+        switch format {
+        case .pcmFormatFloat32: return "float32"
+        case .pcmFormatFloat64: return "float64"
+        case .pcmFormatInt16: return "int16"
+        case .pcmFormatInt32: return "int32"
+        case .otherFormat: return "other"
+        @unknown default: return "unknown"
+        }
     }
 
     /// Voice-processing path: the unit converts to the mono client format

@@ -169,7 +169,8 @@ Inside:
 | `summary.md` | topic, key points, decisions, action items, open questions |
 | `transcribe.log` | transcription progress/errors for this session |
 | `mixed.m4a` | temporary mix for a diarizing engine; removed after transcription |
-| `transcript.assemblyai.json` | raw API response — only with the assemblyai engine |
+| `multichannel.m4a` | temporary aligned stereo for AssemblyAI; removed after transcription |
+| `transcript.assemblyai.multichannel.json` | raw AssemblyAI API response, kept so a retry is free |
 
 Two tracks while recording on purpose: speech models do better on clean
 single-source audio, and mic-vs-system is free two-party diarization — `me` vs
@@ -387,29 +388,24 @@ one clock, and merged by timestamp. The track *is* the speaker — `me` vs
 candidate tokens from the wrong alphabet, which is what keeps Russian from
 coming back transliterated into Latin.
 
-### assemblyai — cloud, diarizing
+### assemblyai — cloud, multichannel and diarizing
 
 What `auto` uses when a key is present and the network answers; `"engine":
 "assemblyai"` insists on it. Better on Russian than parakeet, and it tells
 apart multiple people sharing one audio channel — a call with three others on
 the far side comes back as three speakers instead of one `them`.
 
-Diarization needs everyone on one stream, so amanu first mixes the two tracks
-into `mixed.m4a`, laid out on the same shared clock the two-track transcript
-uses. That file is uploaded, transcribed, and polled until done. It's derived,
-so deleting it is safe — it regenerates.
+Amanu aligns the two tracks into stereo: mic on channel 1, system on channel 2.
+AssemblyAI transcribes the channels independently and diarizes within each one,
+so labels such as `1A` and `2B` carry both facts: which side spoke and which
+voice on that side it was. Amanu renders them as `me`, `them A`, `them B`,
+dropping the suffix where a side has only one voice. No loudness guess is
+needed, and raw speaker echo remains a removable duplicate rather than a reason
+to change the Mac's playback route during the meeting.
 
-Speaker labels then come back anonymous (`A`, `B`), and amanu maps them onto
-`me`/`them` by asking the source tracks: whichever track was loud while an
-utterance was spoken is the side that spoke it. That runs per utterance, not
-per label, so a model that merges two similar voices into one label still comes
-out split correctly. Labels are kept as suffixes (`them A`, `them B`) only
-where a side really holds more than one person. If the tracks can't settle it —
-one is missing or silent — the raw labels are kept rather than guessed at, and
-the log says so.
-
-The full API response is cached as `transcript.assemblyai.json`. A retry after
-a crash re-renders from that file instead of re-uploading and re-paying.
+The aligned `multichannel.m4a` is derived and regenerates when absent. The full
+API response is cached as `transcript.assemblyai.multichannel.json`; the name is
+different from the old mixed-response cache so the two cannot be confused.
 
 **This is the one part of amanu that isn't local.** Your meeting audio goes to
 AssemblyAI's servers. `amanu doctor` says so out loud when the engine is
@@ -688,15 +684,14 @@ Optional, at `~/.config/amanu/config.json`:
 - `transcript_echo_filter` — drop mic segments that duplicate overlapping
   system speech at merge time (default on). The text-level guard for sessions
   recorded raw through speakers, where the far end lands on both tracks and
-  every sentence appears twice. Per-track engines only — a diarizing engine
-  reads one mixed file and can't produce the duplicate. Costs nothing when
-  there's no echo; `false` keeps every segment.
-- `mic_voice_processing` — Apple's echo cancellation on the mic (default on).
-  A meeting held through the speakers otherwise lands on both tracks, and
-  everything downstream has to work around a mic track that isn't only yours.
-  The trade: while the voice unit is live, macOS ducks other playback slightly
-  (`.min` ducking is configured, but it can't be zeroed), and on headphones it
-  cancels an echo that was never there. `false` records raw.
+  every sentence appears twice. Runs on per-track and multichannel transcripts;
+  costs nothing when there's no echo. `false` keeps every segment.
+- `mic_voice_processing` — Apple's capture-time echo cancellation on the mic
+  (default off). Raw capture leaves the sound you hear untouched; text-level
+  echo filtering handles speaker bleed afterwards. `true` enables Apple's
+  duplex voice route, which can briefly interrupt and then attenuate playback
+  for the duration of a recording. It can still be useful when the retained
+  microphone track matters more than unchanged playback.
 - `user_name` — what to call you instead of "me" in a named transcript. Unset
   falls back to the account's full name, and to "me" when that isn't a
   person's name (a login, "Samat's MacBook", "User").
@@ -803,9 +798,9 @@ A negative x means the item is parked outside the display.
 - **AVAudioEngine** — mic capture
 - **AVAudioFile** — streaming PCM capture, AAC re-encode once the transcript
   exists
-- **AVAudioConverter** — offset-aware mixdown for the diarizing engine, summed
-  by hand rather than exported (`AVAssetExportSession` makes macOS ask for the
-  photo library)
+- **AVAudioConverter** — offset-aware mono mixdown and stereo channel alignment,
+  streamed by hand rather than exported (`AVAssetExportSession` makes macOS ask
+  for the photo library)
 - **FluidAudio / Parakeet** — on-device Core ML transcription
 - **AssemblyAI** — optional cloud transcription with diarization
 - **AppKit** — the whole UI by hand: a status item, the Dock icon, and four
@@ -857,10 +852,11 @@ Route changes are recorded the same way. Headphones connecting, AirPods coming
 out of an ear, a call app taking the input device — each one rebuilds the mic
 engine, and each rebuild is written to `meta.json` as an entry in
 `mic_restarts`: when it happened, how much of the track is the silence covering
-it, whether echo cancellation survived, and the input and output device on
-either side of the change. The rebuild keeps cancellation on, because amanu
-taps the device rather than the call app's output, and a raw mic writes down
-whatever the speakers are playing (`.issues/rca-003`).
+it, whether echo cancellation was active, and the input and output device on
+either side of the change. `mic_capture` records what was requested, what
+actually started and ended, the initial devices and the written format. After
+transcription, `transcription_input` and `echo_filter` say which path produced
+the text and how many acoustic duplicates it removed.
 
 The microphone itself is followed rather than inherited: whichever one the call
 app is listening to, and the system default when there is no answer. Choose a
@@ -884,9 +880,10 @@ the track moves with you a few seconds later, and says so in `mic_restarts`.
   grant does not cover it.
 - Parakeet v3 covers 25 European languages, not every language. Outside that
   set, use the assemblyai engine.
-- Echo confuses speaker attribution on the assemblyai path: if the meeting
-  plays through speakers, your mic hears them too. That's what
-  `mic_voice_processing` is for.
+- Raw speaker echo may remain audible in a retained microphone channel, even
+  though Parakeet and AssemblyAI remove its duplicate text. Enable
+  `mic_voice_processing` only if that archived mic channel matters more than
+  unchanged playback during the conversation.
 - `spctl` rejects a locally built app if you ask it to. That's expected until
   the release is notarized; Gatekeeper never evaluates it anyway, because
   nothing you built yourself carries a quarantine flag.

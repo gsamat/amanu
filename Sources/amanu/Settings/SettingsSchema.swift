@@ -223,7 +223,7 @@ enum SettingsSchema {
                       "For meetings played through speakers, so the far end isn't recorded onto your track as well. Ducks other playback while active; pointless on headphones.",
                       "Для встреч через колонки, чтобы дальняя сторона не попадала ещё и на вашу "
                           + "дорожку. Пока работает, приглушает остальной звук; в наушниках бесполезно."),
-                  .toggle, default: true),
+                  .toggle, default: false),
             Entry(["keep_audio"],
                   localised("Keep the audio after transcribing", "Оставлять звук после расшифровки"),
                   localised(

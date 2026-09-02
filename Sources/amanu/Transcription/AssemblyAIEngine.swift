@@ -1,6 +1,6 @@
 import Foundation
 
-/// AssemblyAI, with speaker diarization, over the mixed-down session audio.
+/// AssemblyAI, with speaker diarization, over aligned two-channel audio.
 ///
 /// The one part of amanu that isn't local: the mix is uploaded, transcribed
 /// server-side, and polled until done. In exchange you get a model that
@@ -8,8 +8,8 @@ import Foundation
 /// on the far side comes back as three speakers instead of one "them".
 ///
 /// The full API response is cached next to the audio as
-/// `transcript.assemblyai.json`. A retry after a crash re-renders from that
-/// file instead of re-uploading and re-paying.
+/// `transcript.assemblyai.multichannel.json`. A retry after a crash re-renders
+/// from that file instead of re-uploading and re-paying.
 actor AssemblyAIEngine: TranscriptionEngine {
     enum EngineError: TranscriptionFailure, CustomStringConvertible {
         case noAPIKey
@@ -62,7 +62,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
 
     nonisolated let name = "assemblyai"
     nonisolated let model: String
-    nonisolated let input: TranscriptionInput = .mixed
+    nonisolated let input: TranscriptionInput = .multichannel
 
     private let apiKey: String
     /// The languages this meeting may be in. The API is told to detect within
@@ -91,8 +91,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
     func release() async {}
 
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
-        let cache = audio.deletingLastPathComponent()
-            .appendingPathComponent("transcript.assemblyai.json")
+        let cache = Self.cacheURL(for: audio)
 
         let response: TranscriptResponse
         if let cached = try? Data(contentsOf: cache),
@@ -130,6 +129,11 @@ actor AssemblyAIEngine: TranscriptionEngine {
         }
     }
 
+    static func cacheURL(for audio: URL) -> URL {
+        audio.deletingLastPathComponent()
+            .appendingPathComponent("transcript.assemblyai.multichannel.json")
+    }
+
     // MARK: - API
 
     /// Push the file to AssemblyAI's own storage and get back the URL to
@@ -149,26 +153,10 @@ actor AssemblyAIEngine: TranscriptionEngine {
     }
 
     private func submit(audioURL: String) async throws -> String {
-        var body: [String: Any] = [
-            "audio_url": audioURL,
-            "speaker_labels": true,
-            "punctuate": true,
-            "format_text": true,
-            // speakers_expected is deliberately unset — the model picks the
-            // count better unconstrained than we can guess it.
-        ]
-        // Detection is always on. What a configured language changes is the
-        // shortlist it chooses from, and where it lands when it can't tell:
-        // a short, noisy Russian meeting is otherwise perfectly capable of
-        // coming back as Bulgarian.
-        body["language_detection"] = true
-        if let primary = expected.first {
-            body["language_detection_options"] = [
-                "expected_languages": expected,
-                "fallback_language": primary,
-            ]
-        }
-        if let speechModel { body["speech_model"] = speechModel }
+        let body = Self.requestBody(
+            audioURL: audioURL,
+            expectedLanguages: expected,
+            speechModel: speechModel)
 
         var request = URLRequest(url: Self.base.appendingPathComponent("transcript"))
         request.httpMethod = "POST"
@@ -180,6 +168,33 @@ actor AssemblyAIEngine: TranscriptionEngine {
         try Self.check(response, data, "submit")
         struct CreateResponse: Decodable { let id: String }
         return try JSONDecoder().decode(CreateResponse.self, from: data).id
+    }
+
+    /// The paid API boundary as plain JSON, kept pure so a test can pin the
+    /// channel-separation contract without replacing URLSession with a mock.
+    static func requestBody(
+        audioURL: String,
+        expectedLanguages: [String],
+        speechModel: String?
+    ) -> [String: Any] {
+        var body: [String: Any] = [
+            "audio_url": audioURL,
+            "multichannel": true,
+            "speaker_labels": true,
+            "punctuate": true,
+            "format_text": true,
+            "language_detection": true,
+            // speakers_expected is deliberately unset — with multichannel,
+            // any hint applies independently to every channel.
+        ]
+        if let primary = expectedLanguages.first {
+            body["language_detection_options"] = [
+                "expected_languages": expectedLanguages,
+                "fallback_language": primary,
+            ]
+        }
+        if let speechModel { body["speech_model"] = speechModel }
+        return body
     }
 
     /// Poll until the transcript completes. Returns the decoded response and

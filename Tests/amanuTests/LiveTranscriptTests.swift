@@ -276,6 +276,33 @@ struct LiveTranscriptTests {
         #expect(snapshot.entries.isEmpty)
     }
 
+    @Test("Ending the recording releases everything the closures captured")
+    func finishRecordingReleasesTheCapturedSession() async {
+        // AppController's closures capture the recording session. The live
+        // coordinator outlives it, so retaining either closure retains the
+        // mic engine and an explicitly enabled voice route after Stop.
+        final class Token: Sendable {}
+        let coordinator = LiveTranscriptionCoordinator(
+            modelStore: LiveTranscriptionModelStore(
+                root: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("amanu-live-release-\(UUID().uuidString)")))
+
+        weak var captured: Token?
+        do {
+            let token = Token()
+            captured = token
+            await coordinator.beginRecording(
+                enabled: false,
+                language: "ru-RU",
+                update: { _ in _ = token },
+                attach: { _ in _ = token })
+        }
+        #expect(captured != nil)
+
+        await coordinator.finishRecording()
+        #expect(captured == nil)
+    }
+
     @Test("The transcript folds away when the meeting ends, and a link brings it back")
     func transcriptVisibilityAcrossTheEndOfAMeeting() {
         func snapshot(

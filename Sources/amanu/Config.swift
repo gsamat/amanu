@@ -11,7 +11,7 @@ import Foundation
 ///         "language": "ru",
 ///         "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
 ///       },
-///       "mic_voice_processing": true,
+///       "mic_voice_processing": false,
 ///       "keep_audio": false,
 ///       "calendar": true,
 ///       "auto_record": { "enabled": true, "mic_activity": true, "calendar": false },
@@ -219,25 +219,26 @@ enum Config {
     /// speaker playback doesn't bleed into the mic track and get transcribed
     /// as "me".
     ///
-    /// Default on. A meeting held through the speakers puts the far end on the
-    /// mic track too, and every consumer of that track then has to work around
-    /// it — the per-track engine transcribes them twice and needs `EchoFilter`
-    /// to undo it, and speaker attribution has to tell a loud echo from the
-    /// person actually in the room. Cancelling at capture is the only place
-    /// that fixes it for all of them at once.
-    ///
-    /// The costs are real but small: the live voice unit ducks other playback,
-    /// so music during a recording gets quieter, and on headphones it works
-    /// for nothing because there is no echo to cancel. Set false to record raw.
+    /// Off by default. VoiceProcessingIO is a duplex call route rather than an
+    /// input-only effect: enabling it interrupts and attenuates what the person
+    /// hears for the whole recording. Raw capture leaves playback untouched;
+    /// per-track and multichannel transcription remove speaker echo later.
+    /// Set true only when capture-time cancellation matters more than playback.
     static func micVoiceProcessing() -> Bool {
-        load()?["mic_voice_processing"] as? Bool ?? true
+        micVoiceProcessing(in: load())
+    }
+
+    /// The same decision against supplied JSON, so an absent key's behavior is
+    /// testable without reading or rewriting the person's real config file.
+    static func micVoiceProcessing(in config: [String: Any]?) -> Bool {
+        config?["mic_voice_processing"] as? Bool ?? false
     }
 
     /// Whether the transcript merge drops mic segments that duplicate
     /// overlapping system speech — the echo of a meeting played through the
     /// speakers into a raw mic. Costs nothing when there's no echo. Set false
-    /// to keep every segment from both tracks. Per-track engines only; a
-    /// diarizing engine transcribes one mixed file and can't duplicate.
+    /// to keep every segment from both tracks. Runs on per-track and
+    /// multichannel transcripts; a mixed transcript has no duplicate segment.
     static func transcriptEchoFilter() -> Bool {
         load()?["transcript_echo_filter"] as? Bool ?? true
     }

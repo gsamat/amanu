@@ -68,11 +68,31 @@ struct RetranscriptionTests {
         func transcribe(_ audio: URL) async throws -> [TranscriptSegment] { [] }
     }
 
+    private actor MultichannelEngine: TranscriptionEngine {
+        nonisolated let name = "assemblyai-test"
+        nonisolated let model = "multichannel"
+        nonisolated let input: TranscriptionInput = .multichannel
+
+        private(set) var heardChannels: AVAudioChannelCount = 0
+
+        func prepare() async throws {}
+        func release() async {}
+
+        func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
+            heardChannels = try AVAudioFile(forReading: audio).processingFormat.channelCount
+            return [
+                .init(start: 0, end: 1, text: "the remote sentence", speaker: "2A"),
+                .init(start: 0.05, end: 1.05, text: "the remote sentence", speaker: "1A"),
+                .init(start: 1.2, end: 2, text: "the local answer", speaker: "1B"),
+            ]
+        }
+    }
+
     /// A session as it stands after transcription and settling: one stereo
     /// archive, meta.json pointing both tracks at it, and no transcript —
     /// which is exactly what the recordings window leaves behind when somebody
     /// asks for a re-transcription and then quits the app.
-    private static func settledSession(seconds: Double = 2) throws -> URL {
+    private static func rawSession(seconds: Double = 2) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-again-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -89,6 +109,11 @@ struct RetranscriptionTests {
             SessionState.Key.summaryStatus: "failed",
         ]).write(to: dir.appendingPathComponent("meta.json"))
 
+        return dir
+    }
+
+    private static func settledSession(seconds: Double = 2) throws -> URL {
+        let dir = try rawSession(seconds: seconds)
         TrackCompressor.compress(sessionDir: dir)
         return dir
     }
@@ -126,6 +151,27 @@ struct RetranscriptionTests {
     private static let bothSteps = PostProcessor.Policy(names: true, summary: true)
 
     // MARK: - the route from the command line
+
+    @Test("A raw session reaches a multichannel engine with sides intact")
+    func rawSessionTranscribesAsMultichannel() async throws {
+        let dir = try Self.rawSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let engine = MultichannelEngine()
+
+        try await TranscriptionCoordinator(engine: engine).transcribeNow(dir)
+
+        #expect(await engine.heardChannels == 2)
+        let transcript = try #require(PostProcessor.readTranscript(dir))
+        #expect(transcript.segments.map(\.speaker) == ["them", "me"])
+        #expect(transcript.segments.map(\.text) == [
+            "the remote sentence", "the local answer",
+        ])
+        let meta = try #require(SessionState.read(dir))
+        #expect(meta["transcription_input"] as? String == "multichannel")
+        let echo = try #require(meta["echo_filter"] as? [String: Any])
+        #expect(echo["ran"] as? Bool == true)
+        #expect(echo["dropped_segments"] as? Int == 1)
+    }
 
     @Test("A settled session is transcribed back out of its stereo archive")
     func settledSessionTranscribesFromTheArchive() async throws {

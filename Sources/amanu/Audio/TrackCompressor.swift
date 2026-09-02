@@ -49,6 +49,8 @@ enum TrackCompressor {
             candidates.insert("\(stem).m4a")
         }
         candidates.insert("mixed.m4a")
+        candidates.insert("multichannel.m4a")
+        candidates.insert("multichannel.tmp.m4a")
         candidates.insert("audio.m4a")
         candidates.insert("audio.tmp.m4a")
 
@@ -154,6 +156,9 @@ enum TrackCompressor {
         // Derived from the tracks and regenerated on demand; keeping it costs
         // more than the tracks themselves.
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("mixed.m4a"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("multichannel.m4a"))
+        try? FileManager.default.removeItem(
+            at: dir.appendingPathComponent("multichannel.tmp.m4a"))
         log("archived mic left + system right → audio.m4a (\(saved))")
     }
 
@@ -174,14 +179,14 @@ enum TrackCompressor {
         }
     }
 
-    private struct StereoTrack {
+    struct StereoTrack: Sendable {
         let url: URL
         let offsetMs: Int
     }
 
     /// Stream two independently recorded tracks into a stereo AAC file. This
     /// never holds more than a few seconds in memory, even for a long meeting.
-    private static func encodeStereo(
+    static func encodeStereo(
         mic: StereoTrack?,
         system: StereoTrack?,
         to destination: URL

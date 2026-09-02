@@ -183,6 +183,7 @@ final class RecordingSession {
         meta.merge(context.metaFields) { current, _ in current }
         if pausedFor > 0 { meta["paused_seconds"] = Int(pausedFor) }
         if !trackEverStalled.isEmpty { meta["stalled_tracks"] = trackEverStalled.sorted() }
+        meta["mic_capture"] = mic.capture.meta
         // Every route change the mic track survived: headphones connecting,
         // AirPods leaving an ear, a call app taking the device. Each one is a
         // seam in the track, and a transcript that goes strange after one is

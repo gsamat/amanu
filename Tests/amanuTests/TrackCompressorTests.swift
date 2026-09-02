@@ -85,6 +85,10 @@ struct TrackCompressorTests {
     func keptAudioBecomesOneStereoArchive() throws {
         let dir = try makeTwoTrackSession()
         defer { try? FileManager.default.removeItem(at: dir) }
+        try Data("derived".utf8).write(
+            to: dir.appendingPathComponent("multichannel.m4a"))
+        try Data("partial".utf8).write(
+            to: dir.appendingPathComponent("multichannel.tmp.m4a"))
         let sourceBytes = try ["mic.caf", "system.caf"].reduce(Int64(0)) { total, name in
             total + (try #require(
                 (try FileManager.default.attributesOfItem(
@@ -113,6 +117,10 @@ struct TrackCompressorTests {
         #expect(try peak(in: archive, channel: 1, from: 0.7, to: 1.2) > 0.2)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("multichannel.m4a").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("multichannel.tmp.m4a").path))
     }
 
     /// Catches handing the full stereo archive to a per-track transcription
@@ -229,11 +237,16 @@ struct TrackCompressorTests {
         // both forms of the track on disk, and meta names only one of them.
         try Data("compressed".utf8).write(to: dir.appendingPathComponent("mic.m4a"))
         try Data("mixed".utf8).write(to: dir.appendingPathComponent("mixed.m4a"))
+        try Data("stereo".utf8).write(to: dir.appendingPathComponent("multichannel.m4a"))
+        try Data("partial".utf8).write(to: dir.appendingPathComponent("multichannel.tmp.m4a"))
         try Data("archive".utf8).write(to: dir.appendingPathComponent("audio.m4a"))
 
         TrackCompressor.discard(sessionDir: dir)
 
-        for name in ["mic.caf", "mic.m4a", "mixed.m4a", "audio.m4a"] {
+        for name in [
+            "mic.caf", "mic.m4a", "mixed.m4a", "multichannel.m4a",
+            "multichannel.tmp.m4a", "audio.m4a",
+        ] {
             #expect(
                 FileManager.default.fileExists(
                     atPath: dir.appendingPathComponent(name).path) == false,
