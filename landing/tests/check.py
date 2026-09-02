@@ -199,8 +199,17 @@ def main():
     flat_ru = re.sub(r"\s+", " ", readable_ru)
     check(
         "RU: бинарник назван нотаризованным Apple",
-        readable_ru.count("нотаризован Apple") == 2
+        readable_ru.count("нотаризован Apple") == 1
         and "подписанный бинарник" not in readable_ru,
+    )
+    check(
+        "RU: нижний блок говорит о бесплатности и открытом коде",
+        bool(re.search(
+            r'Amanu полностью бесплатная, у неё <a href="https://github\.com/gsamat/amanu">'
+            r'открытый исходный код</a>\. Установка лёгкая — скачайте и откройте\.',
+            flat_ru,
+        ))
+        and "Amanu полностью бесплатная:" not in flat_ru,
     )
     check(
         "RU: заголовок про локальные данные без точки",
