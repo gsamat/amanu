@@ -62,6 +62,7 @@ final class AnalyticsSink: @unchecked Sendable {
     private var surface = Analytics.Surface.app
     private var started = false
     private var sending = false
+    private var flushWaiters: [@Sendable () -> Void] = []
     private var timer: DispatchSourceTimer?
     private var observer: NSObjectProtocol?
 
@@ -207,21 +208,26 @@ final class AnalyticsSink: @unchecked Sendable {
                 done.signal()
                 return
             }
-            send(then: { done.signal() })
+            flushWaiters.append { done.signal() }
+            send()
         }
         _ = done.wait(timeout: .now() + seconds)
     }
 
-    private func send(then finished: (@Sendable () -> Void)? = nil) {
-        guard enabled, !sending, !pending.isEmpty, hasSomewhereToSend else {
-            finished?()
+    private func send() {
+        guard enabled, !pending.isEmpty, hasSomewhereToSend else {
+            finishFlushes()
             return
         }
+        // An explicit flush may arrive after the timer started a request.
+        // Leave its waiter attached to that request instead of pretending the
+        // already-running send has completed.
+        guard !sending else { return }
         pending = pending.filter { !isExpired($0) }
         savePending()
         let batch = pending
         guard !batch.isEmpty, let body = encode(batch) else {
-            finished?()
+            finishFlushes()
             return
         }
         sending = true
@@ -237,9 +243,21 @@ final class AnalyticsSink: @unchecked Sendable {
                     pending.removeFirst(min(count, pending.count))
                     savePending()
                 }
-                finished?()
+                if ok, !pending.isEmpty, !flushWaiters.isEmpty {
+                    // Events may have arrived while this request was in
+                    // flight. A caller waiting on flush asked for those too.
+                    send()
+                } else {
+                    finishFlushes()
+                }
             }
         }
+    }
+
+    private func finishFlushes() {
+        let waiters = flushWaiters
+        flushWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters { waiter() }
     }
 
     private func encode(_ batch: [[String: Any]]) -> Data? {

@@ -20,8 +20,12 @@ struct AnalyticsQueueTests {
         private let lock = NSLock()
         private var bodies: [Data] = []
         let succeeds: Bool
+        let delay: Duration
 
-        init(succeeds: Bool) { self.succeeds = succeeds }
+        init(succeeds: Bool, delay: Duration = .zero) {
+            self.succeeds = succeeds
+            self.delay = delay
+        }
 
         private func keep(_ body: Data) {
             lock.lock()
@@ -32,6 +36,7 @@ struct AnalyticsQueueTests {
         var transport: AnalyticsSink.Transport {
             { [self] body in
                 keep(body)
+                if delay > .zero { try? await Task.sleep(for: delay) }
                 return succeeds
             }
         }
@@ -110,6 +115,25 @@ struct AnalyticsQueueTests {
         let sink = Self.sink(store: store, transport: recorder.transport)
         sink.start(surface: .app)
         sink.record(.summaryFinished, [.backend: .text("ollama")])
+        sink.flush(waitingUpTo: 2)
+
+        #expect(sink.bufferedCount == 0)
+        #expect(recorder.sent.count == 1)
+    }
+
+    @Test("An explicit flush waits for a send that is already in flight")
+    func flushWaitsForAnInflightSend() {
+        let store = Self.scratch()
+        let recorder = Recorder(succeeds: true, delay: .milliseconds(250))
+        let sink = Self.sink(store: store, transport: recorder.transport)
+        sink.start(surface: .app)
+        sink.record(.summaryFinished, [.backend: .text("ollama")])
+
+        // Start a send, but deliberately stop waiting before its transport
+        // finishes. The next flush must join that send instead of returning
+        // just because `sending` is already true.
+        sink.flush(waitingUpTo: 0.01)
+        #expect(sink.bufferedCount == 1)
         sink.flush(waitingUpTo: 2)
 
         #expect(sink.bufferedCount == 0)
