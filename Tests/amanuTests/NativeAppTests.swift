@@ -5,6 +5,79 @@ import Testing
 
 @Suite("Living inside an application bundle")
 struct NativeAppTests {
+    @Test("Only an app on a read-only volume asks to move")
+    func diskImageMoveDecision() {
+        let app = URL(fileURLWithPath: "/Volumes/amanu 1.0/Amanu.app")
+
+        #expect(ApplicationRelocation.shouldOfferMove(
+            bundleURL: app, volumeIsReadOnly: true))
+        #expect(!ApplicationRelocation.shouldOfferMove(
+            bundleURL: app, volumeIsReadOnly: false))
+        #expect(!ApplicationRelocation.shouldOfferMove(
+            bundleURL: nil, volumeIsReadOnly: true))
+    }
+
+    @Test("A DMG copy cannot promise login launch or automatic updates")
+    func persistentFeatureDecision() {
+        let app = URL(fileURLWithPath: "/Volumes/amanu 1.0/Amanu.app")
+
+        #expect(!ApplicationRelocation.supportsPersistentFeatures(
+            bundleURL: app, volumeIsReadOnly: true))
+        #expect(ApplicationRelocation.supportsPersistentFeatures(
+            bundleURL: URL(fileURLWithPath: "/Applications/Amanu.app"),
+            volumeIsReadOnly: false))
+        #expect(!ApplicationRelocation.supportsPersistentFeatures(
+            bundleURL: nil, volumeIsReadOnly: false))
+    }
+
+    @Test("A fresh install copies the whole application into Applications")
+    func installsFromDiskImage() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let source = root.appendingPathComponent("image/Amanu.app")
+        let applications = root.appendingPathComponent("Applications")
+        try fm.createDirectory(
+            at: source.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: applications, withIntermediateDirectories: true)
+        try Data("new".utf8).write(
+            to: source.appendingPathComponent("Contents/version"))
+        defer { try? fm.removeItem(at: root) }
+
+        let installed = try ApplicationRelocation.install(
+            from: source, in: applications, fileManager: fm)
+
+        #expect(installed == applications.appendingPathComponent("Amanu.app"))
+        #expect(try String(contentsOf: installed.appendingPathComponent("Contents/version"),
+                           encoding: .utf8) == "new")
+    }
+
+    @Test("Replacing an installed copy leaves the complete new app and no staging copies")
+    func replacesInstalledApplication() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let source = root.appendingPathComponent("image/Amanu.app")
+        let applications = root.appendingPathComponent("Applications")
+        let installed = applications.appendingPathComponent("Amanu.app")
+        try fm.createDirectory(
+            at: source.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: installed.appendingPathComponent("Contents"), withIntermediateDirectories: true)
+        try Data("new".utf8).write(
+            to: source.appendingPathComponent("Contents/version"))
+        try Data("old".utf8).write(
+            to: installed.appendingPathComponent("Contents/version"))
+        defer { try? fm.removeItem(at: root) }
+
+        _ = try ApplicationRelocation.install(
+            from: source, in: applications, fileManager: fm)
+
+        #expect(try String(contentsOf: installed.appendingPathComponent("Contents/version"),
+                           encoding: .utf8) == "new")
+        #expect(try fm.contentsOfDirectory(atPath: applications.path).allSatisfy {
+            !$0.contains("installing") && !$0.contains("previous")
+        })
+    }
+
     @Test("Window-server arguments are not commands anyone typed")
     func launchServicesArguments() {
         let launched = Runtime.meaningfulArguments([

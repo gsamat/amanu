@@ -1,0 +1,9 @@
+[Unit]
+Description=Delete Amanu analytics older than one year
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/amanu-stats
+ExecStart=/usr/bin/docker compose exec -T database psql -U umami -d umami -f /opt/amanu/retention.sql

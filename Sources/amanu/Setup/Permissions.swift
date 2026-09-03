@@ -42,7 +42,9 @@ enum SetupPermissions {
         guard microphone() == .notAsked else { return microphone() }
         _ = await AVCaptureDevice.requestAccess(for: .audio)
         ThisTurn.forget()
-        return microphone()
+        let answer = microphone()
+        Analytics.track(answer == .granted ? .micGranted : .micDenied)
+        return answer
     }
 
     // MARK: - calendar
@@ -156,13 +158,18 @@ enum SetupPermissions {
             // moment is amanu itself.
             try recorder.start(writingTo: scratch, scope: .everything)
         } catch {
+            Analytics.track(.systemAudioSilent, [
+                .reason: .text(Analytics.Reason.refused.rawValue),
+            ])
             return .refused("\(error)")
         }
 
         await playTone()
         recorder.stop()
 
-        return recorder.lastSoundAt == nil ? .silent : .heard
+        let result: SystemAudioResult = recorder.lastSoundAt == nil ? .silent : .heard
+        Analytics.track(result == .heard ? .systemAudioHeard : .systemAudioSilent)
+        return result
     }
 
     /// A short, quiet tone through the default output. Quiet because someone

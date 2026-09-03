@@ -265,17 +265,14 @@ bandwidth from the personal website.
 The canonical feed URL is:
 
 ```text
-https://samat.me/amanu/appcast.xml
+https://amanu.me/appcast.xml
 ```
 
-The source file is tracked at `amanu/appcast.xml` in the `gsamat/samatme3`
-repository. The site is served by nginx from `/var/www/samat` on `reina`; a
-narrow deployment command syncs only the repository's `amanu/` directory to
-`reina:/var/www/samat/amanu/`. This is necessary because the site's full deploy
-uses `rsync --delete` and would remove an untracked server-only appcast.
-
-The old GitHub Pages URL may continue to redirect to `samat.me`, but
-`SUFeedURL` uses the canonical address directly.
+The source file is tracked at `landing/appcast.xml` in this repository and is
+served by nginx from `/var/www/amanu` on `reina`. Builds released before this
+move still request `https://samat.me/amanu/appcast.xml`, so the release flow
+also keeps a byte-identical compatibility copy in `gsamat/samatme3` and at the
+old public URL. New bundles use the canonical `amanu.me` address directly.
 
 ## Release flow
 
@@ -290,10 +287,10 @@ One fail-closed release command performs these stages in order:
    and require Gatekeeper acceptance.
 7. Create a draft GitHub Release and upload the DMG and checksum.
 8. Generate and EdDSA-sign the Sparkle appcast entry using the final stable
-   release-asset URL. Update and commit the tracked appcast in `samatme3`, but
-   do not deploy it yet.
-9. Publish the GitHub Release, atomically deploy the new `amanu/` directory to
-   Reina, and verify the public feed, signature, and asset URL.
+   release-asset URL. Update `landing/appcast.xml`, but do not deploy it yet.
+9. Publish the GitHub Release; commit and deploy the landing plus canonical
+   appcast to Reina; commit and deploy its compatibility copy to the old URL;
+   then verify both public feeds, the signature, and the asset URL.
 
 A failed stage prevents every later stage. Before step 9, nothing new is
 public. If the final appcast deployment fails after the GitHub Release becomes

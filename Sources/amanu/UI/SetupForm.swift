@@ -170,6 +170,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         return label
     }()
     private let autoRecord = NSSwitch()
+    private let analytics = NSSwitch()
 
     /// What the last look for `claude`, `codex` and ollama found, by card.
     /// Empty until that look finishes, and a missing answer is not "absent":
@@ -221,6 +222,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // at the end because it is the thing that makes all of the above run
         // without anyone opening this form again.
         form.addArrangedSubview(SetupLayout.box([autoRecordRow()]))
+
+        // Last in the form so the default-on reporting choice is visible on
+        // first setup and remains easy to change when setup is reopened.
+        form.addArrangedSubview(SetupLayout.box([analyticsRow()]))
 
         for view in form.arrangedSubviews {
             view.widthAnchor.constraint(
@@ -618,6 +623,24 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 lines: 2, width: 520))
     }
 
+    private func analyticsRow() -> NSView {
+        analytics.target = self
+        analytics.action = #selector(analyticsToggled)
+        return SetupLayout.row(
+            leading: analytics,
+            title: SetupLayout.title(localised(
+                "Send anonymous usage statistics",
+                "Отправлять анонимную статистику об использовании")),
+            detail: SetupLayout.detail(
+                localised(
+                    "How often you use amanu and which features you use, so we can make it better.",
+                    "Как часто вы пользуетесь программой и какими функциями — чтобы сделать её лучше."),
+                lines: 2, width: 520),
+            trailing: [link(
+                localised("What exactly", "Что именно"),
+                "https://github.com/gsamat/amanu/blob/master/docs/analytics.md")])
+    }
+
     private func link(_ title: String, _ url: String) -> NSButton {
         SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
     }
@@ -820,6 +843,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     @objc private func autoRecordToggled() {
         Config.update(
             path: ["auto_record", "enabled"], value: autoRecord.state == .on ? nil : false)
+    }
+
+    @objc private func analyticsToggled() {
+        Config.update(path: ["analytics"], value: analytics.state == .on ? nil : false)
     }
 
     @objc private func summariesToggled() {
@@ -1313,6 +1340,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let autoRecordOn = (config["auto_record"] as? [String: Any])?["enabled"] as? Bool ?? true
         autoRecord.state = autoRecordOn ? .on : .off
+        analytics.state = AnalyticsIdentity.isEnabled(in: config) ? .on : .off
 
         highlightNextGrant()
         onStateChange?()

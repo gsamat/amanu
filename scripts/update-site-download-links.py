@@ -26,5 +26,5 @@ if __name__ == "__main__":
     if len(sys.argv) != 3:
         raise SystemExit("usage: update-site-download-links.py SITE_ROOT ASSET_URL")
     site = Path(sys.argv[1])
-    for relative in ("amanu/index.html", "amanu/ru/index.html"):
+    for relative in ("index.html", "ru/index.html"):
         update(site / relative, sys.argv[2])

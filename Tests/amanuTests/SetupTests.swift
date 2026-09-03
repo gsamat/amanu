@@ -616,6 +616,21 @@ struct SetupTests {
         #expect(cards.contains { $0.id == "claude-cli" })
     }
 
+    @Test("Anonymous statistics is the last setup choice and starts on")
+    @MainActor
+    func analyticsIsLastAndOnByDefault() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let last = try #require(form.view.arrangedSubviews.last)
+        let title = last.allDescendants.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Send anonymous usage statistics" }
+        #expect(title != nil)
+        #expect(last.allDescendants.contains { $0 is NSSwitch })
+        let setting = try #require(SettingsSchema.sections.flatMap(\.entries)
+            .first { $0.path == ["analytics"] })
+        #expect(setting.defaultValue as? Bool == true)
+    }
+
     /// Setup is a window and also the first tab of Settings, and nothing
     /// stops both being open: the menu opens either, `amanu setup` rings the
     /// doorbell for the window, and the first run opens it by itself.

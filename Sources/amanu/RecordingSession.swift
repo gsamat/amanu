@@ -134,6 +134,7 @@ final class RecordingSession {
             throw error
         }
         writeManifest()
+        Analytics.track(.recordingStarted, [.trigger: .text(trigger.rawValue)])
         watchdog = Timer.scheduledTimer(
             withTimeInterval: Self.watchdogInterval, repeats: true
         ) { [weak self] _ in
@@ -195,15 +196,32 @@ final class RecordingSession {
 
         Self.write(meta: meta, to: dir)
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(Self.manifestFile))
+
+        let length = ended.timeIntervalSince(startedAt)
+        let systemHeardSomething = system.lastSoundAt != nil
+        Analytics.track(.recordingFinished, [
+            .trigger: .text(trigger.rawValue),
+            .durationBucket: Analytics.durationBucket(seconds: length),
+            .liveUsed: .flag(liveAudioEverInstalled),
+            .systemAudio: .flag(systemHeardSomething),
+        ])
+        if !systemHeardSomething, length > 60 {
+            Analytics.track(.systemTrackSilent, [
+                .durationBucket: Analytics.durationBucket(seconds: length),
+            ])
+        }
     }
 
     /// Attach/detach optional live-ASR consumers without touching the durable
     /// recording. Installing midway through a meeting deliberately receives
     /// only new buffers, so enabling live text never performs catch-up work.
     func installLiveAudioSinks(mic micSink: LiveAudioSink?, system systemSink: LiveAudioSink?) {
+        if micSink != nil || systemSink != nil { liveAudioEverInstalled = true }
         mic.installLiveAudioSink(micSink)
         system.installLiveAudioSink(systemSink)
     }
+
+    private var liveAudioEverInstalled = false
 
     // MARK: - pause
 
@@ -256,6 +274,11 @@ final class RecordingSession {
     /// few seconds is a false positive, and keeping it means the recordings
     /// folder fills with rubbish nobody deletes.
     func discard() {
+        Analytics.track(.recordingDiscarded, [
+            .trigger: .text(trigger.rawValue),
+            .durationBucket: Analytics.durationBucket(
+                seconds: Date().timeIntervalSince(startedAt)),
+        ])
         try? FileManager.default.removeItem(at: dir)
     }
 
@@ -390,6 +413,11 @@ final class RecordingSession {
 
             write(meta: meta, to: dir)
             try? fm.removeItem(at: manifestURL)
+            Analytics.track(.sessionInterrupted, [
+                .trigger: .text(manifest["trigger"] as? String ?? Trigger.manual.rawValue),
+                .durationBucket: Analytics.durationBucket(
+                    seconds: ended.timeIntervalSince(started ?? ended)),
+            ])
             recovered.append(dir)
         }
 

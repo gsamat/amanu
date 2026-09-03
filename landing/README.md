@@ -15,7 +15,9 @@
 локальность всех ресурсов, честность Windows-блока, доступность, обе темы,
 reduced-motion.
 
-Боевой адрес: `https://amanu.me`. Статику отдаёт nginx на `reina`
-из `/var/www/amanu`; копия его конфига лежит в `deploy/nginx/`.
+Боевой адрес: `https://amanu.me`. Статику и Sparkle appcast
+`appcast.xml` отдаёт nginx на `reina` из `/var/www/amanu`; копия его
+конфига лежит в `deploy/nginx/`. Appcast генерирует и публикует
+`scripts/release.sh`; вручную его не редактируют.
 Просмотры считает тот же first-party GoatCounter, что у сайта
 подкаста и CTOdaily; дашборд доступен на `/goatcounter`.

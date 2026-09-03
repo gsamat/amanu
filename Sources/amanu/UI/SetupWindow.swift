@@ -86,6 +86,7 @@ final class SetupWindow: NSObject, NSWindowDelegate {
     }
 
     func show() {
+        if !panel.isVisible { Analytics.track(.setupOpened) }
         form.reload()
         panel.makeKeyAndOrderFront(nil)
     }

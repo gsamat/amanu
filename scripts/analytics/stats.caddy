@@ -1,0 +1,19 @@
+stats.amanu.me {
+	reverse_proxy 127.0.0.1:8095
+
+	# Keep operational logs useful without retaining visitors' addresses.
+	log {
+		output file /var/log/caddy/amanu-stats.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>headers>X-Forwarded-For delete
+			}
+		}
+	}
+}

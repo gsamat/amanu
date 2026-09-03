@@ -42,6 +42,7 @@ enum SetupState {
     /// escalating: the cost is the window opening again, not a lost recording.
     static func markCompleted(at stateURL: URL = path) {
         write(["completed_at": ISO8601DateFormatter().string(from: Date())], at: stateURL)
+        Analytics.track(.setupCompleted, [.setupVersion: .number(Double(current))])
     }
 
     /// Remember that a deliberate tone made the round trip through the

@@ -26,10 +26,10 @@ struct Install: ParsableCommand {
             ))
             throw ExitCode(64)
         }
-        guard Runtime.isBundled else {
+        guard Runtime.supportsPersistentFeatures else {
             throw CleanExit.message(
-                "this copy isn't Amanu.app — build it with `make app`, put it in "
-                    + "/Applications, and run it from there.")
+                "this copy cannot stay at its current path — put Amanu.app in "
+                    + "/Applications and run it from there.")
         }
 
         if uninstall {

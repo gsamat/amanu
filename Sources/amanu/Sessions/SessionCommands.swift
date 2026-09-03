@@ -78,6 +78,8 @@ struct ProcessSession: ParsableCommand {
         guard let item = SessionInventory.item(for: dir) else {
             throw ValidationError("couldn't read \(dir.path)/meta.json.")
         }
+        Analytics.start(surface: .cli)
+        defer { Analytics.flushOnExit() }
         print(item.summaryLine)
 
         switch PostProcessor.plan(for: item, again: again) {

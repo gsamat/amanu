@@ -9,7 +9,7 @@ struct Amanu: ParsableCommand {
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
         subcommands: [
             Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self,
-            Record.self,
+            Record.self, AnalyticsCommand.self,
         ],
         defaultSubcommand: Run.self
     )
@@ -38,6 +38,14 @@ struct Run: ParsableCommand {
             FileHandle.standardError.write(Data("amanu is already running\n".utf8))
             return
         }
+
+        // The release image is deliberately read-only. Offer the ordinary Mac
+        // installation before anything stores a path to that temporary volume.
+        InterfaceLanguage.adoptFromSystem()
+        let app = NSApplication.shared
+        app.setActivationPolicy(Config.dockIcon() ? .regular : .accessory)
+        app.applicationIconImage = FeatherIcon.image(size: 512, color: nil)
+        if ApplicationRelocation.offerMoveIfNeeded() { return }
 
         // A copy started from a shell is not its own responsible process, so
         // everything it asks macOS for is billed to the terminal: the grants
@@ -87,6 +95,10 @@ struct Run: ParsableCommand {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         FileManager.default.changeCurrentDirectoryPath(root.path)
 
+        // Start after any handoff or move from the disk image, but before the
+        // first setup window can report that it appeared.
+        Analytics.start(surface: .app)
+
         // Non-blocking: permissions prompt on first recording, so warnings at
         // startup are informational, not fatal.
         let checks = DoctorReport.run(recordingsRoot: root)
@@ -106,16 +118,12 @@ struct Run: ParsableCommand {
         // that changed underneath them would leave one window in each. It is
         // the same promise the Dock icon and the startup window make — the
         // setting takes effect at the next launch, and the window says so.
-        InterfaceLanguage.adoptFromSystem()
-
-        let app = NSApplication.shared
+        // Interface language and the NSApplication were settled before the
+        // possible move-from-DMG prompt; no window existed before that point.
         // .regular puts amanu in the Dock and in ⌘-Tab. That's the point: the
         // menu bar is not a dependable place for the only control surface of a
         // recorder — when it fills up macOS parks the status item off-screen
         // and it stays clickable but invisible. The Dock can't be crowded out.
-        app.setActivationPolicy(Config.dockIcon() ? .regular : .accessory)
-        app.applicationIconImage = FeatherIcon.image(size: 512, color: nil)
-
         let controller = AppController(root: root)
 
         // NSApp holds its delegate weakly, and a Dock icon is useless if
@@ -354,6 +362,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
+        Analytics.flushOnExit()
     }
 
     /// The app menu's **Setup…**, kept so that it can be taken away once the

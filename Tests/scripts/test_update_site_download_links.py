@@ -17,14 +17,14 @@ class UpdateSiteDownloadLinksTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary:
             site = Path(temporary)
-            (site / "amanu" / "ru").mkdir(parents=True)
-            (site / "amanu" / "index.html").write_text(
+            (site / "ru").mkdir(parents=True)
+            (site / "index.html").write_text(
                 '<a href="https://github.com/gsamat/amanu/releases/latest">one</a>\n'
                 '<a href="https://github.com/gsamat/amanu/releases/latest">two</a>\n'
                 '<a href="https://github.com/gsamat/amanu">source</a>\n',
                 encoding="utf-8",
             )
-            (site / "amanu" / "ru" / "index.html").write_text(
+            (site / "ru" / "index.html").write_text(
                 '<a href="https://github.com/gsamat/amanu/releases/download/v0.4.10/'
                 'amanu-v0.4.10-macos-universal.dmg">one</a>\n'
                 '<a href="https://github.com/gsamat/amanu/releases/latest">two</a>\n',
@@ -39,8 +39,8 @@ class UpdateSiteDownloadLinksTests(unittest.TestCase):
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            english = (site / "amanu" / "index.html").read_text(encoding="utf-8")
-            russian = (site / "amanu" / "ru" / "index.html").read_text(encoding="utf-8")
+            english = (site / "index.html").read_text(encoding="utf-8")
+            russian = (site / "ru" / "index.html").read_text(encoding="utf-8")
             self.assertEqual(english.count(f'href="{asset}"'), 2)
             self.assertEqual(russian.count(f'href="{asset}"'), 2)
             self.assertNotIn("/releases/latest", english + russian)

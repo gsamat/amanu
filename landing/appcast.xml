@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>amanu</title>
+        <link>https://amanu.me/appcast.xml</link>
+        <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
+        <language>en</language>
+        <item>
+            <title>0.4.11</title>
+            <pubDate>Wed, 02 Sep 2026 13:29:01 +0000</pubDate>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<p>This release keeps recording from changing what a meeting sounds like. Amanu now records the microphone raw by default instead of turning on Apple&#x27;s duplex voice-processing route, which could attenuate or interrupt other playback for as long as the recording ran. Echo is removed from the transcript afterwards, where it cannot affect the conversation itself.</p>
+<h3>What changed since v0.4.10</h3>
+<ul>
+<li><strong>Recording leaves playback alone by default.</strong> <code>mic_voice_processing</code> now defaults to off. It remains available as an explicit setting when a clean archived microphone channel matters more than unchanged playback, but Amanu no longer enables VoiceProcessingIO merely to improve transcription.</li>
+</ul>
+<ul>
+<li><strong>AssemblyAI receives the two sides as separate channels.</strong> Amanu aligns the microphone on the left and system audio on the right, and asks AssemblyAI for multichannel transcription with diarization inside each channel. The result no longer has to guess whether a voice belongs to the microphone or to the call from the relative loudness of a mono mix.</li>
+</ul>
+<ul>
+<li><strong>Raw-microphone echo is filtered more completely.</strong> The text filter still keeps genuine cross-talk and short reactions. When AssemblyAI identifies a separate microphone speaker whose utterances are overwhelmingly proven to be the acoustic copy of system playback, its remaining overlapping ASR near-misses are removed too. Speech from that label outside system playback is kept.</li>
+</ul>
+<ul>
+<li><strong>Recordings say how they were made.</strong> <code>meta.json</code> now records the requested, initial and final microphone processing mode, input and output devices, the captured format, the transcription input path, and how many echoed segments were removed. Route restarts keep their own processing evidence as before.</li>
+</ul>
+<ul>
+<li><strong>Stopping a meeting releases the capture route completely.</strong> The live transcription coordinator no longer retains closures that keep the finished recording session and its microphone engine alive after Stop.</li>
+</ul>
+<h3>Checked on real meetings</h3>
+<p>Two meetings were recorded with voice processing off before this release: a 52-minute Zoom call through the MacBook speakers and a 77-minute Zoom call with AirPods Pro. Both produced coherent AssemblyAI transcripts and detailed summaries. On the speaker call the refined filter removes 5,448 duplicate mic segments, including 353 short fragments the first pass left behind. On the AirPods call it removes 787 duplicates rather than 679. In both cases the ordinary microphone speakers stay below the echo-speaker threshold, and speech outside overlapping system audio is preserved.</p>
+<p>The complete automated suite has 305 passing tests. Seven screenshot tests are skipped outside their visual-test harness.</p>
+<h3>Requirements</h3>
+<p>macOS 15 or later, on Apple Silicon or Intel. The application is signed with a Developer ID certificate, uses the hardened runtime, and the disk image carries a stapled Apple notarization ticket.</p>
+<h3>Verifying the download</h3>
+<p>The checksum is attached alongside the disk image.</p>
+<ul>
+<li><code>shasum -a 256 -c amanu-v0.4.11-macos-universal.dmg.sha256</code></li>
+<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.11-macos-universal.dmg</code></li>
+<li><code>xcrun stapler validate amanu-v0.4.11-macos-universal.dmg</code></li>
+</ul>]]></description>
+            <enclosure
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.11/amanu-v0.4.11-macos-universal.dmg"
+                sparkle:version="260"
+                sparkle:shortVersionString="0.4.11"
+                sparkle:edSignature="cW5uZ2/mbHxZvSwKlvf1DLUGIjyOjDNK6u2C6n18eiXXNegCsPvSHh+eRhyJTCEh8N+OdiGGUBpbtkBvTNIXCg=="
+                length="9230719"
+                type="application/octet-stream" />
+        </item>
+    </channel>
+</rss>

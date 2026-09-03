@@ -161,7 +161,7 @@ struct SettingsSchemaTests {
         #expect(!keys.isEmpty)
     }
 
-    /// The ten settings the setup form asks in full, and therefore the ten
+    /// The eleven settings the setup form asks in full, and therefore the eleven
     /// the Advanced tab leaves out. Written down rather than derived, because
     /// there is nothing to derive it from: setup asks these through cards,
     /// switches and an open panel, in its own vocabulary, and no signature in
@@ -198,6 +198,8 @@ struct SettingsSchemaTests {
             // The two switches under "Where amanu shows up".
             "menu_bar_icon",
             "dock_icon",
+            // The final, default-on switch in both Setup and Settings.
+            "analytics",
         ])
     }
 

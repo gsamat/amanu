@@ -12,17 +12,19 @@ failures are the part that costs hours.
 
 Three artefacts, in this order of importance:
 
-1. **The appcast**, `https://samat.me/amanu/appcast.xml`. This is what every
+1. **The appcast**, `https://amanu.me/appcast.xml`. This is what every newly
    installed copy reads once a day. It is the release as far as existing users
    are concerned; the GitHub page is for strangers.
 2. **The disk image** on the GitHub release, which the appcast points at.
    Signed with Developer ID, hardened runtime, notarized, ticket stapled.
 3. **The GitHub release page**, with the image and its checksum attached.
 
-The appcast is served from `reina:/var/www/samat/amanu/` and tracked in the
-`gsamat/samatme3` repository at `amanu/appcast.xml`. It is tracked there on
-purpose: the site's own deploy uses `rsync --delete`, and an untracked
-server-only file would be erased the next time somebody publishes the site.
+The canonical appcast is served from `reina:/var/www/amanu/` and tracked in
+this repository at `landing/appcast.xml`. Builds released before the move have
+`https://samat.me/amanu/appcast.xml` baked into their bundles, so the release
+script publishes an identical compatibility copy there and tracks that copy in
+`gsamat/samatme3`. Do not remove the old endpoint while any such installation
+may still need to cross onto a build that knows the new address.
 
 ## Before you start
 
@@ -37,8 +39,8 @@ diagnosis later.
 | ASC ids | `.env.asc` in the repo root, gitignored | Copy one from any iOS project; they are all the same account. |
 | Developer ID certificate | `~/Library/Keychains/developer-id.keychain-db` | `~/.local/bin/unlock-signing-keychain`; `make app` runs it already. |
 | `gh`, authenticated | account `gsamat` | `gh auth status` |
-| `ssh reina` | passwordless | this is where samat.me is served from |
-| Site checkout | `~/Documents/проекты/samatme3`, on `main`, pushed | the script refuses otherwise |
+| `ssh reina` | passwordless | this is where amanu.me and the compatibility feed are served from |
+| Legacy site checkout | `~/Documents/проекты/samatme3`, on `main`, pushed | keeps the old feed durable across samat.me deploys |
 
 ## Doing it
 
@@ -97,13 +99,14 @@ before it costs time and nothing else. Do not "helpfully" reorder them.
    bump the version — replacing something people have already downloaded is not
    a thing it will do for you.
 7. **Sign the appcast.** EdDSA over the exact bytes of the disk image, written
-   into the site checkout. On a dry run it goes to `dist/appcast.xml` instead,
+   to `landing/appcast.xml`. On a dry run it goes to `dist/appcast.xml` instead,
    so a rehearsal never leaves a signed feed pointing at a release that does
    not exist.
-8. **Publish.** The GitHub release stops being a draft; then the appcast is
-   committed, pushed and rsynced to reina; then the script fetches the live
-   feed and compares it byte for byte with what it signed, and asks GitHub for
-   the asset to confirm it answers 200.
+8. **Publish.** The GitHub release stops being a draft; then the canonical
+   appcast and landing pages are committed, pushed and rsynced to reina. The
+   same appcast is committed and deployed at the legacy URL. Finally the script
+   fetches both feeds, compares them byte for byte with what it signed, and
+   asks GitHub for the asset to confirm it answers 200.
 
 If stage 8 fails *after* the GitHub release went public, nothing is broken:
 installed copies keep reading the previous feed, the download works for anyone
@@ -111,7 +114,7 @@ who has the link, and re-running deployment is safe.
 
 ## Rules that are not negotiable
 
-- **Never hand-edit `amanu/appcast.xml`.** The signature covers a specific
+- **Never hand-edit `landing/appcast.xml`.** The signature covers a specific
   file. Change a byte and every installed copy silently refuses the update —
   silently, because a failed signature check is exactly what the mechanism is
   supposed to do about a tampered feed.

@@ -32,12 +32,12 @@
     <false/>
     <key>NSSupportsSuddenTermination</key>
     <false/>
-    <!-- Sparkle. The feed is served from samat.me; the release binaries it
+    <!-- Sparkle. The canonical feed is served from amanu.me; the release binaries it
          points at live on GitHub. The public half of the EdDSA key pair is
          here so the app can refuse an update it cannot verify — the private
          half is not in this repository and never should be. -->
     <key>SUFeedURL</key>
-    <string>https://samat.me/amanu/appcast.xml</string>
+    <string>https://amanu.me/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>/AxdBBPOFIca/y7RYwvi83FE6WqnIAjkVV0nTkRq9/c=</string>
     <!-- Check on our own rather than asking on first launch: amanu already

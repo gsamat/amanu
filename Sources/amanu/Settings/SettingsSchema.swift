@@ -406,6 +406,16 @@ enum SettingsSchema {
                           + "расшифровка и саммари."),
                   .text, default: localised("nothing", "ничего")),
         ]),
+        Section(title: localised("Statistics", "Статистика"), entries: [
+            Entry(["analytics"],
+                  localised(
+                      "Send anonymous usage statistics",
+                      "Отправлять анонимную статистику об использовании"),
+                  localised(
+                      "How often you use amanu and which features you use, so we can make it better.",
+                      "Как часто вы пользуетесь программой и какими функциями — чтобы сделать её лучше."),
+                  .toggle, default: true, askedInSetup: true),
+        ]),
     ] }
 
     /// `sections` minus what setup already asks, which is what the Advanced

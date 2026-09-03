@@ -37,6 +37,16 @@ enum Runtime {
 
     static var bundleURL: URL? { appBundle?.bundleURL }
 
+    /// A login item and an updater both outlive this process. A bundle on the
+    /// mounted release image does not: its volume is read-only and disappears
+    /// when ejected, so neither feature may store or replace that path.
+    static var supportsPersistentFeatures: Bool {
+        guard let bundleURL else { return false }
+        return ApplicationRelocation.supportsPersistentFeatures(
+            bundleURL: bundleURL,
+            volumeIsReadOnly: ApplicationRelocation.volumeIsReadOnly(at: bundleURL))
+    }
+
     /// The executable to point the command-line symlink at.
     static var executableURL: URL {
         (Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0]))

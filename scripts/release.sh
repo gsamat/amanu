@@ -17,7 +17,7 @@
 #   ~/.appstoreconnect/private_keys/AuthKey_*.p8   notarization
 #   .env.asc                                       ASC key and issuer ids
 #   gh, authenticated as the owner of gsamat/amanu
-#   ssh reina                                      where samat.me is served
+#   ssh reina                                      where amanu.me is served
 
 set -euo pipefail
 
@@ -39,7 +39,12 @@ VOLNAME="amanu $VERSION"
 ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")"
 SPARKLE_KEY="$HOME/.appstoreconnect/amanu-sparkle-ed25519.key"
 SPARKLE_BIN=$(find .build/artifacts/sparkle -type d -name bin 2>/dev/null | head -1)
-SITE="$HOME/Documents/проекты/samatme3"
+SITE="$ROOT/landing"
+# Old builds have samat.me baked into their Info.plist. Keep one identical
+# compatibility copy there so they can reach the first release whose bundle
+# knows the canonical amanu.me address.
+LEGACY_SITE="$HOME/Documents/проекты/samatme3"
+LEGACY_APPCAST="$LEGACY_SITE/amanu/appcast.xml"
 NOTES="docs/release-notes-$TAG.md"
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
@@ -58,21 +63,24 @@ ASC_KEY="$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
 # the build number it stamps into the bundle is a lie about which commit it is.
 [ -z "$(git status --porcelain)" ] || die "working tree is dirty"
 
-# The site repository is pushed to at the last stage. Checking it now means a
-# release fails before the notary rather than after the GitHub release is
-# already public — and a `git push` there must not carry somebody else's
-# unfinished commits out with the appcast.
+# The current repository and the legacy feed repository are pushed at the last
+# stage. Checking them now means a release fails before the notary rather than
+# after the GitHub release is already public.
 if [ "$DRY_RUN" = 0 ]; then
-    [ -d "$SITE/.git" ] || die "no site checkout at $SITE"
-    git -C "$SITE" fetch -q origin 2>/dev/null || true
-    [ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = "main" ] \
-        || die "the site checkout is not on main"
-    [ -z "$(git -C "$SITE" log --oneline @{u}.. 2>/dev/null)" ] \
-        || die "the site checkout has commits that are not pushed; sort them out first"
+    [ "$(git rev-parse --abbrev-ref HEAD)" = "master" ] \
+        || die "the amanu checkout is not on master"
+    [ -d "$LEGACY_SITE/.git" ] || die "no legacy site checkout at $LEGACY_SITE"
+    git -C "$LEGACY_SITE" fetch -q origin 2>/dev/null || true
+    [ "$(git -C "$LEGACY_SITE" rev-parse --abbrev-ref HEAD)" = "main" ] \
+        || die "the legacy site checkout is not on main"
+    [ -z "$(git -C "$LEGACY_SITE" log --oneline @{u}.. 2>/dev/null)" ] \
+        || die "the legacy site checkout has commits that are not pushed; sort them out first"
 fi
 
 step "1/8  tests"
-python3 -m unittest Tests/scripts/test_update_site_download_links.py
+python3 -m unittest \
+    Tests/scripts/test_update_feed_location.py \
+    Tests/scripts/test_update_site_download_links.py
 swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
@@ -146,8 +154,7 @@ SIGNATURE=$("$SPARKLE_BIN/sign_update" -p --ed-key-file "$SPARKLE_KEY" "$DMG")
 if [ "$DRY_RUN" = 1 ]; then
     APPCAST="dist/appcast.xml"
 else
-    APPCAST="$SITE/amanu/appcast.xml"
-    mkdir -p "$SITE/amanu"
+    APPCAST="$SITE/appcast.xml"
 fi
 PUBDATE=$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S +0000')
 NOTES_HTML=$(python3 scripts/notes-to-html.py "$NOTES")
@@ -156,7 +163,7 @@ cat > "$APPCAST" <<XML
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
         <title>amanu</title>
-        <link>https://samat.me/amanu/appcast.xml</link>
+        <link>https://amanu.me/appcast.xml</link>
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
@@ -188,17 +195,26 @@ gh release edit "$TAG" --repo "$REPO" --draft=false --latest
 # Only now, with the download live, do the feed and the two landing pages
 # start pointing at it.
 python3 scripts/update-site-download-links.py "$SITE" "$ASSET_URL"
-git -C "$SITE" add amanu/appcast.xml amanu/index.html amanu/ru/index.html
-git -C "$SITE" commit -q -m "amanu $VERSION in the appcast" || true
-git -C "$SITE" push -q
-rsync -az "$SITE/amanu/" reina:/var/www/samat/amanu/
+cp "$APPCAST" "$LEGACY_APPCAST"
+git add landing/appcast.xml landing/index.html landing/ru/index.html
+git commit -q -m "Publish amanu $VERSION" || true
+git push -q origin master
+git -C "$LEGACY_SITE" add amanu/appcast.xml
+git -C "$LEGACY_SITE" commit -q -m "Mirror amanu $VERSION appcast" || true
+git -C "$LEGACY_SITE" push -q
+rsync -az --exclude .DS_Store --exclude README.md --exclude tests --exclude deploy \
+    "$SITE/" reina:/var/www/amanu/
+rsync -az "$LEGACY_APPCAST" reina:/var/www/samat/amanu/appcast.xml
 
 step "verifying what the world now sees"
-curl -fsS https://samat.me/amanu/appcast.xml > dist/published-appcast.xml
+curl -fsS https://amanu.me/appcast.xml > dist/published-appcast.xml
 diff -q "$APPCAST" dist/published-appcast.xml \
     || die "the published feed is not the file we signed"
-curl -fsS https://samat.me/amanu/ > dist/published-amanu.html
-curl -fsS https://samat.me/amanu/ru/ > dist/published-amanu-ru.html
+curl -fsS https://samat.me/amanu/appcast.xml > dist/published-legacy-appcast.xml
+diff -q "$APPCAST" dist/published-legacy-appcast.xml \
+    || die "the legacy feed is not the canonical feed"
+curl -fsS https://amanu.me/ > dist/published-amanu.html
+curl -fsS https://amanu.me/ru/ > dist/published-amanu-ru.html
 grep -qF "href=\"$ASSET_URL\"" dist/published-amanu.html \
     || die "the English landing page does not point at the released disk image"
 grep -qF "href=\"$ASSET_URL\"" dist/published-amanu-ru.html \
@@ -209,4 +225,4 @@ grep -qE '^HTTP/[0-9.]+ 200' <<<"$ASSET_HEAD" \
 echo
 echo "amanu $TAG is out."
 echo "  https://github.com/$REPO/releases/tag/$TAG"
-echo "  https://samat.me/amanu/appcast.xml"
+echo "  https://amanu.me/appcast.xml"

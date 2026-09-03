@@ -15,18 +15,19 @@ enum LoginItem {
         case notRegistered
         /// Registered, but someone has to allow it in System Settings.
         case needsApproval
-        /// This copy isn't an app bundle, so there is nothing to register.
+        /// This copy is bare or on a temporary disk image, so there is no
+        /// persistent application path to register.
         case unavailable
     }
 
-    static var isAvailable: Bool { Runtime.isBundled }
+    static var isAvailable: Bool { Runtime.supportsPersistentFeatures }
 
     /// Asked of `ThisTurn` because `SMAppService.mainApp.status` is an XPC
     /// round trip, and the setup window asks this six times to draw itself
     /// once.
     static func status() -> State {
         ThisTurn.answer("login item") {
-            guard Runtime.isBundled else { return State.unavailable }
+            guard Runtime.supportsPersistentFeatures else { return State.unavailable }
             switch SMAppService.mainApp.status {
             case .enabled: return .enabled
             case .requiresApproval: return .needsApproval
@@ -38,7 +39,7 @@ enum LoginItem {
 
     @discardableResult
     static func register() throws -> State {
-        guard Runtime.isBundled else { return .unavailable }
+        guard Runtime.supportsPersistentFeatures else { return .unavailable }
         try SMAppService.mainApp.register()
         ThisTurn.forget()
         return status()
@@ -46,7 +47,7 @@ enum LoginItem {
 
     @discardableResult
     static func unregister() throws -> State {
-        guard Runtime.isBundled else { return .unavailable }
+        guard Runtime.supportsPersistentFeatures else { return .unavailable }
         try SMAppService.mainApp.unregister()
         ThisTurn.forget()
         return status()

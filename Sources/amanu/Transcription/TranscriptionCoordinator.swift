@@ -195,6 +195,9 @@ actor TranscriptionCoordinator {
         // Outside `transcribe` rather than at the end of it because both take
         // the session's claim, and a claim held while asking for a second one
         // would refuse itself.
+        Analytics.track(.transcriptFinished, [
+            .engine: .text(engine?.name ?? Config.transcriptionEngine()),
+        ])
         await PostProcessor.finish(dir)
         notifyUser(
             title: localised("amanu — transcript ready", "amanu — расшифровка готова"),
@@ -240,6 +243,13 @@ actor TranscriptionCoordinator {
 
     private func recordFailure(_ error: Error, for dir: URL) {
         let permanent = (error as? TranscriptionFailure)?.isPermanent ?? false
+        Analytics.track(.transcriptFailed, [
+            .engine: .text(engine?.name ?? Config.transcriptionEngine()),
+            .reason: .text({
+                if Self.looksLikeNetworkTrouble(error) { return Analytics.Reason.noNetwork }
+                return permanent ? .refused : .unknown
+            }().rawValue),
+        ])
         let attempts =
             (SessionState.value(dir, SessionState.Key.transcriptionAttempts) as? Int ?? 0) + 1
         var fields: [String: Any?] = [SessionState.Key.transcriptionAttempts: attempts]

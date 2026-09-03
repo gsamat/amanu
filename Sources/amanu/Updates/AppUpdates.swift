@@ -8,24 +8,24 @@ import Sparkle
 /// bundle to update, translate its two questions into the gate's vocabulary,
 /// and hand the menu somewhere to send **Check for updates…**.
 ///
-/// The updater only exists in a real `Amanu.app`. A bare binary — `swift run`,
-/// a test, the CLI symlink before the app is installed — has nothing Sparkle
-/// could replace, and starting it there produces a framework that logs its
-/// disappointment once a day for no reason.
+/// The updater only exists in a real `Amanu.app` on a persistent, writable
+/// volume. A bare binary has nothing Sparkle could replace, and a DMG copy is
+/// read-only and disappears when ejected; starting it in either place only
+/// produces a framework that logs its disappointment once a day.
 final class AppUpdates: NSObject, SPUUpdaterDelegate {
     private var controller: SPUStandardUpdaterController?
     private let gate: UpdateGate
 
-    /// Whether this copy can be updated at all. False in a bare build, which
-    /// is how the menu knows to leave the item out rather than offer a button
-    /// that can only fail.
+    /// Whether this copy can be updated at all. False in a bare build and on
+    /// the disk image, which is how the menu knows to leave out a button that
+    /// can only fail.
     var isAvailable: Bool { controller != nil }
 
     @MainActor
     init(gate: UpdateGate) {
         self.gate = gate
         super.init()
-        guard Runtime.isBundled else { return }
+        guard Runtime.supportsPersistentFeatures else { return }
         controller = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: self,

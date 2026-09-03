@@ -4,9 +4,10 @@ import Foundation
 ///
 /// Agents and scripts call amanu by name, and the command line has to be the
 /// same signed program as the app — otherwise it isn't talking to the copy
-/// that holds the microphone, and `Runtime.isBundled` answers no. A symlink
-/// into the bundle gives both for free, and an application update updates the
-/// command line with it.
+/// that holds the microphone. A symlink into the installed bundle gives both
+/// for free, and an application update updates the command line with it. A
+/// bundle on a DMG is deliberately excluded: the symlink would break as soon
+/// as the image was ejected.
 enum AgentCLI {
     static let path = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".local/bin/amanu")
@@ -19,7 +20,7 @@ enum AgentCLI {
         to executable: URL = Runtime.executableURL,
         now: Date = Date()
     ) -> Result<Bool, Error> {
-        guard Runtime.isBundled else { return .success(false) }
+        guard Runtime.supportsPersistentFeatures else { return .success(false) }
         return link(at: cli, to: executable, now: now)
     }
 

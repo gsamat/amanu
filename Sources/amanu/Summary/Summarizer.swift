@@ -36,6 +36,10 @@ enum Summarizer {
         let backends = LLMBackend.available(preference: settings.backend)
         guard !backends.isEmpty else {
             log("summary skipped — no backend available")
+            Analytics.track(.summaryFailed, [
+                .backend: .text(settings.backend),
+                .reason: .text(Analytics.Reason.noKey.rawValue),
+            ])
             return nil
         }
         // Whether every failure so far was of a kind that passes. If they all
@@ -61,6 +65,7 @@ enum Summarizer {
                 )
                 log("summary written by \(backend.name)")
                 SessionState.update(dir, with: [SessionState.Key.summaryStatus: nil])
+                Analytics.track(.summaryFinished, [.backend: .text(backend.name)])
                 return backend.name
             } catch {
                 // Falling through is the expected path when a subscription is
@@ -83,6 +88,10 @@ enum Summarizer {
         log(allTransient
             ? "no backend could be reached — summary deferred, will be retried later"
             : "every backend failed for good — giving up on the summary")
+        Analytics.track(.summaryFailed, [
+            .backend: .text(settings.backend),
+            .reason: .text((allTransient ? Analytics.Reason.noNetwork : .refused).rawValue),
+        ])
         return nil
     }
 

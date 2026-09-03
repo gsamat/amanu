@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Amanu analytics retention daily
+
+[Timer]
+OnCalendar=*-*-* 03:37:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
