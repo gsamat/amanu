@@ -1,171 +1,121 @@
-# What this fork changed, and why
+# From quill to Amanu
 
-amanu began as [digimata/quill](https://github.com/digimata/quill) and is now
-about 19,000 lines away from it across 112 files. This is the honest account of
-what moved and what the reasons were, because a fork that doesn't say what it
-did is just a copy with a new name.
+Amanu began as a fork of
+[digimata/quill](https://github.com/digimata/quill) at upstream commit
+[`855869e`](https://github.com/digimata/quill/commit/855869e00b18bc9e7e6d171211780b439ce6ccd7).
+quill supplied the foundation: a small Swift program that captures the
+microphone and Mac audio as separate tracks and transcribes them locally with
+Parakeet.
 
-## Why fork at all
+This document records that provenance and the boundary between the projects.
+For Amanu's current features and installation instructions, see the
+[README](README.md).
 
-quill is a good starting point and a stalled one. Its last commit is 30 July
-2026, and fourteen pull requests are open against it with nobody merging them.
-Nothing here is a complaint about the original — it does what it says: two
-tracks, a menu bar item, local transcription. It just stops well short of
-"record my meetings and leave me the notes", and the distance turned out to be
-mostly in the parts nobody writes for a demo.
+## Why it became a separate project
 
-The name changed with the scope. *Amanuensis* is the person who writes down
-what is said; quill was the object, amanu is the job.
+quill is a recorder that runs when asked. Amanu is intended to notice a
+meeting, record it safely, and leave behind a useful transcript and summary
+without needing supervision.
 
-## The part that mattered most: it records by itself
+That change in responsibility affected almost every layer of the program. An
+automatic recorder must distinguish a call from any other use of the
+microphone, avoid recording unrelated system audio, survive interruption, and
+make unfinished work visible and recoverable. A meeting assistant also needs a
+real setup flow, durable processing state, and somewhere to inspect and retry
+past sessions. Amanu therefore grew into its own application rather than a
+small set of patches carried on top of quill.
 
-quill records when you click. amanu records when a meeting happens, and that
-one change pulled in most of the rest.
+The new name reflects that scope: an *amanuensis* is a person whose job is to
+write down what is said. quill named the instrument; Amanu names the job.
 
-Two independent triggers: a call app holds the microphone, or a calendar event
-starts. Both are narrower than they sound, and the narrowing is the work.
+## Where the architecture diverged
 
-- **A whitelist of call apps, not a blacklist.** Dictation software, Voice
-  Memos and a browser tab metering input levels all open the microphone. On a
-  blacklist every one of them is a recording of whatever was in the room until
-  someone notices.
-- **Microphone use is detected per process, not per device.** Otherwise amanu's
-  own capture reads as an ongoing meeting and sustains itself. The predecessor
-  project did exactly this and produced fifteen hours of overnight audio.
-- **The far end going quiet ends the call** — but only because the audio tap is
-  pointed at the call app rather than at the machine (below). Requires macOS
-  14.4 for per-process attribution; below that auto-record refuses to run
-  instead of guessing.
+### Capture follows the meeting
 
-## Tapping the call app, not the whole Mac
+quill starts and stops manually and captures all audio played by the Mac.
+Amanu can also start from per-process microphone activity or a calendar event.
+It captures audio from the call application's process family, including helper
+processes and call apps that join later, so music, notifications, and unrelated
+browser audio stay out of the recording.
 
-quill taps everything the Mac plays. amanu taps the bundle-id family of the
-app that holds the microphone — Chrome renders call audio in a helper process,
-Zoom and Teams each ship several — and picks up any other call app that joins
-later, because clicking a Zoom link during a browser call is ordinary.
+Automatic capture also has to handle conditions a manual recorder can leave to
+the person operating it. Amanu follows microphone route changes, preserves one
+timeline across capture restarts and pauses, and uses separate silence and
+duration rules to decide when a meeting has ended.
 
-Two things come out of it. The transcript stops collecting music, notification
-dings and the video you opened afterwards. And "the far end has gone quiet"
-starts meaning *the call ended*: with a global tap, a video opened after a
-meeting kept one recording alive for ten extra minutes. Measured both ways —
-narrow tap, 92 seconds after the last speech, exactly the configured delay.
+### Recordings survive interruption
 
-## Recording that survives being killed
+The original recorder wrote AAC into CAF files. CAF itself is
+crash-tolerant, but a variable-bit-rate AAC stream still needs packet metadata
+written when the file is closed; a hard kill can therefore leave it
+undecodable.
 
-quill's README says CAF needs no finalization and loses nothing on a crash.
-That is true of PCM and **false of AAC**, which is what it wrote: AAC is
-variable-bitrate, so the file is undecodable without the packet table written
-at close. `kill -9` mid-meeting left 99 KB and zero recoverable seconds.
+Amanu records the live microphone and call tracks as uncompressed PCM. If the
+app is terminated or the Mac restarts, the next launch adopts the interrupted
+session and returns it to the normal processing queue. After transcription,
+the tracks can be archived together as a compact stereo M4A or deleted,
+depending on the user's setting.
 
-So amanu records uncompressed PCM — about a gigabyte an hour — and re-encodes
-to AAC only once the transcript exists, deleting the PCM after `meta.json`
-already points at the new stereo archive. It handles SIGTERM, because logging out, rebooting and quitting all send one
-and all used to take the meeting with them. And a session left behind by a crash is adopted on the next
-launch rather than orphaned.
+### A recording is a durable job
 
-## Transcription that finishes
+Both projects use session folders, but Amanu makes the folder the source of
+truth for the whole workflow. Metadata and the presence of output artifacts
+describe whether recording, transcription, speaker naming, summarization, or
+audio settlement remains to be done. Work is claimed before it starts so the
+app and CLI cannot process or upload the same session concurrently.
 
-quill has parakeet. amanu keeps it, adds AssemblyAI behind the same protocol,
-and spends most of its new code on the question of what happens when a
-transcript doesn't arrive.
+The pipeline can retry transient failures, defer work that needs a network,
+and retire failures that repetition cannot fix. It supports local and cloud
+transcription, keeps the two sides of the call attributable, filters proven
+echo, assigns names only when the available evidence supports them, and stores
+derived speaker names separately from the canonical transcript. Summaries use
+the same resumable model: missing tools, exhausted subscriptions, and an
+offline Mac do not silently discard the job.
 
-- **`auto` picks the engine when there is work**, not at launch: the laptop
-  that recorded a meeting on a train is transcribing it on a train. Key plus a
-  network means cloud; anything else means local. A connection that drops
-  between the probe and the upload falls back to parakeet rather than failing.
-- **The queue is the filesystem** — a session with `meta.json` and no
-  `transcript.json` is pending — so it survives a restart.
-- **A session that can't be transcribed is retired**, after three attempts or
-  one if the error is of a kind repetition can't fix. Without this a cloud
-  engine re-uploaded and re-charged for the same unusable audio at every
-  launch.
-- **Speaker attribution across two tracks.** A diarizing engine needs one
-  stream, so the tracks are mixed onto a shared clock; the anonymous `A`/`B`
-  labels that come back are then mapped to `me`/`them` by asking which source
-  track was loud while each utterance was spoken. Per utterance, not per label,
-  so a model that merges two similar voices still comes out split. Where the
-  tracks genuinely can't settle it, the raw labels are kept rather than
-  guessed.
-- **An echo filter**, for meetings played through speakers, where the far end
-  lands on both tracks and every sentence would otherwise appear twice.
-- **Real names on the speakers.** `me` and `them A` are correct and useless a
-  week later. A pass after the transcript works out who was who from the
-  invitees and from people addressing each other by name, and applies it only
-  where the transcript proves it — names live in `speakers.json`, never
-  written back over `transcript.json`, so a wrong guess is reversible.
-- **An optional live transcript** while the meeting is still running, from a
-  second local streaming model. Explicitly a disposable preview: held in
-  memory, never saved, never a fallback for the real transcript.
+### The daemon became a native application
 
-## Summaries
+quill is a menu-bar executable that may run through a LaunchAgent. Amanu ships
+as a signed, hardened, and notarized application bundle. The bundle is not only
+packaging: macOS associates microphone and system-audio permissions with the
+responsible application and its code signature.
 
-New here entirely. After the transcript: topic, key points, decisions, action
-items, open questions.
+Amanu adds first-run setup, Settings, a status window, a recordings browser,
+menu-bar and Dock controls, notifications, English and Russian interfaces, and
+a CLI installed from the same signed bundle. Sparkle provides signed updates,
+with checks and installation gated so an update cannot interrupt an active
+recording.
 
-The backend chain is ordered on purpose — the local `claude` CLI, then the
-Anthropic API, then `codex`, then the OpenAI API, then ollama. Subscriptions
-before metered keys, because one is already paid for. A spent allowance is not
-a failure and is not treated as one: an exhausted CLI says so, and the next
-backend takes over. When nothing at all can be reached the session is marked
-`summary_status: deferred` rather than dropped, so a meeting summarized on a
-plane still gets its summary that evening.
+### Failures became regression tests
 
-The default model is the expensive one. A summary is the place where a cheap
-model quietly costs you a decision nobody will listen to the recording to
-recover, and the difference is a few cents a meeting.
+The test suite was built from observed failure modes: interrupted recordings,
+silent tracks, audio-route changes, mismatched sample rates, duplicate work,
+transcription fallback, speaker attribution, and UI layout. Window snapshots
+cover both interface languages and light and dark appearances.
 
-## Three surfaces instead of one
+## What remains from quill
 
-quill is a menu bar item. That is not a dependable place for the only control
-of a recorder: when the menu bar runs out of room macOS parks the item
-off-screen — measured at x = −9406 on a laptop with a notch — and a menu bar
-manager can hide it outright. It stays perfectly clickable and completely
-invisible, which for a program whose whole job is answering "am I recording?"
-is the worst available failure.
+The lineage is still visible in the core constraints:
 
-So there is also an ordinary window (ordinary on purpose — it sits in the
-normal stacking order rather than floating above everything) and a Dock icon
-that turns red while recording with the elapsed time as its badge. Pause writes
-silence rather than tearing down the capture, so every timestamp after it stays
-true.
+- one Swift package and one executable, without an Xcode project;
+- Core Audio process taps and `AVAudioEngine`, with no meeting bot, virtual
+  audio device, or kernel extension;
+- separate microphone and call audio, aligned on a shared timeline;
+- Parakeet as an on-device transcription engine;
+- ordinary session folders rather than a hosted meeting library; and
+- the option to keep meeting content entirely on the Mac.
 
-## Sessions that are folders, named after meetings
+quill was created by Andrew Jones. The ideas above and their first
+implementation came from his project. Amanu retains quill's
+[MIT license](LICENSE) and upstream copyright notice.
 
-quill writes files by timestamp. amanu writes one folder per meeting —
-`2026.08.18-1024 клиент АД зум (zoom.us)` — holding the audio, `transcript.md`
-and `transcript.json`, `summary.md`, `meta.json` and a per-session log. The
-name comes from the calendar when the calendar knows, and from the app
-otherwise.
+## Following the history
 
-## Odds and ends worth naming
+The exact code delta is available in the
+[GitHub comparison](https://github.com/digimata/quill/compare/855869e00b18bc9e7e6d171211780b439ce6ccd7...gsamat:amanu:master).
+Unlike a prose inventory, that comparison stays complete as Amanu changes.
 
-- **Signing in the Makefile.** macOS attributes microphone and system-audio
-  grants to the code signature, and SwiftPM only ad-hoc signs — so every
-  rebuild looked like a new program, re-prompted, and left another dead entry
-  in System Settings.
-- **amanu ships as an application bundle**, which is what makes it its own
-  responsible process for system audio — the thing a LaunchAgent used to buy,
-  and the reason that agent is gone. `spike/tcc-bundle` is the measurement.
-- **The mix is summed by hand.** `AVAssetExportSession` drags in AVFoundation's
-  media-library machinery, and macOS answers by asking for Photos, Media &
-  Apple Music and the Documents folder — mid-meeting, from a recorder that
-  touches none of them.
-- **The recording icon is redrawn in colour rather than tinted.**
-  `contentTintColor` doesn't override template rendering, so the red icon
-  vanished on dark wallpaper.
-- **It updates itself**, through Sparkle and a signed appcast, and it will not
-  interrupt a meeting to do it: a check that comes due while recording is
-  skipped, and an install offered anyway is held until the recording stops.
-- **A test suite**, which upstream has none of. 145 tests, most of them
-  regression tests for the failures listed above — the absolute level floor in
-  speaker attribution, the compressed-track verification, the recovery of an
-  interrupted session, the mix keeping its timing across a sample-rate
-  mismatch.
-
-## What did not change
-
-Still one Swift binary — now inside an application bundle, for the reasons
-above, but a bundle is a directory with a plist in it and there is no second
-build system. Still a Core Audio process tap for system audio, with no virtual
-device and no kernel extension. Still local unless you hand it a cloud token.
-MIT, as upstream.
+For the reasoning behind particular implementation choices, see
+[Things that will bite](docs/pitfalls.md) and the design notes in
+[`docs/specs`](docs/specs/). The [release notes](docs/) provide the chronological
+record. Together those documents carry details that would make this provenance
+note duplicate the rest of the repository and go stale again.

@@ -195,9 +195,8 @@ automatic, and the app exposes the same controls.
 
 ## Configuration
 
-Settings writes `~/.config/amanu/config.json`. The file is optional, and a
-control returned to its default is removed rather than frozen there. A compact
-example:
+Settings writes `~/.config/amanu/config.json`. The file is optional and stores
+only values that differ from the defaults. A compact example:
 
 ```json
 {
@@ -264,8 +263,8 @@ Amanu began as a fork of [digimata/quill](https://github.com/digimata/quill)
 and has since been substantially rewritten. The fork grew into a native app
 with first-run setup, automatic recording, live transcription, speaker naming,
 a resumable processing pipeline, local and cloud backends, crash recovery, a
-regression suite, and signed automatic updates. [FORK.md](FORK.md) gives the
-complete comparison and explains why each change was made.
+regression suite, and signed automatic updates. [FORK.md](FORK.md) records the
+project's provenance and explains how the architecture diverged.
 
 The name comes from *amanuensis*: a person whose job is to write down what is
 said. Amanu is free software under the [MIT license](LICENSE).
