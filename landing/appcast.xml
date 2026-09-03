@@ -6,46 +6,30 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.13</title>
-            <pubDate>Thu, 03 Sep 2026 20:29:00 +0000</pubDate>
+            <title>0.4.14</title>
+            <pubDate>Thu, 03 Sep 2026 21:26:10 +0000</pubDate>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>This release prepares Amanu for a wider public launch: it closes two ways a recording could disappear from view, makes every data transfer explicit, and puts the repository and website on the same standard as the signed app.</p>
-<h3>What changed since v0.4.12</h3>
+            <description><![CDATA[<p>This patch release fixes a race found by Amanu&#x27;s new clean GitHub Actions run.</p>
+<h3>What changed since v0.4.13</h3>
 <ul>
-<li><strong>Interrupted recordings are visible from the CLI.</strong> <code>amanu sessions</code> and <code>amanu process</code> now recover a recording whose owner died before inspecting it, instead of claiming that its folder is not a recording. The recovery manifest is written before capture starts, closing the smaller window in which audio could exist without a marker.</li>
+<li>An explicit analytics flush now waits for a request that the background timer has already started. Previously it could return early while that request was still in flight. Failed events were still persisted for retry, so this did not affect meeting content or recordings.</li>
+<li>A deterministic regression test covers the in-flight send path. The complete suite now contains 343 tests in 40 suites.</li>
 </ul>
-<ul>
-<li><strong>A silently unauthorized system tap is detected during the meeting.</strong> macOS can create a healthy-looking process tap that writes digital zero after its permission is lost. Amanu now distinguishes that from ordinary quiet and posts a warning. The longer far-end silence check also applies when <code>system_audio</code> is <code>all</code>, and <code>amanu doctor</code> reports when the last deliberate system-audio tone test succeeded.</li>
-</ul>
-<ul>
-<li><strong>Privacy wording now matches the actual data flow.</strong> Recording and the meeting library remain local. Setup, the macOS permission prompt, the README, and new English and Russian privacy pages now say plainly that cloud or CLI models receive the transcript and available meeting context when selected; local Parakeet and Ollama paths stay on the Mac.</li>
-</ul>
-<ul>
-<li><strong>Analytics can answer lifecycle questions without accepting free text.</strong> A versioned schema adds release adoption, settings, capture failures, model downloads, transcription fallback, summary fallback, speaker naming, and artifact-opening events. Models, outcomes, failure reasons, and artifacts are closed allow-lists; private model names and error text cannot enter the payload. The site now counts release-link clicks without an identifier. Saved Umami funnels and a cross-session weekly digest make the new signals usable, while the complete public event catalogue remains enforced by tests.</li>
-</ul>
-<ul>
-<li><strong>The public surface is ready to share.</strong> The website has Open Graph cards, a custom social preview, <code>robots.txt</code>, a sitemap, English and Russian privacy pages, a strict content-security policy, HSTS, and other defensive headers. The repository adds CI, Dependabot configuration, issue templates, security reporting, support and contribution notes. Dependency license texts are now included inside every application bundle.</li>
-</ul>
-<ul>
-<li><strong>Dark-mode live speaker labels follow the active appearance.</strong> The labels no longer retain a resolved color from the appearance in which the window happened to be created; regenerated release screenshots cover both themes and both interface languages.</li>
-</ul>
-<h3>Honest about what is untested</h3>
-<p>No live meeting was recorded for this release. The crash paths, CLI recovery, digital-zero decision, grace period, both system-audio scopes, remembered tone test, analytics catalogue, window appearance, website, and packaging are covered by automated tests. A real TCC revocation while a call is in progress cannot be reproduced inside the test process, so the new warning still needs a live permission-reset check after installation. Intel hardware was not tested.</p>
 <h3>Requirements</h3>
 <p>macOS 15 or later, on Apple Silicon or Intel. The application is signed with a Developer ID certificate, uses the hardened runtime, and the disk image carries a stapled Apple notarization ticket.</p>
 <h3>Verifying the download</h3>
 <p>The checksum is attached alongside the disk image.</p>
 <ul>
-<li><code>shasum -a 256 -c amanu-v0.4.13-macos-universal.dmg.sha256</code></li>
-<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.13-macos-universal.dmg</code></li>
-<li><code>xcrun stapler validate amanu-v0.4.13-macos-universal.dmg</code></li>
+<li><code>shasum -a 256 -c amanu-v0.4.14-macos-universal.dmg.sha256</code></li>
+<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.14-macos-universal.dmg</code></li>
+<li><code>xcrun stapler validate amanu-v0.4.14-macos-universal.dmg</code></li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.13/amanu-v0.4.13-macos-universal.dmg"
-                sparkle:version="266"
-                sparkle:shortVersionString="0.4.13"
-                sparkle:edSignature="bzEjBp96WsiGBejZdihv/UsGHAxyDKdWR7AzDt6IwBqmceHtKi+EBpiuS67jbAm6IoJZJ6zkRiF40TY37nnuCw=="
-                length="9362161"
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.14/amanu-v0.4.14-macos-universal.dmg"
+                sparkle:version="271"
+                sparkle:shortVersionString="0.4.14"
+                sparkle:edSignature="zKqcWG67qMIrkr5r9bDX/NUG1vu08OscgtGwKvT9lDKq5uAUKbFpr3V7dbIi1Yt41IPIVZtRhimqHp8gdrx0DA=="
+                length="9363942"
                 type="application/octet-stream" />
         </item>
     </channel>
