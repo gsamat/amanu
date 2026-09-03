@@ -35,6 +35,10 @@ WITH bounds AS (
 ), previous_events AS (
     SELECT e.* FROM events e, bounds b
     WHERE e.created_at >= b.previous_start AND e.created_at < b.period_start
+), latest_current AS (
+    SELECT DISTINCT ON (identity) identity, data
+    FROM current_events
+    ORDER BY identity, created_at DESC
 ), current_installs AS (
     SELECT identity, MIN(created_at) AS installed_at
     FROM current_events WHERE event_name = 'installed' GROUP BY identity
@@ -113,6 +117,40 @@ WITH bounds AS (
         )
         GROUP BY event_name, data->>'reason'
     ) q
+), versions AS (
+    SELECT COALESCE(jsonb_agg(row ORDER BY users DESC), '[]'::jsonb) AS value
+    FROM (
+        SELECT jsonb_build_object(
+            'version', COALESCE(data->>'app_version', 'unknown'),
+            'users', COUNT(DISTINCT identity)
+        ) AS row, COUNT(DISTINCT identity) AS users
+        FROM current_events
+        GROUP BY data->>'app_version'
+    ) q
+), recording_triggers AS (
+    SELECT COALESCE(jsonb_agg(row ORDER BY count DESC), '[]'::jsonb) AS value
+    FROM (
+        SELECT jsonb_build_object(
+            'trigger', COALESCE(data->>'trigger', 'unknown'),
+            'count', COUNT(*)
+        ) AS row, COUNT(*) AS count
+        FROM current_events WHERE event_name = 'recording_started'
+        GROUP BY data->>'trigger'
+    ) q
+), configurations AS (
+    SELECT COALESCE(jsonb_agg(row ORDER BY users DESC), '[]'::jsonb) AS value
+    FROM (
+        SELECT jsonb_build_object(
+            'transcription_engine', COALESCE(data->>'transcription_engine', 'unknown'),
+            'cloud_provider', COALESCE(data->>'transcription_cloud_provider', 'unknown'),
+            'summary_backend', COALESCE(data->>'summary_backend', 'unknown'),
+            'users', COUNT(*)
+        ) AS row, COUNT(*) AS users
+        FROM latest_current
+        GROUP BY data->>'transcription_engine',
+                 data->>'transcription_cloud_provider',
+                 data->>'summary_backend'
+    ) q
 )
 SELECT jsonb_build_object(
     'period', jsonb_build_object(
@@ -123,6 +161,10 @@ SELECT jsonb_build_object(
     'previous', previous_metrics.value,
     'stt', stt.value,
     'summaries', summaries.value,
-    'failures', failures.value
+    'failures', failures.value,
+    'versions', versions.value,
+    'recording_triggers', recording_triggers.value,
+    'configurations', configurations.value
 )::text
-FROM bounds, current_metrics, previous_metrics, stt, summaries, failures;
+FROM bounds, current_metrics, previous_metrics, stt, summaries, failures,
+     versions, recording_triggers, configurations;

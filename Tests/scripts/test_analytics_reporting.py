@@ -34,6 +34,8 @@ class AnalyticsReportingTests(unittest.TestCase):
         ):
             self.assertIn(f'"value":"{event}"', sql)
         self.assertIn("session-based", sql)
+        self.assertIn('"property":"trigger","operator":"neq","value":"manual"', sql)
+        self.assertIn('"property":"trigger","operator":"neq","value":"cli"', sql)
         self.assertIn("ON CONFLICT (report_id)", sql)
 
     def test_weekly_query_uses_the_stable_install_identity(self):
@@ -44,6 +46,9 @@ class AnalyticsReportingTests(unittest.TestCase):
         self.assertIn("summary_backend_failed", sql)
         self.assertIn("model", sql)
         self.assertIn("backend", sql)
+        self.assertIn("app_version", sql)
+        self.assertIn("transcription_cloud_provider", sql)
+        self.assertIn("recording_triggers", sql)
 
     def test_digest_is_readable_and_calls_out_small_samples(self):
         reporting = load_reporting()
@@ -67,6 +72,12 @@ class AnalyticsReportingTests(unittest.TestCase):
             "failures": [
                 {"event": "transcript_failed", "reason": "no_network", "count": 4},
             ],
+            "versions": [{"version": "0.4.13", "users": 19}],
+            "recording_triggers": [{"trigger": "mic_activity", "count": 30}],
+            "configurations": [{
+                "transcription_engine": "auto", "cloud_provider": "assemblyai",
+                "summary_backend": "openai-api", "users": 8,
+            }],
         }
         text = reporting.format_digest(payload)
         self.assertIn("12 installs", text)
@@ -74,6 +85,9 @@ class AnalyticsReportingTests(unittest.TestCase):
         self.assertIn("52 → 49 → 43 → 35", text)
         self.assertIn("parakeet / parakeet-v3: 31", text)
         self.assertIn("transcript_failed / no_network: 4", text)
+        self.assertIn("0.4.13: 19", text)
+        self.assertIn("mic_activity: 30", text)
+        self.assertIn("auto / assemblyai / openai-api: 8", text)
         self.assertIn("small samples", text.lower())
 
     def test_database_output_must_be_a_json_object(self):

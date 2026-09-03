@@ -32,7 +32,18 @@ def rows(items: list, dimensions: tuple[str, ...]) -> list[str]:
         return ["- No events."]
     return [
         "- " + " / ".join(str(item.get(key, "unknown")) for key in dimensions)
-        + f": {int(item.get('count', 0))}"
+        + f": {int(item.get('count', item.get('users', 0)))}"
+        for item in items
+    ]
+
+
+def configuration_rows(items: list) -> list[str]:
+    if not items:
+        return ["- No events."]
+    return [
+        "- " + " / ".join(str(item.get(key, "unknown")) for key in (
+            "transcription_engine", "cloud_provider", "summary_backend"
+        )) + f": {int(item.get('users', 0))}"
         for item in items
     ]
 
@@ -61,6 +72,18 @@ def format_digest(payload: dict) -> str:
         f"- {int(metrics.get('speaker_names_finished', 0))} speaker-name passes; "
         f"{int(metrics.get('transcript_fallback', 0))} STT fallbacks; "
         f"{int(metrics.get('artifact_opened', 0))} transcript/library opens",
+        "",
+        "## Active versions",
+        "",
+        *rows(payload.get("versions", []), ("version",)),
+        "",
+        "## Recording triggers",
+        "",
+        *rows(payload.get("recording_triggers", []), ("trigger",)),
+        "",
+        "## Current configuration (engine / cloud / summary)",
+        "",
+        *configuration_rows(payload.get("configurations", [])),
         "",
         "## STT engine / model",
         "",

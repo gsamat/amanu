@@ -23,8 +23,8 @@ WITH owner AS (
     (
         'a1000000-0000-4000-8000-000000000003'::uuid,
         'Automatic recording pipeline',
-        'Automatic starts through transcript; session-based. Filter trigger in the event view when comparing modes.',
-        '{"window":1440,"steps":[{"type":"event","value":"recording_started","filters":[]},{"type":"event","value":"recording_finished","filters":[]},{"type":"event","value":"transcript_finished","filters":[]}]}'::jsonb
+        'Mic-activity and calendar starts through transcript; session-based.',
+        '{"window":1440,"steps":[{"type":"event","value":"recording_started","filters":[{"property":"trigger","operator":"neq","value":"manual"},{"property":"trigger","operator":"neq","value":"cli"}]},{"type":"event","value":"recording_finished","filters":[{"property":"trigger","operator":"neq","value":"manual"},{"property":"trigger","operator":"neq","value":"cli"}]},{"type":"event","value":"transcript_finished","filters":[]}]}'::jsonb
     ),
     (
         'a1000000-0000-4000-8000-000000000004'::uuid,

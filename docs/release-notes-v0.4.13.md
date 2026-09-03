@@ -28,7 +28,9 @@ puts the repository and website on the same standard as the signed app.
   downloads, transcription fallback, summary fallback, speaker naming, and
   artifact-opening events. Models, outcomes, failure reasons, and artifacts
   are closed allow-lists; private model names and error text cannot enter the
-  payload. The complete public event catalogue remains enforced by tests.
+  payload. The site now counts release-link clicks without an identifier.
+  Saved Umami funnels and a cross-session weekly digest make the new signals
+  usable, while the complete public event catalogue remains enforced by tests.
 
 - **The public surface is ready to share.** The website has Open Graph cards,
   a custom social preview, `robots.txt`, a sitemap, English and Russian privacy
