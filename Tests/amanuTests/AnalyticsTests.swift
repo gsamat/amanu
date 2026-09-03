@@ -116,6 +116,49 @@ struct AnalyticsQueueTests {
         #expect(recorder.sent.count == 1)
     }
 
+    @Test("A packaged version is reported once per version")
+    func versionSeenIsOncePerVersion() throws {
+        let store = Self.scratch()
+        let state = store.deletingLastPathComponent().appendingPathComponent("identity.json")
+        _ = AnalyticsIdentity.identifier(at: state)
+
+        func sink(version: String) -> AnalyticsSink {
+            AnalyticsSink(
+                store: store,
+                transport: { _ in false },
+                switchIsOn: { true },
+                identity: { (id: "test-identity", isFirstRun: false) },
+                appVersion: { version },
+                markVersionSeen: { AnalyticsIdentity.markVersionSeen($0, at: state) })
+        }
+
+        let first = sink(version: "0.4.13")
+        first.start(surface: .app)
+        first.flush(waitingUpTo: 0.5)
+        #expect(first.bufferedCount == 1)
+        let pendingData = try Data(contentsOf: store)
+        let pendingJSON = try #require(
+            try JSONSerialization.jsonObject(with: pendingData) as? [String: Any])
+        let pending = try #require(pendingJSON["pending"] as? [[String: Any]])
+        let payload = try #require(pending.first?["payload"] as? [String: Any])
+        #expect(payload["name"] as? String == "version_seen")
+
+        let same = sink(version: "0.4.13")
+        same.start(surface: .app)
+        same.flush(waitingUpTo: 0.5)
+        #expect(same.bufferedCount == 1, "only the first sink's unsent event remains")
+
+        let next = sink(version: "0.4.14")
+        next.start(surface: .app)
+        next.flush(waitingUpTo: 0.5)
+        #expect(next.bufferedCount == 2)
+
+        let data = try Data(contentsOf: state)
+        let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(Set(json["versions_seen"] as? [String] ?? []) == ["0.4.13", "0.4.14"])
+        #expect(json["id"] as? String != nil, "recording a version must preserve the identity")
+    }
+
     /// A laptop that spent a month offline should not come back with a month
     /// of events, and should not eat disk while it is away.
     @Test("The queue stops at its ceiling, dropping the oldest")
@@ -196,6 +239,124 @@ struct AnalyticsQueueTests {
         #expect(data["live_used"] as? Bool == true)
         #expect(data["surface"] as? String == "cli")
         #expect(data["macos_version"] as? String != nil)
+        #expect(data["analytics_schema_version"] as? Int == 2)
+        #expect(data["transcription_enabled"] as? Bool != nil)
+        #expect(data["transcription_cloud_provider"] as? String != nil)
+        #expect(data["summary_enabled"] as? Bool != nil)
+        #expect(data["speaker_names_backend"] as? String != nil)
+    }
+}
+
+@Suite("Analytics v2 catalogue")
+struct AnalyticsV2CatalogueTests {
+    /// Removing one of these means the product loses a blind spot it explicitly
+    /// chose to measure: release adoption, failed capture, fallback, model
+    /// setup, transcript consumption, or speaker naming.
+    @Test("The v2 lifecycle events are available to every caller")
+    func lifecycleEventsExist() {
+        let actual = Set(Analytics.Event.allCases.map(\.rawValue))
+        let expected: Set<String> = [
+            "version_seen",
+            "settings_opened",
+            "recording_start_failed",
+            "transcript_fallback",
+            "summary_backend_failed",
+            "speaker_names_finished",
+            "speaker_names_failed",
+            "model_download_started",
+            "model_download_finished",
+            "model_download_failed",
+            "artifact_opened",
+        ]
+        #expect(expected.isSubset(of: actual), "missing: \(expected.subtracting(actual).sorted())")
+    }
+
+    /// These are the finite dimensions needed to explain the new lifecycle
+    /// events. Free-form values still have no route onto the wire.
+    @Test("The v2 event dimensions are closed catalogue properties")
+    func lifecyclePropertiesExist() {
+        let actual = Set(Analytics.Property.allCases.map(\.rawValue))
+        let expected: Set<String> = [
+            "model",
+            "fallback_used",
+            "from_engine",
+            "to_engine",
+            "component",
+            "outcome",
+            "asset",
+            "artifact",
+        ]
+        #expect(expected.isSubset(of: actual), "missing: \(expected.subtracting(actual).sorted())")
+    }
+
+    @Test("The v2 install state distinguishes choices from successful work")
+    func installPropertiesExist() {
+        let actual = Set(AnalyticsCatalogue.PersonProperty.allCases.map(\.rawValue))
+        let expected: Set<String> = [
+            "analytics_schema_version",
+            "transcription_enabled",
+            "transcription_cloud_provider",
+            "summary_enabled",
+            "speaker_names_backend",
+        ]
+        #expect(expected.isSubset(of: actual), "missing: \(expected.subtracting(actual).sorted())")
+    }
+
+    @Test("STT model names are useful without allowing arbitrary text onto the wire")
+    func transcriptionModelsAreNormalised() {
+        let cases: [(String, String, String)] = [
+            ("parakeet", "parakeet-tdt-0.6b-v3-coreml (ru+en)", "parakeet-v3"),
+            ("parakeet", "parakeet-tdt-0.6b-v2-coreml", "parakeet-v2"),
+            ("openai", "gpt-4o-transcribe-diarize", "gpt-4o-transcribe-diarize"),
+            ("openai", "ft:private:customer-name", "custom"),
+            ("assemblyai", "universal · auto-detect", "universal"),
+            ("assemblyai", "private-model · ru+en", "custom"),
+            ("other", "anything", "unknown"),
+        ]
+        for (engine, provenance, expected) in cases {
+            #expect(
+                AnalyticsCatalogue.transcriptionModel(engine: engine, provenance: provenance)
+                    == expected,
+                "\(engine): \(provenance)")
+        }
+    }
+
+    @Test("LLM model names are allow-listed per backend")
+    func summaryModelsAreNormalised() {
+        let cases: [(String, String?, String)] = [
+            ("claude-cli", nil, "default"),
+            ("anthropic-api", "claude-opus-5", "claude-opus-5"),
+            ("anthropic-api", "private/model", "custom"),
+            ("codex-cli", "gpt-5", "gpt-5"),
+            ("openai-api", "gpt-5", "gpt-5"),
+            ("openai-api", "ft:customer:name", "custom"),
+            ("ollama", "qwen3:8b", "qwen3:8b"),
+            ("ollama", "samat/private-model", "custom-local"),
+            ("other", "whatever", "unknown"),
+        ]
+        for (backend, model, expected) in cases {
+            #expect(AnalyticsCatalogue.summaryModel(backend: backend, model: model) == expected)
+        }
+    }
+
+    @Test("Recording start failures expose only the failed capture component")
+    func recordingStartFailureComponents() {
+        let underlying = NSError(domain: "private error text", code: 7)
+        let system = RecordingSession.StartFailure.systemAudio(underlying)
+        let microphone = RecordingSession.StartFailure.microphone(underlying)
+        #expect(system.analyticsComponent == "system_audio")
+        #expect(microphone.analyticsComponent == "microphone")
+        #expect(system.description.contains("private error text"), "the local log keeps detail")
+    }
+
+    @Test("Errors collapse to a closed reason without carrying their text")
+    func failureReasonsAreSafe() {
+        #expect(Analytics.reason(for: URLError(.notConnectedToInternet)) == .noNetwork)
+        #expect(Analytics.reason(for: URLError(.timedOut)) == .timedOut)
+        #expect(Analytics.reason(for: LLMError.http(429, "private quota detail")) == .usageLimit)
+        #expect(Analytics.reason(for: LLMError.http(503, "private server detail")) == .httpError)
+        #expect(Analytics.reason(for: LLMError.http(401, "private key detail")) == .refused)
+        #expect(Analytics.reason(for: LLMError.emptyResponse("private backend")) == .unknown)
     }
 }
 
@@ -332,7 +493,7 @@ struct AnalyticsCatalogueTests {
     func everyReasonIsDocumented() throws {
         let page = try Self.page
         let reasons: [Analytics.Reason] = [
-            .noNetwork, .noKey, .noModel, .audioMissing, .audioTooShort,
+            .noNetwork, .noKey, .noModel, .usageLimit, .audioMissing, .audioTooShort,
             .refused, .timedOut, .httpError, .quit, .unknown,
         ]
         let missing = reasons.map(\.rawValue).filter { !page.contains("`\($0)`") }

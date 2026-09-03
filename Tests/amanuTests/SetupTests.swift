@@ -74,6 +74,55 @@ struct SetupTests {
         #expect(SetupState.systemAudioHeardAt(at: state) == heard)
     }
 
+    @Test("Doctor reports when the system-audio path was last proven")
+    func doctorReportsRememberedSystemAudioTest() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let check = DoctorReport.checkSystemAudio(
+            isBundled: true,
+            heardAt: now.addingTimeInterval(-8 * 24 * 60 * 60),
+            now: now
+        )
+
+        guard case .ok = check.status else {
+            Issue.record("A recent successful tone test should be reported as healthy.")
+            return
+        }
+        #expect(check.remediation?.contains("8 days ago") == true)
+    }
+
+    @Test("A running system tap distinguishes digital zero from ordinary quiet")
+    func systemAudioDigitalSilenceDecision() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let began = now.addingTimeInterval(-15)
+
+        #expect(SystemAudioRecorder.isDigitallySilent(
+            firstBufferAt: began, bufferCount: 100, highestPeak: 0, now: now
+        ))
+        #expect(!SystemAudioRecorder.isDigitallySilent(
+            firstBufferAt: began, bufferCount: 100, highestPeak: 0.000_001, now: now
+        ))
+        #expect(!SystemAudioRecorder.isDigitallySilent(
+            firstBufferAt: now.addingTimeInterval(-2), bufferCount: 100, highestPeak: 0, now: now
+        ))
+    }
+
+    @Test("Far-end silence is warning-worthy for both system-audio scopes")
+    func farEndSilenceCoversGlobalCapture() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let started = now.addingTimeInterval(-601)
+        let spoke = now.addingTimeInterval(-20)
+
+        for scope in [SystemAudioRecorder.Scope.apps(["us.zoom.xos"]), .everything] {
+            #expect(RecordingSession.shouldWarnAboutFarEndSilence(
+                scope: scope,
+                recordingStartedAt: started,
+                micLastSoundAt: spoke,
+                systemLastSoundAt: nil,
+                now: now
+            ))
+        }
+    }
+
     @Test("First-run setup bypasses a denied microphone, not a broken recordings folder")
     func doctorRepairBoundary() {
         let microphone = Check(name: "microphone", status: .fail("denied"), remediation: nil)

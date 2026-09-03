@@ -165,6 +165,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// the menu both write `auto_record.enabled`, and a settings window
     /// showing yesterday's answer is worse than no settings window.
     func show() {
+        if !panel.isVisible { Analytics.track(.settingsOpened) }
         setup.reload()
         refresh()
         panel.makeKeyAndOrderFront(nil)

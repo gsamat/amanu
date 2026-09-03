@@ -47,6 +47,8 @@ final class AnalyticsSink: @unchecked Sendable {
     private let clock: @Sendable () -> Date
     private let switchIsOn: @Sendable () -> Bool
     private let identity: Identity
+    private let appVersion: @Sendable () -> String?
+    private let markVersionSeen: @Sendable (String) -> Bool
     /// Whether there is anywhere to send to. False for a build whose project
     /// key is still the placeholder, so a development copy cannot quietly
     /// post at a host that does not exist yet — and true whenever a transport
@@ -72,6 +74,10 @@ final class AnalyticsSink: @unchecked Sendable {
             // Read before asking, in this order and not the other one.
             let first = AnalyticsIdentity.isFirstRun()
             return (AnalyticsIdentity.identifier(), first)
+        },
+        appVersion: @escaping @Sendable () -> String? = { AnalyticsCatalogue.appVersion() },
+        markVersionSeen: @escaping @Sendable (String) -> Bool = {
+            AnalyticsIdentity.markVersionSeen($0)
         }
     ) {
         self.store = store
@@ -79,6 +85,8 @@ final class AnalyticsSink: @unchecked Sendable {
         self.clock = clock
         self.switchIsOn = switchIsOn
         self.identity = identity
+        self.appVersion = appVersion
+        self.markVersionSeen = markVersionSeen
         self.hasSomewhereToSend = transport != nil || Endpoint.isConfigured
     }
 
@@ -96,6 +104,9 @@ final class AnalyticsSink: @unchecked Sendable {
             identifier = who.id
             loadPending()
             if who.isFirstRun { append(.installed, [:]) }
+            if let version = appVersion(), markVersionSeen(version) {
+                append(.versionSeen, [:])
+            }
             startTimer()
             watchTheSwitch()
         }

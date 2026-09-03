@@ -18,6 +18,57 @@ import Testing
 /// which is only one of the ways it has gone wrong.
 @Suite(.serialized)
 struct StatusWindowLayoutTests {
+    @Test("Live speaker labels use the adaptive label colour")
+    @MainActor
+    func liveSpeakerLabelsFollowTheAppearance() throws {
+        _ = NSApplication.shared
+        let previousAppearance = NSApp.appearance
+        let previousLanguage = InterfaceLanguage.current
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        InterfaceLanguage.current = .english
+        defer {
+            NSApp.appearance = previousAppearance
+            InterfaceLanguage.current = previousLanguage
+        }
+
+        let window = StatusWindow()
+        let panel = try #require(window.view?.window)
+        panel.appearance = NSAppearance(named: .darkAqua)
+        window.updateLive(.init(
+            isRecording: true,
+            isEnabled: true,
+            entries: [
+                .speech(.init(
+                    speaker: .them,
+                    text: "Amanu",
+                    startMilliseconds: 0,
+                    isProvisional: false,
+                )),
+                .speech(.init(
+                    speaker: .you,
+                    text: "Amanu",
+                    startMilliseconds: 1,
+                    isProvisional: false,
+                )),
+            ],
+            status: .live
+        ))
+
+        let transcript = try #require(firstTextView(in: window.view))
+        for label in ["Them", "You"] {
+            let range = (transcript.string as NSString).range(of: label)
+            try #require(range.location != NSNotFound)
+            let colour = transcript.textStorage?.attribute(
+                .foregroundColor,
+                at: range.location,
+                effectiveRange: nil
+            ) as? NSColor
+            #expect(colour == .labelColor, "\(label) does not follow the window appearance")
+        }
+
+        withExtendedLifetime(window) {}
+    }
+
     @Test("Every row the status window can show sits under the row above it")
     @MainActor
     func everyStateIsAnArrangement() throws {
@@ -102,5 +153,15 @@ struct StatusWindowLayoutTests {
             return stack.views.map { describe($0) }.joined(separator: "+")
         }
         return "\(type(of: view))"
+    }
+
+    @MainActor
+    private func firstTextView(in view: NSView?) -> NSTextView? {
+        guard let view else { return nil }
+        if let text = view as? NSTextView { return text }
+        for child in view.subviews {
+            if let text = firstTextView(in: child) { return text }
+        }
+        return nil
     }
 }

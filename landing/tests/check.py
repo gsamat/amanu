@@ -14,13 +14,14 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 LANDING = Path(__file__).resolve().parent.parent
+ROOT = LANDING.parent
 EN_INDEX = LANDING / "index.html"
 RU_INDEX = LANDING / "ru" / "index.html"
+EN_PRIVACY = LANDING / "privacy" / "index.html"
+RU_PRIVACY = LANDING / "ru" / "privacy" / "index.html"
 NGINX = LANDING / "deploy" / "nginx" / "amanu.conf"
-DMG = (
-    "https://github.com/gsamat/amanu/releases/download/"
-    "v0.4.10/amanu-v0.4.10-macos-universal.dmg"
-)
+APPCAST = (LANDING / "appcast.xml").read_text(encoding="utf-8")
+DMG = re.search(r'<enclosure\s+[^>]*url="([^"]+)"', APPCAST, re.S).group(1)
 
 failures = []
 
@@ -53,6 +54,7 @@ class PageParser(HTMLParser):
         self.stylesheets = []
         self.alternates = []
         self.canonicals = []
+        self.meta = {}
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -67,8 +69,12 @@ class PageParser(HTMLParser):
             self.h1_count += 1
         elif tag == "title":
             self._in_title = True
-        elif tag == "meta" and a.get("name") == "description":
-            self.meta_description = a.get("content")
+        elif tag == "meta":
+            key = a.get("name") or a.get("property")
+            if key:
+                self.meta[key] = a.get("content")
+            if a.get("name") == "description":
+                self.meta_description = a.get("content")
         elif tag == "a":
             self.links.append(a.get("href", ""))
             self.anchors.append(a)
@@ -96,6 +102,7 @@ class PageParser(HTMLParser):
             self._in_script = True
             if a.get("src"):
                 self.script_srcs.append(a["src"])
+                self.resources.append(("script", a["src"]))
         elif tag == "form":
             self.forms.append(a.get("action", ""))
 
@@ -139,6 +146,8 @@ def resolves_locally(page_path, url):
 def main():
     check("английская главная существует", EN_INDEX.is_file())
     check("русская версия существует в /ru/", RU_INDEX.is_file())
+    check("английская privacy-страница существует", EN_PRIVACY.is_file())
+    check("русская privacy-страница существует", RU_PRIVACY.is_file())
     if not EN_INDEX.is_file() or not RU_INDEX.is_file():
         return finish()
 
@@ -168,6 +177,9 @@ def main():
             f"{label}: meta description непустой",
             bool(page.meta_description and page.meta_description.strip()),
         )
+        check(f"{label}: social preview — large image", page.meta.get("twitter:card") == "summary_large_image")
+        check(f"{label}: Open Graph image", page.meta.get("og:image") == "https://amanu.me/assets/social-preview.png")
+        check(f"{label}: Open Graph URL", page.meta.get("og:url") == page.canonicals[0])
 
     en_to_ru = [a for a in en.anchors if a.get("href") == "/ru/"]
     ru_to_en = [a for a in ru.anchors if a.get("href") == "/en/"]
@@ -213,8 +225,8 @@ def main():
         and "Amanu полностью бесплатная:" not in flat_ru,
     )
     check(
-        "RU: заголовок про локальные данные без точки",
-        "<h2>Все данные хранятся у вас локально</h2>" in readable_ru,
+        "RU: заголовок честно говорит о локальной библиотеке",
+        "<h2>Ваша библиотека встреч хранится на маке</h2>" in readable_ru,
     )
     check(
         "RU: в футере Самат Галимов со ссылкой на samat.me/ru",
@@ -279,7 +291,11 @@ def main():
             f"{label}: нет формы с сетевым action",
             all(not action or action.startswith("mailto:") for action in page.forms),
         )
-        check(f"{label}: нет внешних <script src>", not page.script_srcs, str(page.script_srcs))
+        check(
+            f"{label}: скрипт локальный и общий",
+            page.script_srcs == ["/script.js"],
+            str(page.script_srcs),
+        )
         check(
             f"{label}: нет внешних ресурсов (img/link/source)",
             all(not is_external(url) for _, url in page.resources),
@@ -290,7 +306,8 @@ def main():
             all(resolves_locally(path, url) for _, url in page.resources),
             str([url for _, url in page.resources if not resolves_locally(path, url)]),
         )
-        scripts = "\n".join(page.inline_scripts)
+        scripts = (LANDING / "script.js").read_text(encoding="utf-8")
+        check(f"{label}: нет inline-скриптов", not "".join(page.inline_scripts).strip())
         check(
             f"{label}: инлайн-скрипты не ходят на чужие домены",
             not re.search(r"fetch\(|XMLHttpRequest|https?://", scripts),
@@ -304,6 +321,8 @@ def main():
             and "document.referrer" in scripts
             and "new Image().src" in scripts,
         )
+        expected_privacy = "/privacy/" if label == "EN" else "/ru/privacy/"
+        check(f"{label}: privacy доступна из футера", expected_privacy in page.links)
         check(f"{label}: у всех <img> есть alt", all("alt" in attrs for attrs in page.imgs))
         check(
             f"{label}: у всех <img> есть width и height",
@@ -344,10 +363,10 @@ def main():
     )
 
     expected_en_shots = {
-        "status-recording-light.png": "6be840b63607ff4b04f3b2ac5287bf0848c86c1400d5387cfda3c4821fc819fa",
-        "status-recording-dark.png": "655eb94699c51cdbf161630f8b1cb47788dbe0e2766e9df751af1c93c4fbf74d",
-        "recordings-light.png": "6d5b556b5c805e8cc94b2ce25849eee6ceeeda96a24f2d51b0bf53ada9ae91d1",
-        "recordings-dark.png": "8c9cceb44e629b2e7a95c559a48e373f27e776eda6d3a850a63450b05f7f0d5f",
+        "status-recording-light.png": "70c90f0201373d8ed3a5bb9fb89d2be109c69ed9112e2d1d72addb78a6f79687",
+        "status-recording-dark.png": "ce72b49e27743bba25226e851ee57c7ee41b0ece37cafb0781e8da4ff8013172",
+        "recordings-light.png": "9d2749fd675be63c53897b5327dd861a2aff03bdeb8c548781493af1d2f93b78",
+        "recordings-dark.png": "af2d5e69c3133509a6ee3bc882fac29d3ba9a366ec4437a6c8f095a8d4ea29c3",
     }
     en_shot_urls = {url for _, url in en.resources if "/shots/" in url}
     check(
@@ -387,6 +406,14 @@ def main():
     # The same server-side language detection as samat.me: an independent `ru`
     # language tag anywhere in Accept-Language wins. Otherwise `/` serves English.
     nginx = NGINX.read_text(encoding="utf-8")
+    for header in [
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Permissions-Policy",
+    ]:
+        check(f"nginx отдаёт {header}", f"add_header {header}" in nginx)
     language_map = re.search(
         r'map\s+\$http_accept_language\s+\$amanu_home_is_ru\s*\{(.*?)\}',
         nginx,
@@ -431,6 +458,17 @@ def main():
         "явный /en/ отдаёт английский без повторной детекции",
         bool(explicit_english) and "try_files /index.html =404;" in explicit_english.group(1),
     )
+
+    robots = LANDING / "robots.txt"
+    sitemap = LANDING / "sitemap.xml"
+    check("robots.txt существует", robots.is_file())
+    check("sitemap.xml существует", sitemap.is_file())
+    if robots.is_file():
+        check("robots.txt указывает sitemap", "https://amanu.me/sitemap.xml" in robots.read_text())
+    if sitemap.is_file():
+        sitemap_text = sitemap.read_text()
+        for url in ["https://amanu.me/", "https://amanu.me/ru/", "https://amanu.me/privacy/", "https://amanu.me/ru/privacy/"]:
+            check(f"sitemap содержит {url}", url in sitemap_text)
 
     return finish()
 

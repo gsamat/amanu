@@ -449,7 +449,7 @@ struct WindowGallery {
                 "transcribes on this Mac", "расшифровывает на этом маке"))
             status.updateLive(.init(
                 isRecording: false, isEnabled: true, entries: [], status: .idle))
-            try write(panel, "status-idle-\(name)")
+            try write(panel, "status-idle-\(name)", includingChrome: false)
 
             status.update(state: .recording, elapsed: "12:04")
             status.updateAutoRecord(
@@ -457,7 +457,7 @@ struct WindowGallery {
                 decision: localised("Zoom on the mic for 12m", "Zoom на микрофоне 12 мин"))
             status.updateLive(.init(
                 isRecording: true, isEnabled: true, entries: Self.conversation, status: .live))
-            try write(panel, "status-recording-\(name)")
+            try write(panel, "status-recording-\(name)", includingChrome: false)
         }
     }
 
@@ -506,18 +506,24 @@ struct WindowGallery {
 
     // MARK: - what the pictures are of
 
-    /// A few lines of a meeting, long enough to fill the transcript pane and
-    /// to run in both directions: the labels are the window's language, the
-    /// speech is whatever was said.
+    /// A few lines of a meeting, long enough to fill the transcript pane.
+    /// These pictures introduce amanu to readers of the matching-language
+    /// README or landing page, so the example speech follows the interface.
     private static var conversation: [LiveTranscriptState.Entry] {
         [
-            .speech(.init(speaker: .them, text: "Давай пройдёмся по релизу.",
+            .speech(.init(speaker: .them, text: localised(
+                "Let's go through the release.", "Давай пройдёмся по релизу."),
                           startMilliseconds: 0, isProvisional: false)),
-            .speech(.init(speaker: .you, text: "Yes — two changes and the notes are written.",
+            .speech(.init(speaker: .you, text: localised(
+                "Yes — two changes and the notes are written.",
+                "Да — две правки и заметки готовы."),
                           startMilliseconds: 2600, isProvisional: false)),
-            .speech(.init(speaker: .them, text: "А ожидание после звонка починили?",
+            .speech(.init(speaker: .them, text: localised(
+                "Did we fix the wait after the call?", "А ожидание после звонка починили?"),
                           startMilliseconds: 6100, isProvisional: false)),
-            .speech(.init(speaker: .you, text: "Fifteen seconds now, down from ninety.",
+            .speech(.init(speaker: .you, text: localised(
+                "Fifteen seconds now, down from ninety.",
+                "Теперь пятнадцать секунд вместо девяноста."),
                           startMilliseconds: 9400, isProvisional: true)),
         ]
     }
@@ -585,11 +591,15 @@ struct WindowGallery {
                 engine: "parakeet", model: "v3", created_at: "2026-08-20T11:20:00Z",
                 segments: [
                     .init(speaker: "me", start_ms: 0, end_ms: 2400,
-                          text: "Let's go through what's left."),
+                          text: localised(
+                            "Let's go through what's left.",
+                            "Давай пройдёмся по тому, что осталось.")),
                     .init(speaker: "them A", start_ms: 2400, end_ms: 6100,
-                          text: "Две правки и заметки к релизу."),
+                          text: localised(
+                            "Two edits and the release notes.",
+                            "Две правки и заметки к релизу.")),
                     .init(speaker: "them B", start_ms: 6100, end_ms: 9000,
-                          text: "I'll take the checklist."),
+                          text: localised("I'll take the checklist.", "Я возьму чек-лист.")),
                 ]
             )
             try JSONEncoder().encode(json)
@@ -597,12 +607,15 @@ struct WindowGallery {
         }
         if speakers {
             try SpeakerNames(speakers: [
-                "them A": .init(name: "Фёдор", source: .model),
-                "them B": .init(name: "Мария", source: .manual),
+                "them A": .init(name: localised("Fyodor", "Фёдор"), source: .model),
+                "them B": .init(name: localised("Maria", "Мария"), source: .manual),
             ]).write(to: dir)
         }
         if summary {
-            try Data("# notes\n\nTwo changes, and the notes are written.\n".utf8)
+            try Data(localised(
+                "# notes\n\nTwo changes, and the notes are written.\n",
+                "# заметки\n\nДве правки, и заметки готовы.\n"
+            ).utf8)
                 .write(to: dir.appendingPathComponent("summary.md"))
         }
     }
@@ -641,8 +654,15 @@ struct WindowGallery {
     /// binary is not an application that macOS will activate. An inactive
     /// window is a real state, and it is the one these pictures are of.
     @MainActor
-    private func write(_ panel: NSWindow, _ name: String) throws {
-        let view = try #require(panel.contentView?.superview ?? panel.contentView)
+    private func write(
+        _ panel: NSWindow, _ name: String, includingChrome: Bool = true
+    ) throws {
+        // The little status card is shown without window chrome on the site;
+        // the recordings window keeps it so it still reads as a Mac app.
+        let exposed = includingChrome
+            ? panel.contentView?.superview ?? panel.contentView
+            : panel.contentView
+        let view = try #require(exposed)
         view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         view.displayIfNeeded()

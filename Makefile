@@ -30,7 +30,7 @@ BUILT = .build/apple/Products/Release/amanu
 # nothing here.
 APP        = .build/Amanu.app
 APP_NAME   = Amanu
-VERSION   ?= 0.4.12
+VERSION   ?= 0.4.13
 # A build number that only ever goes up, and says which commit it was.
 BUILD     ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 ICON       = Resources/Amanu.icns
@@ -84,6 +84,24 @@ app: build $(ICON)
 		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
 	@cp $(ICON) $(APP)/Contents/Resources/Amanu.icns
+	@mkdir -p $(APP)/Contents/Resources/Licenses
+	@cp LICENSE $(APP)/Contents/Resources/LICENSE
+	@cp THIRD-PARTY-NOTICES.md $(APP)/Contents/Resources/
+	@cp .build/checkouts/FluidAudio/LICENSE \
+		$(APP)/Contents/Resources/Licenses/FluidAudio-LICENSE
+	@cp .build/checkouts/FluidAudio/ThirdPartyLicenses/fastcluster-LICENSE.md \
+		$(APP)/Contents/Resources/Licenses/FluidAudio-fastcluster-LICENSE.md
+	@cp .build/checkouts/FluidAudio/ThirdPartyLicenses/vbx-LICENSE.md \
+		$(APP)/Contents/Resources/Licenses/FluidAudio-vbx-LICENSE.md
+	@cp .build/checkouts/swift-argument-parser/LICENSE.txt \
+		$(APP)/Contents/Resources/Licenses/swift-argument-parser-LICENSE.txt
+	@cp .build/checkouts/Sparkle/LICENSE \
+		$(APP)/Contents/Resources/Licenses/Sparkle-LICENSE
+	@cp .build/checkouts/Sparkle/Vendor/ed25519-sparkle/license.txt \
+		$(APP)/Contents/Resources/Licenses/Sparkle-ed25519-LICENSE.txt
+	@test -s $(APP)/Contents/Resources/LICENSE \
+		&& test -s $(APP)/Contents/Resources/THIRD-PARTY-NOTICES.md \
+		&& test "$$(find $(APP)/Contents/Resources/Licenses -type f | wc -l | tr -d ' ')" = 6
 	@test -n "$(SPARKLE_FW)" || (echo "Sparkle.framework not found — run swift build first"; exit 1)
 	@mkdir -p $(APP)/Contents/Frameworks
 	@cp -R "$(SPARKLE_FW)" $(APP)/Contents/Frameworks/

@@ -158,11 +158,9 @@ struct Run: ParsableCommand {
 
         // Logout, restart, `launchctl kickstart -k`, `amanu install
         // --uninstall` — all of them send SIGTERM, and the default action for
-        // it kills us outright. That matters more than it looks: an AAC track
-        // is unreadable until its packet table is written at close, so an
-        // unhandled SIGTERM mid-meeting doesn't lose the last few seconds, it
-        // loses the whole recording. Handling it turns a reboot into a clean
-        // stop with a finished file and a meta.json.
+        // it kills us outright. PCM capture is recoverable after a hard kill,
+        // but handling SIGTERM still turns a reboot into a clean stop with a
+        // finished meta.json instead of work the next launch has to adopt.
         let sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         sigterm.setEventHandler {
             FileHandle.standardError.write(Data("\nSIGTERM — finalizing\n".utf8))
@@ -521,6 +519,9 @@ final class AppController {
 
         Notifications.install { [weak self] folder in
             if let folder {
+                Analytics.track(.artifactOpened, [
+                    .artifact: .text(Analytics.Artifact.sessionFolder.rawValue),
+                ])
                 NSWorkspace.shared.open(folder)
             } else {
                 self?.showWindow()
@@ -711,6 +712,12 @@ final class AppController {
                 )
             }
         } catch {
+            Analytics.track(.recordingStartFailed, [
+                .trigger: .text(trigger.rawValue),
+                .component: .text(
+                    (error as? RecordingSession.StartFailure)?.analyticsComponent ?? "unknown"),
+                .reason: .text(Analytics.reason(for: error).rawValue),
+            ])
             FileHandle.standardError.write(Data("recording start failed: \(error)\n".utf8))
             notifyUser(
                 title: localised("amanu — recording failed", "amanu — не удалось начать запись"),
@@ -920,6 +927,9 @@ final class AppController {
 
     private func openFolder() {
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        Analytics.track(.artifactOpened, [
+            .artifact: .text(Analytics.Artifact.recordingsRoot.rawValue),
+        ])
         NSWorkspace.shared.open(root)
     }
 

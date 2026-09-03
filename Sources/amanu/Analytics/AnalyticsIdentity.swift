@@ -56,4 +56,30 @@ enum AnalyticsIdentity {
     static func isFirstRun(at url: URL = path) -> Bool {
         !FileManager.default.fileExists(atPath: url.path)
     }
+
+    /// Remember that this packaged version has announced itself. The return
+    /// value is the event decision: true exactly once per version. Kept in the
+    /// identity file so replacing the UUID also makes the installation a new
+    /// release cohort, while preserving every other identity field.
+    static func markVersionSeen(_ version: String, at url: URL = path) -> Bool {
+        guard !version.isEmpty else { return false }
+        var json = (try? Data(contentsOf: url))
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            .flatMap { $0 } ?? [:]
+        var seen = json["versions_seen"] as? [String] ?? []
+        guard !seen.contains(version) else { return false }
+        seen.append(version)
+        json["versions_seen"] = seen
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
+        ) else { return false }
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
 }

@@ -78,13 +78,18 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 step "1/8  tests"
-python3 -m unittest \
-    Tests/scripts/test_update_feed_location.py \
-    Tests/scripts/test_update_site_download_links.py
+python3 -m unittest discover -s Tests/scripts -p 'test_*.py'
+python3 landing/tests/check.py
 swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
 make app
+test -s .build/Amanu.app/Contents/Resources/LICENSE \
+    || die "the app bundle has no Amanu license"
+test -s .build/Amanu.app/Contents/Resources/THIRD-PARTY-NOTICES.md \
+    || die "the app bundle has no third-party notices"
+[ "$(find .build/Amanu.app/Contents/Resources/Licenses -type f | wc -l | tr -d ' ')" = 6 ] \
+    || die "the app bundle does not contain every dependency license"
 
 step "3/8  verifying the signature"
 codesign --verify --deep --strict --verbose=2 .build/Amanu.app

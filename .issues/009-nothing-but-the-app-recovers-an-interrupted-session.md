@@ -1,7 +1,7 @@
 ---
 title: "Nothing but launching the app recovers an interrupted session"
 date: 2026-08-20
-status: open
+status: done
 affects: "a session whose recorder was killed, and the CLI that is asked about it"
 ---
 
@@ -62,3 +62,10 @@ The comment above the signal sources still describes the AAC-era hazard, which
 the move to LPCM removed; `MicRecorder` still says it creates an AAC file. Both
 are worth correcting while in there, since they are the sentences someone will
 read before deciding how much a kill costs.
+
+## Resolved
+
+`amanu sessions` and `amanu process` now recover dead-owner sessions before
+they inspect them. The in-progress manifest is written before either recorder
+starts and removed again if startup fails normally, closing the unmarked-audio
+window. Regression tests cover both CLI paths.

@@ -83,6 +83,33 @@ struct RecordingRecoveryTests {
         )
     }
 
+    @Test("The sessions command recovers an interrupted recording before listing it")
+    func sessionsCommandRecoversBeforeScanning() throws {
+        let (root, session) = try makeInterruptedSession(pid: 999_999, title: "Sync")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let command = try Sessions.parse(["--out", root.path])
+        try command.run()
+
+        #expect(FileManager.default.fileExists(
+            atPath: session.appendingPathComponent("meta.json").path
+        ))
+        #expect(SessionInventory.item(for: session) != nil)
+    }
+
+    @Test("The process command prepares an interrupted recording before validating it")
+    func processCommandRecoversBeforeValidating() throws {
+        let (root, session) = try makeInterruptedSession(pid: 999_999, title: "Sync")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let item = try ProcessSession.prepare(session)
+
+        #expect(item.dir.lastPathComponent == session.lastPathComponent)
+        #expect(FileManager.default.fileExists(
+            atPath: session.appendingPathComponent("meta.json").path
+        ))
+    }
+
     @Test("A session owned by a live process is left strictly alone")
     func liveSessionIsNotTouched() throws {
         // Our own PID stands in for a second amanu mid-recording.

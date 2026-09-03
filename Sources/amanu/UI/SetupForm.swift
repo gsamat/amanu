@@ -570,8 +570,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 choice: id, keyBackend: self.selectedKeyBackend))
             self.refresh()
         }
+        let disclosure = SetupLayout.detail(
+            localised(
+                "Claude, Codex and API models receive the transcript, meeting title and calendar participants. Ollama keeps them on this Mac.",
+                "Claude, Codex и API-модели получают расшифровку, название встречи и участников из календаря. С Ollama всё остаётся на этом маке."),
+            lines: 2,
+            width: 520)
         return SetupLayout.group(
-            [SetupLayout.cards([claude, codex, key]), ollama],
+            [SetupLayout.cards([claude, codex, key]), ollama, disclosure],
             spacing: SetupLayout.cardGap)
     }
 
@@ -809,6 +815,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             refresh()
             return
         }
+        Analytics.track(.modelDownloadStarted, [.asset: .text("nemotron-live")])
         liveDownloading = true
         liveStatus.stringValue = localised("preparing download…", "готовлюсь скачивать…")
         refresh()
@@ -822,14 +829,25 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                             "скачивание — \(Int(fraction * 100))% из примерно 600 МБ")
                     }
                 }
-                liveStatus.stringValue = liveModelStore.isReady(language: prompt)
-                    ? localised("downloaded", "скачана")
-                    : localised(
+                if liveModelStore.isReady(language: prompt) {
+                    Analytics.track(.modelDownloadFinished, [.asset: .text("nemotron-live")])
+                    liveStatus.stringValue = localised("downloaded", "скачана")
+                } else {
+                    Analytics.track(.modelDownloadFailed, [
+                        .asset: .text("nemotron-live"),
+                        .reason: .text(Analytics.Reason.noModel.rawValue),
+                    ])
+                    liveStatus.stringValue = localised(
                         "download incomplete — turn off and on to retry",
                         "скачалось не всё — выключите и включите, чтобы повторить")
+                }
             } catch is CancellationError {
                 liveStatus.stringValue = localised("download paused", "скачивание остановлено")
             } catch {
+                Analytics.track(.modelDownloadFailed, [
+                    .asset: .text("nemotron-live"),
+                    .reason: .text(Analytics.reason(for: error).rawValue),
+                ])
                 liveStatus.stringValue =
                     localised("download failed: ", "не удалось скачать: ")
                         + error.localizedDescription
@@ -943,6 +961,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func downloadParakeetIfNeeded() {
         guard !parakeetIsHere() else { return }
         guard parakeetProgress == nil else { return }
+        let asset = Config.transcriptionModel() == "v2" ? "parakeet-v2" : "parakeet-v3"
+        Analytics.track(.modelDownloadStarted, [.asset: .text(asset)])
         watchParakeetSize()
         // So the footer button says what is happening from the first second,
         // rather than at the end of it.
@@ -950,7 +970,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         Task {
             do {
                 try await fetchParakeet()
+                Analytics.track(.modelDownloadFinished, [.asset: .text(asset)])
             } catch {
+                Analytics.track(.modelDownloadFailed, [
+                    .asset: .text(asset),
+                    .reason: .text(Analytics.reason(for: error).rawValue),
+                ])
                 parakeetStatus.stringValue =
                     localised("download failed: ", "не удалось скачать: ") + "\(error)"
             }

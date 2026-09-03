@@ -1,0 +1,11 @@
+[Unit]
+Description=Build Amanu's weekly analytics digest every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 07:15:00 UTC
+Persistent=true
+RandomizedDelaySec=10m
+Unit=amanu-stats-weekly-digest.service
+
+[Install]
+WantedBy=timers.target

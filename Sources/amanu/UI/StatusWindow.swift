@@ -348,7 +348,10 @@ final class StatusWindow {
             case .speech(let block):
                 rendered.append(NSAttributedString(
                     string: "\(block.speaker.label)  ",
-                    attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold)]))
+                    attributes: [
+                        .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: NSColor.labelColor,
+                    ]))
                 rendered.append(NSAttributedString(
                     string: block.text + "\n\n",
                     attributes: [

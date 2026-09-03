@@ -48,6 +48,7 @@ enum AnalyticsCatalogue {
     /// anybody touch diarization" are answered — as a filter over people,
     /// with no event of their own.
     enum PersonProperty: String, CaseIterable, Sendable {
+        case analyticsSchemaVersion = "analytics_schema_version"
         case appVersion = "app_version"
         case macosVersion = "macos_version"
         case arch
@@ -56,13 +57,18 @@ enum AnalyticsCatalogue {
         case speakerNames = "speaker_names"
         case autoRecord = "auto_record"
         case transcriptionEngine = "transcription_engine"
+        case transcriptionEnabled = "transcription_enabled"
+        case transcriptionCloudProvider = "transcription_cloud_provider"
         case summaryBackend = "summary_backend"
+        case summaryEnabled = "summary_enabled"
+        case speakerNamesBackend = "speaker_names_backend"
         case keepAudio = "keep_audio"
     }
 
     static func personProperties() -> [String: Any] {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         var values: [PersonProperty: Any] = [
+            .analyticsSchemaVersion: 2,
             .macosVersion: "\(os.majorVersion).\(os.minorVersion)",
             .arch: Platform.supportsLocalModels ? "arm64" : "x86_64",
             .interfaceLanguage: InterfaceLanguage.current.rawValue,
@@ -70,7 +76,11 @@ enum AnalyticsCatalogue {
             .speakerNames: Config.speakerNames().enabled,
             .autoRecord: autoRecordShape(Config.autoRecord()),
             .transcriptionEngine: Config.transcriptionEngine(),
+            .transcriptionEnabled: Config.transcriptionEnabled(),
+            .transcriptionCloudProvider: Config.transcriptionCloudProvider(),
             .summaryBackend: Config.summary().backend,
+            .summaryEnabled: Config.summary().enabled,
+            .speakerNamesBackend: Config.speakerNames().backend,
             .keepAudio: Config.keepAudio(),
         ]
         if let version = appVersion() { values[.appVersion] = version }
@@ -87,6 +97,45 @@ enum AnalyticsCatalogue {
         case (true, false): return "mic"
         case (false, true): return "calendar"
         case (false, false): return "off"
+        }
+    }
+
+    /// Model provenance is deliberately narrowed before it reaches the wire.
+    /// Transcript files keep the full local string; analytics gets only a
+    /// public model we know or `custom`, never a private fine-tune identifier,
+    /// registry namespace, or language hint embedded in provenance.
+    static func transcriptionModel(engine: String, provenance: String) -> String {
+        switch engine {
+        case "parakeet":
+            if provenance.contains("0.6b-v3") { return "parakeet-v3" }
+            if provenance.contains("0.6b-v2") { return "parakeet-v2" }
+            return "custom"
+        case "openai":
+            return provenance == "gpt-4o-transcribe-diarize"
+                ? "gpt-4o-transcribe-diarize" : "custom"
+        case "assemblyai":
+            let model = provenance.components(separatedBy: " · ").first ?? provenance
+            return model == "universal" ? "universal" : "custom"
+        default:
+            return "unknown"
+        }
+    }
+
+    /// Same boundary for LLMs. The backend is sent separately; this value says
+    /// which public model family was actually asked, without leaking arbitrary
+    /// model strings from config or a local Ollama registry.
+    static func summaryModel(backend: String, model: String?) -> String {
+        switch backend {
+        case "claude-cli":
+            return "default"
+        case "anthropic-api":
+            return model == "claude-opus-5" ? "claude-opus-5" : "custom"
+        case "codex-cli", "openai-api":
+            return model == "gpt-5" ? "gpt-5" : "custom"
+        case "ollama":
+            return model == "qwen3:8b" ? "qwen3:8b" : "custom-local"
+        default:
+            return "unknown"
         }
     }
 

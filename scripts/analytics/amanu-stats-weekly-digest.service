@@ -1,0 +1,10 @@
+[Unit]
+Description=Build Amanu's weekly analytics digest
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/amanu-stats
+ExecStart=/usr/bin/python3 /opt/amanu-stats/weekly_digest.py --compose-dir /opt/amanu-stats --output-dir /opt/amanu-stats/reports
+User=root

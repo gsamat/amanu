@@ -1,7 +1,7 @@
 ---
 title: "A silent system track is only ever caught at setup, and not at all under system_audio: all"
 date: 2026-08-20
-status: open
+status: done
 affects: "the far end of every meeting after a permission is revoked"
 ---
 
@@ -70,3 +70,12 @@ memory of its answer.
 scope guard.
 `Sources/amanu/Audio/SystemAudioRecorder.swift` — where a peak over the first
 seconds would go.
+
+## Resolved
+
+The system tap now records whether any non-zero sample has arrived and warns
+after its initial grace period when the growing track is digital zero. The
+five-minute far-end warning applies to both app-scoped and all-system capture,
+and `amanu doctor` reports the age of the last successful tone test. Tests cover
+digital zero, a non-zero quiet signal, the grace period, both capture scopes,
+and the remembered doctor result.

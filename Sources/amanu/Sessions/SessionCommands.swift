@@ -16,6 +16,9 @@ struct Sessions: ParsableCommand {
 
     func run() throws {
         let root = Config.resolveRoot(cliOverride: out)
+        _ = MainActor.assumeIsolated {
+            RecordingSession.recoverInterrupted(root: root)
+        }
         let items = SessionInventory.scan(root: root)
             .filter { !pending || $0.isOutstanding }
 
@@ -67,17 +70,7 @@ struct ProcessSession: ParsableCommand {
             isDirectory: true
         ).standardizedFileURL
 
-        guard FileManager.default.fileExists(
-            atPath: dir.appendingPathComponent("meta.json").path
-        ) else {
-            throw ValidationError(
-                "\(dir.path) doesn't look like a recording — no meta.json in it."
-            )
-        }
-
-        guard let item = SessionInventory.item(for: dir) else {
-            throw ValidationError("couldn't read \(dir.path)/meta.json.")
-        }
+        let item = try Self.prepare(dir)
         Analytics.start(surface: .cli)
         defer { Analytics.flushOnExit() }
         print(item.summaryLine)
@@ -135,6 +128,23 @@ struct ProcessSession: ParsableCommand {
             print(refreshed.summaryLine)
         }
         print("\n" + Self.logHint(dir))
+    }
+
+    static func prepare(_ dir: URL) throws -> SessionInventory.Item {
+        _ = MainActor.assumeIsolated {
+            RecordingSession.recoverInterrupted(root: dir.deletingLastPathComponent())
+        }
+        guard FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("meta.json").path
+        ) else {
+            throw ValidationError(
+                "\(dir.path) doesn't look like a recording — no meta.json in it."
+            )
+        }
+        guard let item = SessionInventory.item(for: dir) else {
+            throw ValidationError("couldn't read \(dir.path)/meta.json.")
+        }
+        return item
     }
 
     private static func logHint(_ dir: URL) -> String {

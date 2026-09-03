@@ -20,8 +20,10 @@ enum Analytics {
         /// The first launch on this machine — the run that found no
         /// identifier file and made one.
         case installed
+        case versionSeen = "version_seen"
 
         case setupOpened = "setup_opened"
+        case settingsOpened = "settings_opened"
         case setupCompleted = "setup_completed"
         case micGranted = "mic_granted"
         case micDenied = "mic_denied"
@@ -33,10 +35,20 @@ enum Analytics {
         /// identifier is exactly what makes that possible. This is the whole
         /// return on the decision — the event list stays short.
         case recordingStarted = "recording_started"
+        case recordingStartFailed = "recording_start_failed"
         case recordingFinished = "recording_finished"
         case recordingDiscarded = "recording_discarded"
         case transcriptFinished = "transcript_finished"
+        case transcriptFallback = "transcript_fallback"
         case summaryFinished = "summary_finished"
+        case summaryBackendFailed = "summary_backend_failed"
+        case speakerNamesFinished = "speaker_names_finished"
+        case speakerNamesFailed = "speaker_names_failed"
+
+        case modelDownloadStarted = "model_download_started"
+        case modelDownloadFinished = "model_download_finished"
+        case modelDownloadFailed = "model_download_failed"
+        case artifactOpened = "artifact_opened"
 
         case transcriptFailed = "transcript_failed"
         case summaryFailed = "summary_failed"
@@ -59,6 +71,14 @@ enum Analytics {
         case systemAudio = "system_audio"
         case engine
         case backend
+        case model
+        case fallbackUsed = "fallback_used"
+        case fromEngine = "from_engine"
+        case toEngine = "to_engine"
+        case component
+        case outcome
+        case asset
+        case artifact
         /// Always from `Reason`, never an error string. Error text carries
         /// paths, host names and occasionally an API key, and there is no
         /// sanitising of it that stays true as the code changes.
@@ -71,10 +91,11 @@ enum Analytics {
     }
 
     /// Why something failed, as a closed set.
-    enum Reason: String, Sendable {
+    enum Reason: String, Sendable, Equatable {
         case noNetwork = "no_network"
         case noKey = "no_key"
         case noModel = "no_model"
+        case usageLimit = "usage_limit"
         case audioMissing = "audio_missing"
         case audioTooShort = "audio_too_short"
         case refused
@@ -82,6 +103,32 @@ enum Analytics {
         case httpError = "http_error"
         case quit
         case unknown
+    }
+
+    /// Collapse local failures before analytics sees them. The session log
+    /// keeps the original error for diagnosis; the wire gets only this closed
+    /// vocabulary, so URLs, paths, account details and keys cannot hitch a
+    /// ride inside somebody else's error description.
+    static func reason(for error: Error) -> Reason {
+        if LLMError.isUsageLimit(error) { return .usageLimit }
+        if error is CancellationError { return .quit }
+        if let url = error as? URLError {
+            if url.code == .timedOut { return .timedOut }
+            if [
+                URLError.notConnectedToInternet, .networkConnectionLost,
+                .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
+                .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed,
+            ].contains(url.code) { return .noNetwork }
+            return .unknown
+        }
+        if let llm = error as? LLMError {
+            switch llm {
+            case .http(let code, _): return code >= 500 ? .httpError : .refused
+            case .exit where llm.isTransient: return .noNetwork
+            case .emptyResponse, .malformedResponse, .exit: return .unknown
+            }
+        }
+        return .unknown
     }
 
     enum Value: Sendable, Equatable {
@@ -121,6 +168,17 @@ enum Analytics {
     enum Surface: String, Sendable {
         case app
         case cli
+    }
+
+    enum Outcome: String, Sendable {
+        case deferred
+        case gaveUp = "gave_up"
+    }
+
+    enum Artifact: String, Sendable {
+        case recordingsWindow = "recordings_window"
+        case recordingsRoot = "recordings_root"
+        case sessionFolder = "session_folder"
     }
 
     static func track(_ event: Event, _ properties: [Property: Value] = [:]) {

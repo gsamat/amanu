@@ -134,6 +134,38 @@ main {
     padding: 0 1.5rem 2rem;
 }
 
+.legal {
+    max-width: 48rem;
+    padding-top: 4rem;
+    padding-bottom: 5rem;
+}
+
+.legal h1 {
+    font-size: clamp(2.1rem, 5vw, 3.2rem);
+    line-height: 1.1;
+    margin: 0 0 2rem;
+}
+
+.legal h2 {
+    font-size: 1.55rem;
+    line-height: 1.2;
+    margin: 2.5rem 0 0.7rem;
+}
+
+.legal p,
+.legal li {
+    color: var(--ink-soft);
+}
+
+.legal li + li {
+    margin-top: 0.65rem;
+}
+
+.legal code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+}
+
 .hero {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);

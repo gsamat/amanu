@@ -111,7 +111,7 @@ implementation came from his project. Amanu retains quill's
 ## Following the history
 
 The exact code delta is available in the
-[GitHub comparison](https://github.com/digimata/quill/compare/855869e00b18bc9e7e6d171211780b439ce6ccd7...gsamat:amanu:master).
+[GitHub comparison](https://github.com/gsamat/amanu/compare/855869e00b18bc9e7e6d171211780b439ce6ccd7...master).
 Unlike a prose inventory, that comparison stays complete as Amanu changes.
 
 For the reasoning behind particular implementation choices, see

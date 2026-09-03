@@ -77,9 +77,11 @@ timer for events, properties, identity links, and orphaned sessions.
 ## What is sent
 
 A permanent identifier is worth having partly because of what it removes:
-Umami builds a funnel from the *first* occurrence of each step per person, so
-"first recording" and "first transcript" need no events of their own. The list
-stays short.
+"first recording" and "first transcript" need no events of their own. One
+important implementation detail was discovered after launch: Umami's built-in
+funnel report groups by session, not by `distinct_id`. Its saved activation
+funnel is therefore labelled an approximation. The checked-in weekly query
+computes the exact cross-session cohort with the random installation ID.
 
 ### The first-run funnel
 
@@ -97,8 +99,11 @@ comes free from `RecordingSession.Trigger`, which already distinguishes them.
 
 `recording_finished` carries a bucketed duration, whether the live transcript
 was on, and whether the system track had sound. `recording_discarded` fires for
-one too short to be a meeting. `transcript_finished` carries the engine,
-`summary_finished` the backend.
+one too short to be a meeting. Analytics schema 2 adds allow-listed STT and LLM
+models, fallbacks, individual backend failures, speaker naming, local model
+downloads, settings opens, release adoption, capture-start failures, and
+recording-library opens. Unknown custom models collapse to `custom` or
+`custom-local`; arbitrary model strings never enter analytics.
 
 "How many recordings does a person make" needs no event at all: it is the count
 of `recording_finished` per identifier, which is what the identifier bought.

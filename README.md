@@ -55,6 +55,9 @@ exhausted.
 
 There is no Amanu account and no hosted meeting library. No meeting content
 leaves the Mac unless you choose a cloud transcription or summary backend.
+Cloud and CLI summary backends receive the transcript plus available meeting
+context such as its title and calendar participants; Ollama keeps that work on
+the Mac. The complete data-flow description is in the [privacy notice](PRIVACY.md).
 Work that cannot run without a network is marked as deferred and resumed later
 instead of being silently dropped.
 
@@ -267,4 +270,5 @@ regression suite, and signed automatic updates. [FORK.md](FORK.md) records the
 project's provenance and explains how the architecture diverged.
 
 The name comes from *amanuensis*: a person whose job is to write down what is
-said. Amanu is free software under the [MIT license](LICENSE).
+said. Amanu is free software under the [MIT license](LICENSE); dependency
+licenses are listed in [third-party notices](THIRD-PARTY-NOTICES.md).

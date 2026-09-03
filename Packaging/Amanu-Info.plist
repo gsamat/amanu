@@ -49,10 +49,10 @@
     <key>SUScheduledCheckInterval</key>
     <integer>86400</integer>
     <key>NSMicrophoneUsageDescription</key>
-    <string>amanu records your microphone during meetings so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <string>Amanu records your microphone during meetings so you can transcribe them later. Transcription stays on this Mac unless you choose a cloud engine.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>amanu records system audio (the other side of your meetings) so you can transcribe them later. Transcription is on-device unless you configure a cloud engine.</string>
+    <string>Amanu records system audio (the other side of your meetings) so you can transcribe them later. Transcription stays on this Mac unless you choose a cloud engine.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
-    <string>amanu reads your calendar to name recordings after the meeting and, if you enable it, to start recording when a scheduled call begins. Calendar data never leaves the machine.</string>
+    <string>Amanu reads your calendar to identify and name meetings and, if you enable it, start recording scheduled calls. Meeting titles and participants stay on this Mac unless you choose a cloud or CLI model for summaries or speaker names.</string>
 </dict>
 </plist>

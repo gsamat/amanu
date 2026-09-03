@@ -19,6 +19,25 @@ struct RecordingInProgress: Sendable {
 /// audio, and two tracks give free two-party diarization.
 @MainActor
 final class RecordingSession {
+    enum StartFailure: Error, CustomStringConvertible {
+        case systemAudio(Error)
+        case microphone(Error)
+
+        var analyticsComponent: String {
+            switch self {
+            case .systemAudio: return "system_audio"
+            case .microphone: return "microphone"
+            }
+        }
+
+        var description: String {
+            switch self {
+            case .systemAudio(let error): return "system audio: \(error)"
+            case .microphone(let error): return "microphone: \(error)"
+            }
+        }
+    }
+
     /// What started this session. Manual recordings are never stopped or
     /// discarded automatically: if you pressed the button, you meant it.
     enum Trigger: String {
@@ -72,6 +91,7 @@ final class RecordingSession {
     /// mid-session — clicking a Zoom link from a browser call, say.
     private var tapFamilies: [String]
     private var farEndWarningShown = false
+    private var digitalSilenceWarningShown = false
 
     /// Total time spent paused, so meta.json can say how much of the session
     /// is deliberate silence.
@@ -123,7 +143,16 @@ final class RecordingSession {
             (Config.systemAudioScope() == "app" && !tapFamilies.isEmpty)
                 ? .apps(tapFamilies)
                 : .everything
-        try system.start(writingTo: dir.appendingPathComponent("system.caf"), scope: scope)
+        // The marker must precede capture. A kill after either recorder starts
+        // must leave enough information for crash recovery to adopt the audio.
+        writeManifest()
+        do {
+            try system.start(writingTo: dir.appendingPathComponent("system.caf"), scope: scope)
+        } catch {
+            try? FileManager.default.removeItem(
+                at: dir.appendingPathComponent(Self.manifestFile))
+            throw StartFailure.systemAudio(error)
+        }
         do {
             // The mic track follows the same call the tap does: the microphone
             // that app is listening to is the one being spoken into, and it is
@@ -131,9 +160,10 @@ final class RecordingSession {
             try mic.start(writingTo: dir.appendingPathComponent("mic.caf"), callApps: tapFamilies)
         } catch {
             system.stop()
-            throw error
+            try? FileManager.default.removeItem(
+                at: dir.appendingPathComponent(Self.manifestFile))
+            throw StartFailure.microphone(error)
         }
-        writeManifest()
         Analytics.track(.recordingStarted, [.trigger: .text(trigger.rawValue)])
         watchdog = Timer.scheduledTimer(
             withTimeInterval: Self.watchdogInterval, repeats: true
@@ -516,6 +546,19 @@ final class RecordingSession {
             }
         }
 
+        if !digitalSilenceWarningShown, system.isDigitallySilent(now: now) {
+            digitalSilenceWarningShown = true
+            notifyUser(
+                title: localised(
+                    "amanu: system audio is silent",
+                    "amanu: системный звук не записывается"),
+                body: localised(
+                    "The system track is receiving only digital silence. Check System Settings → Privacy & Security → Screen & System Audio Recording.",
+                    "В системную дорожку приходит только цифровая тишина. Проверьте Системные настройки → Конфиденциальность и безопасность → Запись экрана и системного аудио."),
+                opening: dir
+            )
+        }
+
         followCallApp(now: now)
 
         // Which microphone is the right one is not settled once at the start.
@@ -541,36 +584,62 @@ final class RecordingSession {
     /// Keep the tap pointed at the call as its processes come and go, and
     /// notice if that leaves us recording silence.
     private func followCallApp(now: Date) {
-        guard case .apps = system.scope else { return }
-
-        let settings = Config.autoRecord()
-        let mic = MicActivityMonitor.check(
-            callApps: settings.callApps, ignoring: settings.ignoreApps
-        )
-        // A second call app joining the session counts too: clicking a Zoom
-        // link during a browser call is an ordinary thing to do, and the
-        // far-end track shouldn't go quiet because of it.
-        let families = Array(Set(tapFamilies).union(mic.families)).sorted()
-        if families != tapFamilies { tapFamilies = families }
-        system.refresh(scope: .apps(tapFamilies))
+        if case .apps = system.scope {
+            let settings = Config.autoRecord()
+            let mic = MicActivityMonitor.check(
+                callApps: settings.callApps, ignoring: settings.ignoreApps
+            )
+            // A second call app joining the session counts too: clicking a Zoom
+            // link during a browser call is an ordinary thing to do, and the
+            // far-end track shouldn't go quiet because of it.
+            let families = Array(Set(tapFamilies).union(mic.families)).sorted()
+            if families != tapFamilies { tapFamilies = families }
+            system.refresh(scope: .apps(tapFamilies))
+        }
 
         // The failure mode of a scoped tap is silence with no error: a tap on
         // the wrong process delivers zeroed buffers for as long as you like.
         // If you have been talking and nothing has come back for five minutes,
         // say so — once — rather than letting an hour go by.
         guard !farEndWarningShown else { return }
-        let youSpokeRecently = self.mic.lastSoundAt.map { now.timeIntervalSince($0) < 120 } ?? false
+        guard Self.shouldWarnAboutFarEndSilence(
+            scope: system.scope,
+            recordingStartedAt: startedAt,
+            micLastSoundAt: mic.lastSoundAt,
+            systemLastSoundAt: system.lastSoundAt,
+            now: now
+        ) else { return }
         let farEndSilentFor = now.timeIntervalSince(system.lastSoundAt ?? startedAt)
-        guard youSpokeRecently, farEndSilentFor > 300 else { return }
         farEndWarningShown = true
+        let detail: (String, String)
+        if case .apps = system.scope {
+            detail = (
+                "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong.",
+                "Пишется только \(tapFamilies.joined(separator: ", ")), и там тихо уже \(Int(farEndSilentFor / 60)) мин. Если это неверно, поставьте system_audio в \"all\"."
+            )
+        } else {
+            detail = (
+                "Nothing has been heard on the system track for \(Int(farEndSilentFor / 60)) min. Check the call output and System Audio Recording permission.",
+                "На системной дорожке ничего не слышно уже \(Int(farEndSilentFor / 60)) мин. Проверьте выход звука звонка и разрешение на запись системного аудио."
+            )
+        }
         notifyUser(
             title: localised(
                 "amanu: nothing from the far end", "amanu: от дальней стороны ничего нет"),
-            body: localised(
-                "Recording only \(tapFamilies.joined(separator: ", ")) and it has been silent"
-                    + " for \(Int(farEndSilentFor / 60)) min. Set system_audio to \"all\" if this is wrong.",
-                "Пишется только \(tapFamilies.joined(separator: ", ")), и там тихо уже"
-                    + " \(Int(farEndSilentFor / 60)) мин. Если это неверно, поставьте system_audio в \"all\".")
+            body: localised(detail.0, detail.1)
         )
+    }
+
+    nonisolated static func shouldWarnAboutFarEndSilence(
+        scope: SystemAudioRecorder.Scope,
+        recordingStartedAt: Date,
+        micLastSoundAt: Date?,
+        systemLastSoundAt: Date?,
+        now: Date
+    ) -> Bool {
+        _ = scope // Both app-scoped and global taps can silently lose permission.
+        let youSpokeRecently = micLastSoundAt.map { now.timeIntervalSince($0) < 120 } ?? false
+        let farEndSilentFor = now.timeIntervalSince(systemLastSoundAt ?? recordingStartedAt)
+        return youSpokeRecently && farEndSilentFor > 300
     }
 }

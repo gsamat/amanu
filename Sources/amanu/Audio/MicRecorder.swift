@@ -8,8 +8,8 @@
 import Foundation
 import os.lock
 
-/// Records the default input device to a file via AVAudioEngine, encoding AAC
-/// mono. Buffers stream straight to disk — nothing is held in memory, so
+/// Records the default input device to a mono PCM file via AVAudioEngine.
+/// Buffers stream straight to disk — nothing is held in memory, so
 /// session length is unbounded.
 ///
 /// Raw capture is the default so recording never reroutes or attenuates what
@@ -257,8 +257,8 @@ final class MicRecorder: @unchecked Sendable {
     private var livenessPeak: Float = 0
     private var livenessSettled = false
 
-    /// Start capturing the mic, encoding AAC into `url` (use a .caf extension
-    /// — CAF needs no finalization pass, so a crash loses nothing written).
+    /// Start capturing the mic as PCM in `url` (use a .caf extension — CAF
+    /// needs no finalization pass, so a crash loses nothing written).
     ///
     /// `callApps` are the bundle-id families this session is following, and
     /// they decide which microphone is captured: the one the call app is
@@ -360,7 +360,7 @@ final class MicRecorder: @unchecked Sendable {
 
     // MARK: -
 
-    /// Build the engine graph, create the AAC file, and start capture. Called
+    /// Build the engine graph, create the PCM file, and start capture. Called
     /// once at start, again (voiceProcessing: false) if the liveness check
     /// trips, and (reusingFile: true) after a device reconfiguration.
     ///

@@ -13,6 +13,9 @@ import Foundation
 /// expired key, an exhausted subscription, or a plane.
 struct LLMBackend {
     let name: String
+    /// Exact local/configured model used for the call. It stays local;
+    /// analytics allow-lists it before sending anything.
+    let model: String?
     /// (system prompt, user prompt) → completion text.
     let call: (String, String) async throws -> String
 
@@ -73,7 +76,7 @@ struct LLMBackend {
     /// and without it the CLI starts every MCP server configured on the
     /// machine — minutes of startup for a one-shot prompt.
     private static func claudeCLI(path: String) -> LLMBackend {
-        LLMBackend(name: "claude-cli") { system, prompt in
+        LLMBackend(name: "claude-cli", model: nil) { system, prompt in
             try await run(
                 executable: path,
                 arguments: [
@@ -89,7 +92,7 @@ struct LLMBackend {
     }
 
     private static func anthropic(key: String, model: String) -> LLMBackend {
-        LLMBackend(name: "anthropic-api") { system, prompt in
+        LLMBackend(name: "anthropic-api", model: model) { system, prompt in
             var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
             request.httpMethod = "POST"
             request.timeoutInterval = 600
@@ -124,7 +127,7 @@ struct LLMBackend {
     /// from the file it writes with `--output-last-message` rather than
     /// scraped out of the log.
     private static func codexCLI(path: String, model: String) -> LLMBackend {
-        LLMBackend(name: "codex-cli") { system, prompt in
+        LLMBackend(name: "codex-cli", model: model) { system, prompt in
             let output = FileManager.default.temporaryDirectory
                 .appendingPathComponent("amanu-codex-\(UUID().uuidString).txt")
             defer { try? FileManager.default.removeItem(at: output) }
@@ -150,7 +153,7 @@ struct LLMBackend {
     }
 
     private static func openAI(key: String, model: String) -> LLMBackend {
-        LLMBackend(name: "openai-api") { system, prompt in
+        LLMBackend(name: "openai-api", model: model) { system, prompt in
             var request = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
             request.httpMethod = "POST"
             request.timeoutInterval = 600
@@ -184,7 +187,7 @@ struct LLMBackend {
     // MARK: - local
 
     private static func ollama(model: String) -> LLMBackend {
-        LLMBackend(name: "ollama") { system, prompt in
+        LLMBackend(name: "ollama", model: model) { system, prompt in
             var request = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/generate")!)
             request.httpMethod = "POST"
             request.timeoutInterval = 1800

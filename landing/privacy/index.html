@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy — Amanu</title>
+    <meta name="description" content="What Amanu records, what stays on your Mac, and what is sent when you choose cloud processing or analytics." />
+    <link rel="canonical" href="https://amanu.me/privacy/" />
+    <link rel="alternate" hreflang="en" href="https://amanu.me/privacy/" />
+    <link rel="alternate" hreflang="ru" href="https://amanu.me/ru/privacy/" />
+    <link rel="alternate" hreflang="x-default" href="https://amanu.me/privacy/" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="icon" href="/assets/icon-180.png" />
+</head>
+<body>
+    <header class="masthead">
+        <a class="brand" href="/" aria-label="Amanu — home">
+            <img src="/assets/icon.png" width="40" height="40" alt="Amanu icon: a cream quill on a dark graphite background." />
+            <span class="brand-name">Amanu</span>
+        </a>
+    </header>
+    <main class="legal">
+        <h1>Privacy</h1>
+        <p>Amanu has no account and no hosted meeting library. Recordings and the files made from them live in the recordings folder on your Mac.</p>
+        <h2>Meeting content</h2>
+        <ul>
+            <li>Recording, Parakeet transcription, the optional live transcript, and Ollama summaries run locally.</li>
+            <li>AssemblyAI or OpenAI transcription uploads meeting audio to the provider you choose.</li>
+            <li>Claude Code, Codex, Anthropic, and OpenAI summary or speaker-naming backends receive the transcript and available meeting context: title, call application, and calendar participants. Those tools may send it to their provider under your account’s terms.</li>
+            <li>API keys stay on the Mac and are sent only to the provider they authenticate.</li>
+        </ul>
+        <p>Calendar access is optional. Calendar context stays local unless it is included in a request to a cloud or CLI model as described above.</p>
+        <h2>Product analytics</h2>
+        <p>Anonymous usage reporting is on by default and can be disabled in Setup, Settings → Setup, or with <code>amanu analytics off</code>. It never includes meeting content, names, paths, keys, or error text. <a href="https://github.com/gsamat/amanu/blob/master/docs/analytics.md">See the complete event list, retention, and deletion instructions.</a></p>
+        <h2>Website analytics</h2>
+        <p>This site sends a first-party request to <code>amanu.me/m</code> for a page view, and an aggregate <code>download_clicked</code> event when a release link is clicked. Page views contain the page path and title, screen dimensions, and referrer when supplied; the download event contains its fixed name and current page path. The server also receives ordinary HTTP metadata such as IP address and user agent. The site sets no analytics identifier, does not connect website activity to the app installation ID, and loads no third-party analytics script.</p>
+        <p>Questions or deletion requests: <a href="mailto:s@samat.me">s@samat.me</a>.</p>
+    </main>
+    <footer><p><a href="/">Amanu</a> · <a href="/ru/privacy/" lang="ru" hreflang="ru">Русский</a></p></footer>
+    <script src="/script.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Конфиденциальность — Amanu</title>
+    <meta name="description" content="Что записывает Amanu, что остаётся на маке и что отправляется при выборе облачной обработки или аналитики." />
+    <link rel="canonical" href="https://amanu.me/ru/privacy/" />
+    <link rel="alternate" hreflang="en" href="https://amanu.me/privacy/" />
+    <link rel="alternate" hreflang="ru" href="https://amanu.me/ru/privacy/" />
+    <link rel="alternate" hreflang="x-default" href="https://amanu.me/privacy/" />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="icon" href="/assets/icon-180.png" />
+</head>
+<body>
+    <header class="masthead">
+        <a class="brand" href="/ru/" aria-label="Amanu — на главную">
+            <img src="/assets/icon.png" width="40" height="40" alt="Иконка Amanu: кремовое перо на тёмно-графитовой плашке." />
+            <span class="brand-name">Amanu</span>
+        </a>
+    </header>
+    <main class="legal">
+        <h1>Конфиденциальность</h1>
+        <p>У Amanu нет аккаунтов и облачной библиотеки встреч. Записи и созданные из них файлы лежат в папке на вашем маке.</p>
+        <h2>Содержание встреч</h2>
+        <ul>
+            <li>Запись, расшифровка Parakeet, расшифровка на ходу и выжимки Ollama работают локально.</li>
+            <li>При выборе AssemblyAI или OpenAI звук встречи загружается выбранному провайдеру для расшифровки.</li>
+            <li>Claude Code, Codex, Anthropic и OpenAI для выжимок или имён говорящих получают расшифровку и доступный контекст: название встречи, приложение звонка и участников из календаря. Эти инструменты могут отправить данные своему провайдеру по условиям вашего аккаунта.</li>
+            <li>API-ключи остаются на маке и передаются только провайдеру, для которого предназначены.</li>
+        </ul>
+        <p>Доступ к календарю необязателен. Контекст календаря остаётся локальным, кроме описанных выше запросов к облачной или CLI-модели.</p>
+        <h2>Аналитика приложения</h2>
+        <p>Анонимная статистика использования включена по умолчанию. Её можно отключить при первой настройке, в Настройках → Первая настройка или командой <code>amanu analytics off</code>. Содержание встреч, имена, пути, ключи и тексты ошибок не отправляются. <a href="https://github.com/gsamat/amanu/blob/master/docs/analytics.md">Полный список событий, срок хранения и удаление данных.</a></p>
+        <h2>Аналитика сайта</h2>
+        <p>При просмотре страницы сайт отправляет запрос на собственный адрес <code>amanu.me/m</code>, а при нажатии на ссылку релиза — агрегированное событие <code>download_clicked</code>. Просмотр содержит путь и заголовок страницы, размер экрана и источник перехода, если браузер его передал; событие скачивания — только фиксированное имя и путь текущей страницы. Сервер также получает обычные данные HTTP-запроса, например IP-адрес и user agent. Сайт не задаёт аналитический идентификатор, не связывает посещение с идентификатором установки приложения и не загружает сторонних счётчиков.</p>
+        <p>Вопросы и запросы на удаление: <a href="mailto:s@samat.me">s@samat.me</a>.</p>
+    </main>
+    <footer><p><a href="/ru/">Amanu</a> · <a href="/privacy/" lang="en" hreflang="en">English</a></p></footer>
+    <script src="/script.js" defer></script>
+</body>
+</html>

@@ -182,11 +182,30 @@ enum DoctorReport {
     /// which `spike/tcc-bundle` measured by playing a tone into its own tap.
     /// What remains unknowable is the grant, and only a recording settles it.
     static func checkSystemAudio() -> Check {
-        guard Runtime.isBundled else {
+        checkSystemAudio(
+            isBundled: Runtime.isBundled,
+            heardAt: SetupState.systemAudioHeardAt(),
+            now: Date()
+        )
+    }
+
+    static func checkSystemAudio(isBundled: Bool, heardAt: Date?, now: Date) -> Check {
+        guard isBundled else {
             return Check(
                 name: "system audio",
                 status: .warn("a bare build records SILENT system audio"),
                 remediation: "run Amanu.app — `make app`, then put it in /Applications"
+            )
+        }
+        if let heardAt, heardAt <= now {
+            let days = max(0, Int(now.timeIntervalSince(heardAt) / (24 * 60 * 60)))
+            let age = days == 1 ? "1 day ago" : "\(days) days ago"
+            let recent = SetupPermissions.rememberedSystemAudio(
+                heardAt: heardAt, now: now) == .heard
+            return Check(
+                name: "system audio",
+                status: recent ? .ok : .warn("last successful tone test is stale"),
+                remediation: "last successful tone test: \(age); run `amanu setup` to test again"
             )
         }
         return Check(

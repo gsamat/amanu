@@ -7,6 +7,16 @@
     <title>Amanu — автоматическая запись и расшифровка онлайн-встреч</title>
     <meta name="description"
         content="Amanu записывает и расшифровывает онлайн-встречи сама: Zoom, Google Meet, Телеграм, Вацап. Определяет говорящих, пишет выжимки, умеет работать локально без интернета. Бесплатно, открытый исходный код, macOS." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Amanu" />
+    <meta property="og:title" content="Amanu — автоматическая запись и расшифровка встреч" />
+    <meta property="og:description" content="Записывает и расшифровывает онлайн-встречи автоматом. Бесплатно, открытый код, macOS." />
+    <meta property="og:url" content="https://amanu.me/ru/" />
+    <meta property="og:image" content="https://amanu.me/assets/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Amanu — автоматическая запись и расшифровка встреч" />
+    <meta name="twitter:description" content="Записывает и расшифровывает онлайн-встречи автоматом. Бесплатно и открыто." />
+    <meta name="twitter:image" content="https://amanu.me/assets/social-preview.png" />
     <link rel="canonical" href="https://amanu.me/ru/" />
     <link rel="alternate" hreflang="en" href="https://amanu.me/" />
     <link rel="alternate" hreflang="ru" href="https://amanu.me/ru/" />
@@ -36,7 +46,7 @@
                 <h1>Записывает и&nbsp;расшифровывает онлайн-встречи. <em class="self">Автоматом.</em></h1>
                 <p class="lede">Amanu работает с&nbsp;любыми звонками — Zoom, Google Meet, Телеграм,
                     Вацап. Запускает и&nbsp;останавливает запись автоматически, определяет говорящих
-                    и&nbsp;пишет качественную выжимку каждой встречи.</p>
+                    и&nbsp;может написать качественную выжимку после встречи.</p>
                 <p class="cta-row">
                     <a class="btn" href="https://github.com/gsamat/amanu/releases/download/v0.4.12/amanu-v0.4.12-macos-universal.dmg">
                         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -91,9 +101,9 @@
         <section class="entry">
             <p class="tc" aria-hidden="true">52:41</p>
             <div class="entry-body">
-                <h2>Все данные хранятся у&nbsp;вас локально</h2>
+                <h2>Ваша библиотека встреч хранится на&nbsp;маке</h2>
                 <p>Одна встреча — одна папка, внутри аудиофайл, расшифровка, выжимка.
-                    Очень удобно дать доступ нейросетям.</p>
+                    Обработку тоже можно оставить локальной или подключить выбранную облачную модель.</p>
             </div>
         </section>
 
@@ -160,34 +170,11 @@
 
     <footer>
         <p><a href="https://github.com/gsamat/amanu">Исходный код</a> ·
+            <a href="/ru/privacy/">Конфиденциальность</a> ·
             <a href="https://samat.me/ru">Самат Галимов</a> ·
             <a href="/en/" lang="en" hreflang="en">English</a></p>
     </footer>
-
-    <script>
-        // First-party счётчик на том же сервере, что у сайта подкаста и CTOdaily.
-        // Никаких сторонних скриптов: обычный запрос за пикселем на /m.
-        (function () {
-            var url = new URL('/m', location.origin);
-            url.searchParams.set('p', location.pathname);
-            url.searchParams.set('t', document.title);
-            url.searchParams.set('s', [screen.width, screen.height, devicePixelRatio].join(','));
-            if (document.referrer) url.searchParams.set('r', document.referrer);
-            new Image().src = url;
-        })();
-
-        // Декоративный счётчик записи в шапке. При prefers-reduced-motion не тикает.
-        (function () {
-            var el = document.getElementById('rec-time');
-            if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            var s = 0;
-            setInterval(function () {
-                s += 1;
-                var m = Math.floor(s / 60), r = s % 60;
-                el.textContent = (m < 10 ? '0' + m : m) + ':' + (r < 10 ? '0' + r : r);
-            }, 1000);
-        })();
-    </script>
+    <script src="/script.js" defer></script>
 </body>
 
 </html>

@@ -7,6 +7,16 @@
     <title>Amanu — automatic recording and transcription for online meetings</title>
     <meta name="description"
         content="Amanu records and transcribes online meetings automatically: Zoom, Google Meet, Telegram, and WhatsApp. It identifies speakers, writes high-quality summaries, and can run locally without internet access. Free, open source, and built for macOS." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Amanu" />
+    <meta property="og:title" content="Amanu — automatic meeting recording and transcription" />
+    <meta property="og:description" content="Records and transcribes online meetings automatically. Free, open source, and built for macOS." />
+    <meta property="og:url" content="https://amanu.me/" />
+    <meta property="og:image" content="https://amanu.me/assets/social-preview.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Amanu — automatic meeting recording and transcription" />
+    <meta name="twitter:description" content="Records and transcribes online meetings automatically. Free and open source." />
+    <meta name="twitter:image" content="https://amanu.me/assets/social-preview.png" />
     <link rel="canonical" href="https://amanu.me/" />
     <link rel="alternate" hreflang="en" href="https://amanu.me/" />
     <link rel="alternate" hreflang="ru" href="https://amanu.me/ru/" />
@@ -36,7 +46,7 @@
                 <h1>Records and transcribes online meetings. <em class="self">Automatically.</em></h1>
                 <p class="lede">Amanu works with any call — Zoom, Google Meet, Telegram,
                     WhatsApp. It starts and stops recording on its own, identifies speakers,
-                    and writes a high-quality summary of every meeting.</p>
+                    and can write a high-quality summary after the meeting.</p>
                 <p class="cta-row">
                     <a class="btn" href="https://github.com/gsamat/amanu/releases/download/v0.4.12/amanu-v0.4.12-macos-universal.dmg">
                         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -89,9 +99,9 @@
         <section class="entry">
             <p class="tc" aria-hidden="true">52:41</p>
             <div class="entry-body">
-                <h2>All your data stays local</h2>
+                <h2>Your meeting library stays on your Mac</h2>
                 <p>One meeting, one folder: the audio, transcript, and summary live together.
-                    It is easy to give your AI tools access to it.</p>
+                    Processing can stay local too, or use a cloud model you choose.</p>
             </div>
         </section>
 
@@ -159,34 +169,11 @@
 
     <footer>
         <p><a href="https://github.com/gsamat/amanu">Source code</a> ·
+            <a href="/privacy/">Privacy</a> ·
             <a href="https://samat.me/">Samat Galimov</a> ·
             <a href="/ru/" lang="ru" hreflang="ru">Русский</a></p>
     </footer>
-
-    <script>
-        // First-party analytics shared with the podcast site and CTOdaily.
-        // No third-party script: just a tracking pixel request to /m.
-        (function () {
-            var url = new URL('/m', location.origin);
-            url.searchParams.set('p', location.pathname);
-            url.searchParams.set('t', document.title);
-            url.searchParams.set('s', [screen.width, screen.height, devicePixelRatio].join(','));
-            if (document.referrer) url.searchParams.set('r', document.referrer);
-            new Image().src = url;
-        })();
-
-        // Decorative recording timer. It stays still when reduced motion is enabled.
-        (function () {
-            var el = document.getElementById('rec-time');
-            if (!el || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-            var s = 0;
-            setInterval(function () {
-                s += 1;
-                var m = Math.floor(s / 60), r = s % 60;
-                el.textContent = (m < 10 ? '0' + m : m) + ':' + (r < 10 ? '0' + r : r);
-            }, 1000);
-        })();
-    </script>
+    <script src="/script.js" defer></script>
 </body>
 
 </html>

@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem in Amanu
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach recordings, transcripts, calendar data, API keys, or unredacted logs. Report vulnerabilities privately as described in SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Amanu version
+      placeholder: 0.4.13
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 26.0, MacBook Pro M4
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Safe reproduction steps
+      description: Redact names, paths, meeting content, and credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Redacted `amanu doctor` output
+      render: shell
