@@ -6,7 +6,10 @@ import Testing
 /// The queue, and the three rules it exists to keep: nothing is sent when the
 /// switch is off, nothing is lost to a restart, and nothing grows without a
 /// ceiling.
-@Suite("Analytics queue")
+// These tests deliberately call the synchronous quit-time flush around an
+// async transport. Running several of them together on a small cooperative
+// thread pool can starve the transport tasks they are waiting for.
+@Suite("Analytics queue", .serialized)
 struct AnalyticsQueueTests {
     private static func scratch() -> URL {
         let dir = FileManager.default.temporaryDirectory
