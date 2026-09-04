@@ -41,11 +41,14 @@ final class AutoRecordController {
     }
 
     private let calendar: CalendarWatcher?
+    private let loadSettings: () -> Config.AutoRecordSettings
+    private let checkMic: (Config.AutoRecordSettings) -> MicActivityMonitor.Result
+    private let now: () -> Date
     private var timer: Timer?
     private var micActiveSince: Date?
     private var micIdleSince: Date?
     private var handledEventIDs = Set<String>()
-    private var cooldownUntil: Date?
+    private var suppressingAfterManualStop = false
     private var lastCalendarCheck = Date.distantPast
     private var currentEventEnd: Date?
 
@@ -55,18 +58,26 @@ final class AutoRecordController {
     private static let calendarInterval: TimeInterval = 25
     /// How late an event may be picked up after its start time.
     private static let calendarWindow: TimeInterval = 3 * 60
-    /// After a manual stop, don't immediately re-arm — the call is usually
-    /// still open, and the user just said they didn't want it recorded.
-    private static let manualStopCooldown: TimeInterval = 15 * 60
     /// How long the far end must have been quiet before a finished calendar
     /// event may end the recording. Named rather than written twice, because
     /// the discard rule below has to subtract exactly this number and a pair
     /// of literals drifts apart the first time one of them is tuned.
     nonisolated static let calendarEndQuiet: TimeInterval = 60
 
-    init(settings: Config.AutoRecordSettings, calendar: CalendarWatcher?) {
+    init(
+        settings: Config.AutoRecordSettings,
+        calendar: CalendarWatcher?,
+        loadSettings: @escaping () -> Config.AutoRecordSettings = Config.autoRecord,
+        checkMic: @escaping (Config.AutoRecordSettings) -> MicActivityMonitor.Result = {
+            MicActivityMonitor.check(callApps: $0.callApps, ignoring: $0.ignoreApps)
+        },
+        now: @escaping () -> Date = Date.init
+    ) {
         self.enabled = settings.enabled
         self.calendar = calendar
+        self.loadSettings = loadSettings
+        self.checkMic = checkMic
+        self.now = now
     }
 
     func start() {
@@ -86,35 +97,32 @@ final class AutoRecordController {
     /// The user started a recording by hand — don't treat it as ours.
     func noteManualStart() {
         currentEventEnd = nil
-        cooldownUntil = nil
+        suppressingAfterManualStop = false
     }
 
     /// The user stopped a recording by hand. Whatever is holding the mic, they
-    /// don't want it recorded; stay out of the way for a while, and consider
-    /// the current calendar event dealt with.
+    /// don't want it recorded; stay out of the way until that call actually
+    /// ends, and consider the current calendar event dealt with.
     func noteManualStop() {
-        cooldownUntil = Date().addingTimeInterval(Self.manualStopCooldown)
+        suppressingAfterManualStop = true
         micActiveSince = nil
         currentEventEnd = nil
-        if let event = calendar?.bestMatch(for: Date()) {
+        if let event = calendar?.bestMatch(for: now()) {
             handledEventIDs.insert(event.id)
         }
     }
 
     // MARK: -
 
-    private func tick() {
-        let settings = Config.autoRecord()
+    func tick() {
+        let settings = loadSettings()
         guard enabled, settings.enabled else {
             lastDecision = localised("auto-record off", "автозапись выключена")
             return
         }
 
-        let now = Date()
-        let mic = MicActivityMonitor.check(
-            callApps: settings.callApps,
-            ignoring: settings.ignoreApps
-        )
+        let now = now()
+        let mic = checkMic(settings)
 
         if mic.active {
             if micActiveSince == nil { micActiveSince = now }
@@ -138,10 +146,15 @@ final class AutoRecordController {
         now: Date,
         mic: MicActivityMonitor.Result
     ) {
-        if let until = cooldownUntil, now < until {
-            lastDecision = localised(
-                "paused after a manual stop", "пауза после ручной остановки")
-            return
+        if suppressingAfterManualStop {
+            let idleFor = micIdleSince.map { now.timeIntervalSince($0) } ?? 0
+            if mic.active || idleFor <= settings.stopDelay {
+                lastDecision = localised(
+                    "paused after a manual stop until the call ends",
+                    "пауза после ручной остановки до конца звонка")
+                return
+            }
+            suppressingAfterManualStop = false
         }
 
         if settings.calendar, let calendar,

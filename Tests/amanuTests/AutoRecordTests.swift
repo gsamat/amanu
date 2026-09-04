@@ -117,3 +117,67 @@ struct AutoRecordTests {
         #expect(AutoRecordController.trailingQuiet(for: "app-quit", settings: patient) == nil)
     }
 }
+
+@MainActor
+struct ManualStopAutoRecordTests {
+    private final class Clock {
+        var date = Date(timeIntervalSince1970: 1_800_000_000)
+    }
+
+    private func controller(
+        clock: Clock,
+        micActive: @escaping () -> Bool,
+        onStart: @escaping () -> Void
+    ) -> AutoRecordController {
+        var settings = Config.AutoRecordSettings()
+        settings.startDelay = 0
+        settings.stopDelay = 15
+        let controller = AutoRecordController(
+            settings: settings,
+            calendar: nil,
+            loadSettings: { settings },
+            checkMic: { _ in
+                MicActivityMonitor.Result(
+                    active: micActive(),
+                    names: micActive() ? ["zoom.us"] : [],
+                    families: micActive() ? ["us.zoom.xos"] : [],
+                    allHolders: micActive() ? ["zoom.us"] : []
+                )
+            },
+            now: { clock.date }
+        )
+        controller.startRecording = { _, _ in onStart() }
+        return controller
+    }
+
+    @Test("A manual stop does not expire while the same call stays active")
+    func manualStopDoesNotExpireDuringCall() {
+        let clock = Clock()
+        var starts = 0
+        let controller = controller(clock: clock, micActive: { true }) { starts += 1 }
+
+        controller.noteManualStop()
+        clock.date.addTimeInterval(60 * 60)
+        controller.tick()
+
+        #expect(starts == 0)
+    }
+
+    @Test("Automatic recording rearms after the manually stopped call ends")
+    func manualStopRearmsAfterCallEnds() {
+        let clock = Clock()
+        var active = true
+        var starts = 0
+        let controller = controller(clock: clock, micActive: { active }) { starts += 1 }
+
+        controller.noteManualStop()
+        active = false
+        controller.tick()
+        clock.date.addTimeInterval(16)
+        controller.tick()
+        active = true
+        controller.tick()
+
+        #expect(starts == 1)
+    }
+}
