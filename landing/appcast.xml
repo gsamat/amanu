@@ -6,30 +6,31 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.14</title>
-            <pubDate>Thu, 03 Sep 2026 21:26:10 +0000</pubDate>
+            <title>0.4.15</title>
+            <pubDate>Fri, 04 Sep 2026 10:33:57 +0000</pubDate>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>This patch release fixes a race found by Amanu&#x27;s new clean GitHub Actions run.</p>
-<h3>What changed since v0.4.13</h3>
+            <description><![CDATA[<p>This release fixes automatic recording restarting during a call after the user has stopped it by hand.</p>
+<h3>What changed since v0.4.14</h3>
 <ul>
-<li>An explicit analytics flush now waits for a request that the background timer has already started. Previously it could return early while that request was still in flight. Failed events were still persisted for retry, so this did not affect meeting content or recordings.</li>
-<li>A deterministic regression test covers the in-flight send path. The complete suite now contains 343 tests in 40 suites.</li>
+<li>A manual stop now suppresses automatic recording until the current call has actually ended. Previously the suppression expired after fifteen minutes, so a long-running Zoom call could be mistaken for a new meeting and start recording again every time that timer elapsed.</li>
+<li>Automatic recording rearms normally after the call app releases the microphone for the configured call-end interval, so a later call is still recorded.</li>
+<li>Deterministic regression tests cover both staying stopped during the same call and rearming for the next one. The complete suite now contains 345 tests in 41 suites.</li>
 </ul>
 <h3>Requirements</h3>
 <p>macOS 15 or later, on Apple Silicon or Intel. The application is signed with a Developer ID certificate, uses the hardened runtime, and the disk image carries a stapled Apple notarization ticket.</p>
 <h3>Verifying the download</h3>
 <p>The checksum is attached alongside the disk image.</p>
 <ul>
-<li><code>shasum -a 256 -c amanu-v0.4.14-macos-universal.dmg.sha256</code></li>
-<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.14-macos-universal.dmg</code></li>
-<li><code>xcrun stapler validate amanu-v0.4.14-macos-universal.dmg</code></li>
+<li><code>shasum -a 256 -c amanu-v0.4.15-macos-universal.dmg.sha256</code></li>
+<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.15-macos-universal.dmg</code></li>
+<li><code>xcrun stapler validate amanu-v0.4.15-macos-universal.dmg</code></li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.14/amanu-v0.4.14-macos-universal.dmg"
-                sparkle:version="271"
-                sparkle:shortVersionString="0.4.14"
-                sparkle:edSignature="zKqcWG67qMIrkr5r9bDX/NUG1vu08OscgtGwKvT9lDKq5uAUKbFpr3V7dbIi1Yt41IPIVZtRhimqHp8gdrx0DA=="
-                length="9363942"
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.15/amanu-v0.4.15-macos-universal.dmg"
+                sparkle:version="273"
+                sparkle:shortVersionString="0.4.15"
+                sparkle:edSignature="aDNhFeeFlF1/xCQX+pQleURu1mi5freaSwYphPXO9+Znk+Mug+mwM7tDxS+jTubeWgZ6eHhl8ux4vn/FioxVDg=="
+                length="9366600"
                 type="application/octet-stream" />
         </item>
     </channel>
