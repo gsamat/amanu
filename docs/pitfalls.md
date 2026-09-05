@@ -369,3 +369,15 @@ an error to it, only text. Wrap the prose around the emphasis rather than
 through it, and read the rendered HTML before shipping: `python3
 scripts/notes-to-html.py docs/release-notes-vX.Y.Z.md | grep '\*'` should
 print nothing.
+
+## The SSH agent selected by the host can differ from ssh-add
+
+The 0.4.16 release reached publication, then the legacy appcast push failed
+with `Permission denied (publickey)`. The host configuration selected the
+1Password agent, while `ssh-add -l` listed the working key in the system agent.
+The same mismatch affected `reina`. Check `ssh -G` and verify the intended key
+before changing anything; a command-scoped `-o IdentityAgent="$SSH_AUTH_SOCK"`
+selected the existing system agent successfully. For the release script, pass
+that option through both `GIT_SSH_COMMAND` and `RSYNC_RSH`. Do not rewrite global
+SSH settings, replace keys, or rebuild an already published release to resume
+the remaining push and deployment steps.
