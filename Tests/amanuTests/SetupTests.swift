@@ -665,14 +665,14 @@ struct SetupTests {
         #expect(cards.contains { $0.id == "claude-cli" })
     }
 
-    @Test("Anonymous statistics is the last setup choice and starts on")
+    @Test("Usage statistics is the last setup choice and starts on")
     @MainActor
     func analyticsIsLastAndOnByDefault() throws {
         let form = SetupForm()
         defer { form.stop() }
         let last = try #require(form.view.arrangedSubviews.last)
         let title = last.allDescendants.compactMap { $0 as? NSTextField }
-            .first { $0.stringValue == "Send anonymous usage statistics" }
+            .first { $0.stringValue == "Send usage statistics" }
         #expect(title != nil)
         #expect(last.allDescendants.contains { $0 is NSSwitch })
         let setting = try #require(SettingsSchema.sections.flatMap(\.entries)

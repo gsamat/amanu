@@ -98,8 +98,13 @@ final class AnalyticsSink: @unchecked Sendable {
             guard !started else { return }
             started = true
             self.surface = surface
+            watchTheSwitch()
+            startTimer()
             enabled = switchIsOn()
-            guard enabled else { return }
+            guard enabled else {
+                try? FileManager.default.removeItem(at: store)
+                return
+            }
 
             let who = identity()
             identifier = who.id
@@ -108,8 +113,6 @@ final class AnalyticsSink: @unchecked Sendable {
             if let version = appVersion(), markVersionSeen(version) {
                 append(.versionSeen, [:])
             }
-            startTimer()
-            watchTheSwitch()
         }
         flushSoon()
     }
@@ -126,17 +129,18 @@ final class AnalyticsSink: @unchecked Sendable {
     }
 
     private func reread() {
+        guard started else { return }
         let nowEnabled = switchIsOn()
         guard nowEnabled != enabled else { return }
         enabled = nowEnabled
         if enabled {
-            identifier = identity().id
-            startTimer()
+            let who = identity()
+            identifier = who.id
+            if who.isFirstRun { append(.installed, [:]) }
+            if let version = appVersion(), markVersionSeen(version) { append(.versionSeen, [:]) }
         } else {
             // Turning it off discards what has not gone yet. Anything else
             // would mean a switch that keeps sending for a week.
-            timer?.cancel()
-            timer = nil
             pending = []
             try? FileManager.default.removeItem(at: store)
         }
@@ -146,7 +150,9 @@ final class AnalyticsSink: @unchecked Sendable {
 
     func record(_ event: Analytics.Event, _ properties: [Analytics.Property: Analytics.Value]) {
         queue.async { [self] in
-            guard enabled, started else { return }
+            guard started else { return }
+            reread()
+            guard enabled else { return }
             append(event, properties)
         }
     }
@@ -156,8 +162,10 @@ final class AnalyticsSink: @unchecked Sendable {
     ) {
         var data = AnalyticsCatalogue.personProperties()
         for (key, value) in properties { data[key.rawValue] = value.json }
+        data = AnalyticsCatalogue.sanitized(data)
         data[Analytics.Property.surface.rawValue] = surface.rawValue
         pending.append([
+            "queue_id": UUID().uuidString,
             "type": "event",
             "payload": [
                 "hostname": "app.amanu.me",
@@ -204,6 +212,7 @@ final class AnalyticsSink: @unchecked Sendable {
     func flush(waitingUpTo seconds: TimeInterval) {
         let done = DispatchSemaphore(value: 0)
         queue.async { [self] in
+            reread()
             guard enabled, !pending.isEmpty else {
                 done.signal()
                 return
@@ -215,6 +224,8 @@ final class AnalyticsSink: @unchecked Sendable {
     }
 
     private func send() {
+        guard started else { return }
+        reread()
         guard enabled, !pending.isEmpty, hasSomewhereToSend else {
             finishFlushes()
             return
@@ -231,16 +242,19 @@ final class AnalyticsSink: @unchecked Sendable {
             return
         }
         sending = true
-        let count = batch.count
+        let sentIDs = Set(batch.compactMap { $0["queue_id"] as? String })
         Task { [self] in
             let ok = await transport(body)
             queue.async { [self] in
                 sending = false
-                if ok {
+                reread()
+                if ok, enabled {
                     // Only what was sent: the queue may have grown while the
                     // request was in flight, and dropping those would lose
                     // exactly the events of a busy minute.
-                    pending.removeFirst(min(count, pending.count))
+                    pending.removeAll { event in
+                        (event["queue_id"] as? String).map { sentIDs.contains($0) } ?? false
+                    }
                     savePending()
                 }
                 if ok, !pending.isEmpty, !flushWaiters.isEmpty {
@@ -271,7 +285,14 @@ final class AnalyticsSink: @unchecked Sendable {
                 }
                 wireBatch.append(["type": "identify", "payload": identity])
             }
-            wireBatch.append(event)
+            var wireEvent = event
+            wireEvent.removeValue(forKey: "queue_id")
+            if var payload = wireEvent["payload"] as? [String: Any],
+               let data = payload["data"] as? [String: Any] {
+                payload["data"] = AnalyticsCatalogue.sanitized(data)
+                wireEvent["payload"] = payload
+            }
+            wireBatch.append(wireEvent)
         }
         return try? JSONSerialization.data(withJSONObject: wireBatch)
     }
@@ -286,9 +307,19 @@ final class AnalyticsSink: @unchecked Sendable {
         guard let (_, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse
         else { return false }
-        // A 4xx is the server saying this batch will never be accepted, so
-        // treat it as delivered rather than retrying it for a week.
-        return (200..<500).contains(http.statusCode)
+        // Permanent client errors retire the batch; rate limits and request
+        // timeouts are temporary and must leave it available for a retry.
+        return acceptsResponse(status: http.statusCode)
+    }
+
+    static func acceptsResponse(status: Int) -> Bool {
+        (200..<300).contains(status)
+            || ((400..<500).contains(status) && status != 408 && status != 429)
+    }
+
+    deinit {
+        timer?.cancel()
+        if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 
     // MARK: - the disk
@@ -298,11 +329,16 @@ final class AnalyticsSink: @unchecked Sendable {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stored = json["pending"] as? [[String: Any]]
         else { return }
-        pending = stored.filter { !isExpired($0) }
+        pending = stored.filter { !isExpired($0) }.map { event in
+            var event = event
+            if event["queue_id"] == nil { event["queue_id"] = UUID().uuidString }
+            return event
+        }
         trim()
     }
 
     private func savePending() {
+        guard enabled else { return }
         guard let data = try? JSONSerialization.data(withJSONObject: ["pending": pending]) else {
             return
         }

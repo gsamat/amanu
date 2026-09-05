@@ -14,6 +14,55 @@ import Testing
 /// discarded on purpose cannot be transcribed again, and saying so is the
 /// entire feature there.
 struct RetranscriptionTests {
+    @Test("Recording-only processing keeps an archive without creating a transcript")
+    func recordingOnlyKeepsAudio() async throws {
+        let dir = try Self.rawSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await TranscriptionCoordinator(onStop: { nil }).archiveRecordingOnly(dir)
+        let archive = dir.appendingPathComponent("audio.m4a")
+        #expect(try AVAudioFile(forReading: archive).length > 0)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        #expect(!SessionClaim.isHeld(dir))
+    }
+    private actor FailingTrackEngine: TranscriptionEngine {
+        struct DecodeFailure: Error {}
+        nonisolated let name = "test"
+        nonisolated let model = "test"
+        nonisolated let input: TranscriptionInput = .perTrack
+        let empty: Bool
+        init(empty: Bool = false) { self.empty = empty }
+        func prepare() async throws {}
+        func release() async {}
+        func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
+            if empty { return [] }
+            if audio.lastPathComponent == "system.caf" { throw DecodeFailure() }
+            return [.init(start: 0, end: 1, text: "the local statement survived")]
+        }
+    }
+
+    @Test("A failed track never commits a partial transcript or discards the recording")
+    func failedTrackPreservesAudio() async throws {
+        let dir = try Self.rawSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await #expect(throws: (any Error).self) {
+            try await TranscriptionCoordinator(engine: FailingTrackEngine(), onStop: { nil }).transcribeNow(dir)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+    }
+
+    @Test("An empty result preserves audio for a manual retry")
+    func emptyResultPreservesAudio() async throws {
+        let dir = try Self.rawSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        await #expect(throws: (any Error).self) {
+            try await TranscriptionCoordinator(engine: FailingTrackEngine(empty: true), onStop: { nil }).transcribeNow(dir)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(files.contains { $0.hasSuffix(".caf") || $0 == "audio.m4a" })
+    }
     /// An engine that recognizes nothing and remembers what it was given. What
     /// it was given is the point: one mono file per speaker means the channels
     /// were pulled out of the archive rather than the stereo file being read
@@ -158,7 +207,7 @@ struct RetranscriptionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let engine = MultichannelEngine()
 
-        try await TranscriptionCoordinator(engine: engine).transcribeNow(dir)
+        try await TranscriptionCoordinator(engine: engine, onStop: { nil }).transcribeNow(dir)
 
         #expect(await engine.heardChannels == 2)
         let transcript = try #require(PostProcessor.readTranscript(dir))
@@ -181,7 +230,7 @@ struct RetranscriptionTests {
         #expect(!FileManager.default.fileExists(atPath: pcm.path))
 
         let engine = RecordingEngine()
-        try await TranscriptionCoordinator(engine: engine).transcribeNow(dir)
+        try await TranscriptionCoordinator(engine: engine, onStop: { nil }).transcribeNow(dir)
 
         // One call per logical track, each on a mono file the length of the
         // recording: the archive was taken apart, not handed over whole.
@@ -309,12 +358,12 @@ struct RetranscriptionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let claim = SessionClaim.url(dir)
 
-        try await TranscriptionCoordinator(engine: RecordingEngine()).transcribeNow(dir)
+        try await TranscriptionCoordinator(engine: RecordingEngine(), onStop: { nil }).transcribeNow(dir)
         #expect(!FileManager.default.fileExists(atPath: claim.path))
 
         PostProcessor.markForRetranscription(dir)
         await #expect(throws: (any Error).self) {
-            try await TranscriptionCoordinator(engine: BrokenEngine()).transcribeNow(dir)
+            try await TranscriptionCoordinator(engine: BrokenEngine(), onStop: { nil }).transcribeNow(dir)
         }
         #expect(
             !FileManager.default.fileExists(atPath: claim.path),

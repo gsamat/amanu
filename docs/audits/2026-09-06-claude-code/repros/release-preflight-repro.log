@@ -1,0 +1,1 @@
+Clean checkout preflight: exit=1; reaches build=False. find failure propagates through pipefail and assignment.

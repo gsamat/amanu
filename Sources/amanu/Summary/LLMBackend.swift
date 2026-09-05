@@ -226,56 +226,24 @@ struct LLMBackend {
     }
 
     /// Run a command with stdin, a deadline, and no shell in between.
-    private static func run(
+    static func run(
         executable: String,
         arguments: [String],
         input: String,
         timeout: TimeInterval
     ) async throws -> String {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-
-        // `claude` and `codex` are agents: they read the directory they are
-        // started in and go looking for context. Started wherever the daemon
-        // happens to stand, they earn privacy prompts that macOS bills to
-        // amanu, which is the process that launched them. An empty directory
-        // of their own leaves nothing to find — the whole conversation goes
-        // over stdin anyway.
-        let scratch = FileManager.default.temporaryDirectory
-            .appendingPathComponent("amanu-llm-\(UUID().uuidString)", isDirectory: true)
-        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: scratch) }
-        task.currentDirectoryURL = scratch
-
-        let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
-        task.standardInput = stdin
-        task.standardOutput = stdout
-        task.standardError = stderr
-
-        try task.run()
-        // Write and close before reading: the child blocks on EOF, we'd block
-        // on its output, and neither would move.
-        try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
-        try? stdin.fileHandleForWriting.close()
-
-        let killer = DispatchWorkItem { if task.isRunning { task.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        defer { killer.cancel() }
-
-        let out = stdout.fileHandleForReading.readDataToEndOfFile()
-        let err = stderr.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-
-        guard task.terminationStatus == 0 else {
+        let result = try await Subprocess.run(
+            executable: executable, arguments: arguments,
+            input: Data(input.utf8), timeout: timeout)
+        guard result.status == 0 else {
             throw LLMError.exit(
-                Int(task.terminationStatus),
-                String(decoding: err.prefix(600), as: UTF8.self)
-                    + String(decoding: out.suffix(600), as: UTF8.self)
-            )
+                Int(result.status),
+                String(decoding: result.stderr.prefix(600), as: UTF8.self)
+                    + String(decoding: result.stdout.suffix(600), as: UTF8.self))
         }
-        return String(decoding: out, as: UTF8.self)
+        return String(decoding: result.stdout, as: UTF8.self)
     }
+
 }
 
 enum LLMError: Error, CustomStringConvertible {

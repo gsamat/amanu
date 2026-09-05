@@ -1,0 +1,4 @@
+enable-after-disabled-start: expected buffered=1; actual=0
+transport snapshot: events=500; contains new event 500=false
+buffer after new event during send: 500
+after send success: expected buffered=1 or second delivery of 500; actual buffered=0

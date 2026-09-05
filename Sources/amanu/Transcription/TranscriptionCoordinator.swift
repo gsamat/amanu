@@ -42,9 +42,12 @@ actor TranscriptionCoordinator {
     /// the moment there is work. Only tests pass one: everything real wants
     /// the configured answer, and wants it decided late.
     private let fixedEngine: TranscriptionEngine?
+    private let onStop: @Sendable () -> String?
 
-    init(engine: TranscriptionEngine? = nil) {
+    init(engine: TranscriptionEngine? = nil,
+         onStop: @escaping @Sendable () -> String? = { Config.onStop() }) {
         fixedEngine = engine
+        self.onStop = onStop
     }
 
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
@@ -55,11 +58,23 @@ actor TranscriptionCoordinator {
     /// on_stop hook still fires — it just gets an untranscribed folder.
     func enqueue(_ sessionDir: URL) {
         guard Config.transcriptionEnabled() else {
-            runHook(for: sessionDir)
+            Task {
+                do { try await archiveRecordingOnly(sessionDir) }
+                catch { log(sessionDir, "recording-only archive deferred: \(error)") }
+            }
             return
         }
         queue.append(sessionDir)
         drainIfIdle()
+    }
+
+    /// With no transcript the audio is the only copy of the meeting. Archive
+    /// it regardless of keep_audio, under the same claim as transcription.
+    func archiveRecordingOnly(_ dir: URL) async throws {
+        try SessionClaim.acquire(dir, stage: .transcribe)
+        await Task.detached(priority: .utility) { TrackCompressor.compress(sessionDir: dir) }.value
+        SessionClaim.release(dir)
+        runHook(for: dir)
     }
 
     /// Scan the recordings root for sessions that finished (meta.json exists)
@@ -305,6 +320,11 @@ actor TranscriptionCoordinator {
         SessionState.value(dir, SessionState.Key.transcriptionFailed) != nil
     }
 
+    private struct EmptyTranscript: TranscriptionFailure, CustomStringConvertible {
+        var isPermanent: Bool { true }
+        var description: String { "No speech was recognized; audio kept for a manual retry." }
+    }
+
     private func transcribe(_ dir: URL) async throws {
         // The one place both routes into transcription meet: the app draining
         // its queue and `amanu process` given a folder by hand. Claiming here,
@@ -356,6 +376,10 @@ actor TranscriptionCoordinator {
         case .mixed:
             merged = try await transcribeMixed(dir, meta: meta, engine: engine)
             merged.sort { $0.start_ms < $1.start_ms }
+        }
+
+        guard merged.contains(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw EmptyTranscript()
         }
 
         let transcript = Transcript(
@@ -440,8 +464,7 @@ actor TranscriptionCoordinator {
         for track in meta.tracks {
             let storedAudio = dir.appendingPathComponent(track.file)
             guard FileManager.default.fileExists(atPath: storedAudio.path) else {
-                log(dir, "skipping missing track \(track.file)")
-                continue
+                throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: storedAudio.path])
             }
 
             var audio = storedAudio
@@ -458,22 +481,22 @@ actor TranscriptionCoordinator {
                     temporary = extracted
                 } catch {
                     try? FileManager.default.removeItem(at: extracted)
-                    log(dir, "skipping \(track.speaker) channel in \(track.file): \(error)")
-                    continue
+                    log(dir, "could not extract \(track.speaker) channel in \(track.file): \(error)")
+                    throw error
                 }
             }
 
             log(dir, "transcribing \(track.file)\(track.channel.map { " channel \($0)" } ?? "") "
                 + "(\(engine.name))")
-            // One bad track (empty, truncated) shouldn't cost us the other's
-            // transcript — log it and keep going.
+            // A failed track must not turn into a successful partial transcript:
+            // successful completion allows the original audio to be discarded.
             let segments: [TranscriptSegment]
             do {
                 segments = try await engine.transcribe(audio)
             } catch {
                 if let temporary { try? FileManager.default.removeItem(at: temporary) }
-                log(dir, "skipping \(track.file): \(error)")
-                continue
+                log(dir, "could not transcribe \(track.file): \(error)")
+                throw error
             }
             if let temporary { try? FileManager.default.removeItem(at: temporary) }
             let offset = TimeInterval(track.offsetMs) / 1000
@@ -694,7 +717,7 @@ actor TranscriptionCoordinator {
     /// as its sole argument, after the transcript exists (or immediately after
     /// recording when transcription is disabled).
     private func runHook(for dir: URL) {
-        guard let cmd = Config.onStop() else { return }
+        guard let cmd = onStop() else { return }
         let task = Process()
         task.launchPath = "/bin/sh"
         task.arguments = ["-c", "\(cmd) \"$0\"", dir.path]

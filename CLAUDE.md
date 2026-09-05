@@ -8,9 +8,9 @@ application and its command line; `make app` wraps the binary in `Amanu.app`.
 - `docs/pitfalls.md` — the constraints that are not visible from the code that
   depends on them, and the places believed correct on reasoning alone. Read it
   before changing anything about signing, the bundle, or where keys live.
-- `.issues/` — what is known to be wrong, `status:` in the frontmatter. The
-  `rca-*` files are post-mortems and worth reading for the failure modes even
-  where they are closed.
+- `.issues/` — tracked problems and post-mortems; `status:` in the frontmatter
+  says whether each one is still open. The `rca-*` files are worth reading for
+  the failure modes even where they are closed.
 - `docs/releasing.md` — how to cut a release. **Read it in full before running
   `make release`.** Publishing is one command, and the failures are all in the
   parts that are not.

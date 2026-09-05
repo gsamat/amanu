@@ -1,0 +1,5 @@
+transcribing mic.caf (fake-local)
+skipping mic.caf: DecoderFailure()
+transcribing system.caf (fake-local)
+skipping system.caf: DecoderFailure()
+BUG: both decoders threw, but transcribePerTrack succeeded with 0 segments

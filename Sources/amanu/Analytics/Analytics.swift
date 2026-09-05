@@ -60,7 +60,7 @@ enum Analytics {
 
     /// Every property key that may accompany an event.
     enum Property: String, CaseIterable, Sendable {
-        /// `manual`, `mic_activity`, `calendar` — from `RecordingSession.Trigger`.
+        /// `manual`, `mic-activity`, `calendar` — from `RecordingSession.Trigger`.
         case trigger
         /// `app` or `cli`.
         case surface

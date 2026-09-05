@@ -205,31 +205,9 @@ enum Tooling {
     /// caller here is asking a question that is allowed to be answered "no".
     private static func run(_ executable: String, _ arguments: [String],
                             timeout: TimeInterval) -> String? {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = arguments
-        // Somewhere it can't matter what's in the directory: `codex` and
-        // `claude` both look around the working directory when they start.
-        task.currentDirectoryURL = FileManager.default.temporaryDirectory
-
-        let stdout = Pipe(), stderr = Pipe()
-        task.standardOutput = stdout
-        task.standardError = stderr
-        // A login shell with no input to read must see EOF, not a terminal, or
-        // it sits waiting for a line that will never come.
-        task.standardInput = FileHandle.nullDevice
-
-        do { try task.run() } catch { return nil }
-
-        let killer = DispatchWorkItem { if task.isRunning { task.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-        defer { killer.cancel() }
-
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        _ = stderr.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-
-        guard task.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        guard let result = try? Subprocess.runSync(
+            executable: executable, arguments: arguments, timeout: timeout),
+              result.status == 0 else { return nil }
+        return String(decoding: result.stdout, as: UTF8.self)
     }
 }

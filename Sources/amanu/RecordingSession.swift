@@ -91,7 +91,6 @@ final class RecordingSession {
     /// mid-session — clicking a Zoom link from a browser call, say.
     private var tapFamilies: [String]
     private var farEndWarningShown = false
-    private var digitalSilenceWarningShown = false
 
     /// Total time spent paused, so meta.json can say how much of the session
     /// is deliberate silence.
@@ -544,19 +543,6 @@ final class RecordingSession {
                     opening: dir
                 )
             }
-        }
-
-        if !digitalSilenceWarningShown, system.isDigitallySilent(now: now) {
-            digitalSilenceWarningShown = true
-            notifyUser(
-                title: localised(
-                    "amanu: system audio is silent",
-                    "amanu: системный звук не записывается"),
-                body: localised(
-                    "The system track is receiving only digital silence. Check System Settings → Privacy & Security → Screen & System Audio Recording.",
-                    "В системную дорожку приходит только цифровая тишина. Проверьте Системные настройки → Конфиденциальность и безопасность → Запись экрана и системного аудио."),
-                opening: dir
-            )
         }
 
         followCallApp(now: now)

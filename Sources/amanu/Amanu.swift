@@ -101,17 +101,26 @@ struct Run: ParsableCommand {
 
         // Non-blocking: permissions prompt on first recording, so warnings at
         // startup are informational, not fatal.
-        let checks = DoctorReport.run(recordingsRoot: root)
+        let checks = DoctorReport.run(recordingsRoot: root, includeBackendChecks: false)
+        let startupAction = DoctorReport.startupAction(checks: checks, setupPending: SetupState.isPending)
         if !DoctorReport.allOK(checks) {
             FileHandle.standardError.write(Data("startup checks failed:\n".utf8))
             DoctorReport.print(checks)
             // A failed permission is exactly what the first-run window exists
             // to repair. `amanu setup` also resets this marker before launching,
             // so a denied grant can never make the repair UI unreachable.
-            if !SetupState.isPending || !DoctorReport.canContinueIntoSetup(checks) {
+            if startupAction == .refuse {
+                let alert = NSAlert()
+                alert.messageText = localised("Amanu could not start", "Amanu не удалось запуститься")
+                alert.informativeText = checks.compactMap { check in
+                    guard case .fail(let why) = check.status else { return nil }
+                    return "\(check.name): \(why)" + (check.remediation.map { "\n" + $0 } ?? "")
+                }.joined(separator: "\n\n")
+                alert.runModal()
                 throw ExitCode(1)
             }
         }
+        if startupAction == .setup { SetupState.reset() }
 
         // Settled before the first window is built, and never again: every
         // label, menu item and banner reads it as it is created, so a language
@@ -482,7 +491,7 @@ final class AppController {
         menuBar.onShowSetup = { [weak self] in self?.showSetup() }
         menuBar.onCheckForUpdates = { [weak self] in self?.updates.checkForUpdates() }
         menuBar.onShowAbout = { [weak self] in self?.showAbout() }
-        menuBar.onQuit = { [weak self] in self?.shutdown() }
+        menuBar.onQuit = { NSApp.terminate(nil) }
         menuBar.update(state: .idle, elapsed: nil)
         menuBar.updatesAvailable(updates.isAvailable)
 

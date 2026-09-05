@@ -84,7 +84,27 @@ enum AnalyticsCatalogue {
             .keepAudio: Config.keepAudio(),
         ]
         if let version = appVersion() { values[.appVersion] = version }
-        return Dictionary(uniqueKeysWithValues: values.map { ($0.key.rawValue, $0.value) })
+        return sanitized(Dictionary(uniqueKeysWithValues: values.map { ($0.key.rawValue, $0.value) }))
+    }
+
+    /// Config and recovered manifests can be edited by hand. Enforce the
+    /// closed vocabulary at collection and again when replaying older queues.
+    static func sanitized(_ properties: [String: Any]) -> [String: Any] {
+        var result = properties
+        let engines = ["auto", "parakeet", "openai", "assemblyai"]
+        let backends = ["auto", "claude-cli", "codex-cli", "anthropic-api", "openai-api", "ollama"]
+        let allowed = [
+            "engine": engines, "from_engine": engines, "to_engine": engines,
+            "transcription_engine": engines,
+            "backend": backends, "summary_backend": backends, "speaker_names_backend": backends,
+            "transcription_cloud_provider": ["assemblyai", "openai"],
+            "trigger": ["manual", "mic-activity", "calendar"],
+        ]
+        for (key, choices) in allowed where result[key] != nil {
+            if let value = result[key] as? String, choices.contains(value) { continue }
+            result[key] = "custom"
+        }
+        return result
     }
 
     /// Automatic recording as one word rather than three switches, because

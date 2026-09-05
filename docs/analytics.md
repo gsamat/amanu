@@ -162,3 +162,9 @@ along with everything in it.
 
 The server runs a daily retention job that removes events, properties,
 identifier links, and orphaned sessions once they are a year old.
+
+Engine, backend and recovered trigger values are checked against a fixed
+vocabulary before storage and again before sending an older queued event.
+Unknown values become `custom`; arbitrary configuration strings stay local.
+HTTP 408 and 429 responses retain the batch for a later attempt. Turning off
+reporting clears pending events; a request already sent cannot be recalled.

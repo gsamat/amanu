@@ -25,13 +25,22 @@ described above.
 
 ## Product analytics
 
-Anonymous product-usage reporting is enabled by default and can be disabled in
+Product-usage reporting is enabled by default and can be disabled in
 first-run setup, in Settings → Setup, or with `amanu analytics off`. It sends a
 small closed set of events with a random installation identifier to
 `stats.amanu.me`. It never includes recordings, transcripts, summaries,
 calendar contents, names, paths, keys, or error text. The complete event and
 field list, retention period, and deletion instructions are in
 [What Amanu sends](docs/analytics.md).
+
+## Updates and model downloads
+
+Sparkle checks `amanu.me/appcast.xml` for updates and downloads a selected
+release from GitHub. Local model setup downloads model files from their
+hosting services, including Hugging Face. These requests expose ordinary
+network metadata such as the IP address and user agent to the destination;
+they do not include meeting content. The product-analytics switch controls
+usage reporting separately from updates and model downloads.
 
 ## Website analytics
 

@@ -38,6 +38,7 @@ diagnosis later.
 | Notarization key | `~/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8` | Same key the iOS projects use. |
 | ASC ids | `.env.asc` in the repo root, gitignored | Copy one from any iOS project; they are all the same account. |
 | Developer ID certificate | `~/Library/Keychains/developer-id.keychain-db` | `~/.local/bin/unlock-signing-keychain`; `make app` runs it already. |
+| Node.js and Python 3 | local executable PATH | required by release-script and landing behavioral tests |
 | `gh`, authenticated | account `gsamat` | `gh auth status` |
 | `ssh reina` | passwordless | this is where amanu.me and the compatibility feed are served from |
 | Legacy site checkout | `~/Documents/проекты/samatme3`, on `main`, pushed | keeps the old feed durable across samat.me deploys |
@@ -47,7 +48,7 @@ diagnosis later.
 ```sh
 # 1. Decide the version. Edit VERSION in the Makefile if this is not a rebuild.
 # 2. Write the notes. The file name must match the tag exactly.
-$EDITOR docs/release-notes-v0.3.0.md
+$EDITOR docs/release-notes-vX.Y.Z.md
 # 3. Commit and push. The release refuses to run from a dirty tree.
 git add -A && git commit && git push origin master
 # 4. Rehearse. This notarizes for real but publishes nothing.
@@ -108,9 +109,17 @@ before it costs time and nothing else. Do not "helpfully" reorder them.
    fetches both feeds, compares them byte for byte with what it signed, and
    asks GitHub for the asset to confirm it answers 200.
 
-If stage 8 fails *after* the GitHub release went public, nothing is broken:
-installed copies keep reading the previous feed, the download works for anyone
-who has the link, and re-running deployment is safe.
+If stage 8 fails after publication, inspect which destinations were updated.
+Do not rerun the complete release script: its dirty-tree and published-release
+guards deliberately refuse that. Preserve the signed DMG and generated feed,
+verify the published asset checksum, and resume only the remaining commit,
+push, deployment and feed-verification steps from stage 8. Never rebuild or
+replace an already published asset to repair a deployment failure.
+
+Release notes must distinguish a universal binary from hardware validation:
+Intel requires a cloud transcription key and has not been tested on physical
+hardware. Keep this qualification until the checklist in `docs/old-macs.md`
+has actually been completed.
 
 ## Rules that are not negotiable
 

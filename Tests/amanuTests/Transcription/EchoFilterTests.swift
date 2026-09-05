@@ -117,8 +117,8 @@ struct EchoFilterTests {
         var segments: [Transcript.Segment] = []
         for index in 0..<20 {
             let start = index * 2000
-            segments.append(Self.seg("them A", start, start + 1000, "точное эхо"))
-            segments.append(Self.seg("me A", start + 100, start + 1100, "точное эхо"))
+            segments.append(Self.seg("them A", start, start + 1000, "это точное длинное эхо"))
+            segments.append(Self.seg("me A", start + 100, start + 1100, "это точное длинное эхо"))
         }
         segments.append(Self.seg("them A", 41_000, 42_000, "рассказов"))
         segments.append(Self.seg("me A", 41_100, 42_100, "рассказа"))

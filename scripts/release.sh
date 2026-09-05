@@ -38,7 +38,6 @@ DMG="dist/amanu-$TAG-macos-universal.dmg"
 VOLNAME="amanu $VERSION"
 ASSET_URL="https://github.com/$REPO/releases/download/$TAG/$(basename "$DMG")"
 SPARKLE_KEY="$HOME/.appstoreconnect/amanu-sparkle-ed25519.key"
-SPARKLE_BIN=$(find .build/artifacts/sparkle -type d -name bin 2>/dev/null | head -1)
 SITE="$ROOT/landing"
 # Old builds have samat.me baked into their Info.plist. Keep one identical
 # compatibility copy there so they can reach the first release whose bundle
@@ -77,6 +76,8 @@ if [ "$DRY_RUN" = 0 ]; then
         || die "the legacy site checkout has commits that are not pushed; sort them out first"
 fi
 
+command -v node >/dev/null || die "Node.js is required for landing-page behavioral tests"
+
 step "1/8  tests"
 python3 -m unittest discover -s Tests/scripts -p 'test_*.py'
 python3 landing/tests/check.py
@@ -84,6 +85,8 @@ swift test 2>&1 | tail -3
 
 step "2/8  building and signing $VERSION (build $BUILD)"
 make app
+SPARKLE_BIN=$(find .build/artifacts/sparkle -type d -name bin -print -quit)
+[ -x "$SPARKLE_BIN/sign_update" ] || die "Sparkle sign_update is missing after the build"
 test -s .build/Amanu.app/Contents/Resources/LICENSE \
     || die "the app bundle has no Amanu license"
 test -s .build/Amanu.app/Contents/Resources/THIRD-PARTY-NOTICES.md \
@@ -99,6 +102,8 @@ codesign --verify --deep --strict --verbose=2 .build/Amanu.app
 DETAILS=$(codesign -dvvv .build/Amanu.app 2>&1)
 REQUIREMENT=$(codesign -d -r- .build/Amanu.app 2>&1)
 grep -E 'Identifier|Authority=Developer ID|TeamIdentifier' <<<"$DETAILS"
+grep -q '^Authority=Developer ID Application:' <<<"$DETAILS" \
+    || die "the app is not signed with a Developer ID Application certificate"
 grep -q 'me.samat.amanu' <<<"$REQUIREMENT" \
     || die "designated requirement does not name me.samat.amanu"
 # The hardened runtime is not optional: without it the notary service rejects

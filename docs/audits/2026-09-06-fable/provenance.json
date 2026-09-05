@@ -1,0 +1,42 @@
+{
+  "recording": {
+    "models": {
+      "claude-fable-5": 57,
+      "claude-opus-4-8": 70
+    },
+    "fallbacks": [
+      {
+        "original_model": "claude-fable-5",
+        "fallback_model": "claude-opus-4-8",
+        "api_refusal_category": "cyber"
+      }
+    ],
+    "completion": {
+      "is_error": false,
+      "duration_ms": 1208128,
+      "num_turns": 57
+    }
+  },
+  "analytics-install": {
+    "models": {
+      "claude-fable-5": 200
+    },
+    "fallbacks": [],
+    "completion": {
+      "is_error": false,
+      "duration_ms": 1064326,
+      "num_turns": 91
+    }
+  },
+  "release-tests": {
+    "models": {
+      "claude-fable-5": 219
+    },
+    "fallbacks": [],
+    "completion": {
+      "is_error": false,
+      "duration_ms": 1188356,
+      "num_turns": 135
+    }
+  }
+}

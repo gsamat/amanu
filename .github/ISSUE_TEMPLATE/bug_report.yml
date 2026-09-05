@@ -10,7 +10,7 @@ body:
     id: version
     attributes:
       label: Amanu version
-      placeholder: 0.4.13
+      placeholder: "For example: 0.4.14"
     validations:
       required: true
   - type: input

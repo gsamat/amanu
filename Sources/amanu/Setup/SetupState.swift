@@ -41,7 +41,7 @@ enum SetupState {
     /// Record that the window has been through. Failure is not worth
     /// escalating: the cost is the window opening again, not a lost recording.
     static func markCompleted(at stateURL: URL = path) {
-        write(["completed_at": ISO8601DateFormatter().string(from: Date())], at: stateURL)
+        write(["version": current, "completed_at": ISO8601DateFormatter().string(from: Date())], at: stateURL)
         Analytics.track(.setupCompleted, [.setupVersion: .number(Double(current))])
     }
 
@@ -73,7 +73,6 @@ enum SetupState {
         var json = (try? Data(contentsOf: stateURL))
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             .flatMap { $0 } ?? [:]
-        json["version"] = current
         for (key, value) in values { json[key] = value }
 
         guard let data = try? JSONSerialization.data(

@@ -5,8 +5,8 @@ was paid for once. Breaking any of them compiles, passes the tests, and fails
 somewhere else — usually on somebody else's Mac, usually with a symptom that
 points at the wrong thing.
 
-This is not the user-facing list; that is **Gotchas** in the README, and it is
-about running amanu rather than changing it.
+For help running Amanu, see [Troubleshooting](../SUPPORT.md#troubleshooting).
+This document is for people changing the implementation.
 
 ## App Nap
 

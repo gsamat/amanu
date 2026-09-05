@@ -25,6 +25,7 @@ struct AnalyticsCommand: ParsableCommand {
                 Config.update(path: ["analytics"], value: nil)
             case "off":
                 Config.update(path: ["analytics"], value: false)
+                try? FileManager.default.removeItem(at: AnalyticsSink.defaultStore)
             default:
                 throw ValidationError("say `on` or `off`.")
             }

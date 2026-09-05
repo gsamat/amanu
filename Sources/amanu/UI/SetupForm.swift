@@ -635,12 +635,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         return SetupLayout.row(
             leading: analytics,
             title: SetupLayout.title(localised(
-                "Send anonymous usage statistics",
-                "Отправлять анонимную статистику об использовании")),
+                "Send usage statistics",
+                "Отправлять статистику об использовании")),
             detail: SetupLayout.detail(
                 localised(
-                    "How often you use amanu and which features you use, so we can make it better.",
-                    "Как часто вы пользуетесь программой и какими функциями — чтобы сделать её лучше."),
+                    "Feature usage with a random installation identifier; no meeting content.",
+                    "Использование функций со случайным идентификатором установки; без содержимого встреч."),
                 lines: 2, width: 520),
             trailing: [link(
                 localised("What exactly", "Что именно"),

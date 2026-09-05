@@ -35,7 +35,7 @@ enum EchoFilter {
         let them = segments.filter { isSide($0.speaker, "them") }
         guard !them.isEmpty else { return segments }
 
-        let mic: [(index: Int, speaker: String, overlaps: Bool, directEcho: Bool)] =
+        let mic: [(index: Int, speaker: String, overlaps: Bool, directEcho: Bool, wordCount: Int)] =
             segments.enumerated().compactMap { index, segment in
             guard isSide(segment.speaker, "me") else { return nil }
             let overlapping = overlappingThem(for: segment, in: them)
@@ -43,10 +43,11 @@ enum EchoFilter {
                 index: index,
                 speaker: segment.speaker,
                 overlaps: !overlapping.isEmpty,
-                directEcho: isEcho(segment, of: overlapping)
+                directEcho: isEcho(segment, of: overlapping),
+                wordCount: words(segment.text).count
             )
         }
-        let bySpeaker = Dictionary(grouping: mic.filter { $0.speaker != "me" }) {
+        let bySpeaker = Dictionary(grouping: mic.filter { $0.speaker != "me" && $0.wordCount > 2 }) {
             $0.speaker
         }
         let echoSpeakers: Set<String> = Set(bySpeaker.compactMap { speaker, evidence -> String? in
@@ -57,7 +58,8 @@ enum EchoFilter {
                 : nil
         })
         let dropped = Set(mic.compactMap { evidence in
-            evidence.directEcho || (evidence.overlaps && echoSpeakers.contains(evidence.speaker))
+            evidence.directEcho || (evidence.wordCount > 0 && evidence.wordCount <= 2
+                && evidence.overlaps && echoSpeakers.contains(evidence.speaker))
                 ? evidence.index
                 : nil
         })

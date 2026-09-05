@@ -15,8 +15,15 @@ struct Check {
 }
 
 enum DoctorReport {
-    static func run(recordingsRoot: URL) -> [Check] {
-        [
+    enum StartupAction: Equatable { case proceed, setup, refuse }
+
+    static func startupAction(checks: [Check], setupPending: Bool) -> StartupAction {
+        if !allOK(checks) { return canContinueIntoSetup(checks) ? .setup : .refuse }
+        return setupPending ? .setup : .proceed
+    }
+
+    static func run(recordingsRoot: URL, includeBackendChecks: Bool = true) -> [Check] {
+        let startup = [
             // First because it is the one line that changes what the reader
             // should do next: everything else describes how the next meeting
             // will go, this one says a meeting is being recorded now.
@@ -24,6 +31,9 @@ enum DoctorReport {
             checkMicrophone(),
             checkSystemAudio(),
             checkRecordingsRoot(recordingsRoot),
+        ]
+        guard includeBackendChecks else { return startup }
+        return startup + [
             checkTranscription(),
             checkAutoRecord(),
             checkSummary(),

@@ -1,0 +1,1 @@
+BUG: helper timeout=0.2s, but still blocked after 2s writing stdin; killed only synthetic harness process group.
