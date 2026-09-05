@@ -6,31 +6,37 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.15</title>
-            <pubDate>Fri, 04 Sep 2026 10:33:57 +0000</pubDate>
+            <title>0.4.16</title>
+            <pubDate>Sat, 05 Sep 2026 22:29:10 +0000</pubDate>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <description><![CDATA[<p>This release fixes automatic recording restarting during a call after the user has stopped it by hand.</p>
-<h3>What changed since v0.4.14</h3>
+            <description><![CDATA[<p>This release protects recordings and transcripts when processing fails, fixes analytics consent, and makes setup and command-line model processing more reliable.</p>
+<h3>What changed since v0.4.15</h3>
 <ul>
-<li>A manual stop now suppresses automatic recording until the current call has actually ended. Previously the suppression expired after fifteen minutes, so a long-running Zoom call could be mistaken for a new meeting and start recording again every time that timer elapsed.</li>
-<li>Automatic recording rearms normally after the call app releases the microphone for the configured call-end interval, so a later call is still recorded.</li>
-<li>Deterministic regression tests cover both staying stopped during the same call and rearming for the next one. The complete suite now contains 345 tests in 41 suites.</li>
+<li>Echo filtering preserves substantive local replies even when the same speaker label was previously assigned to playback echo.</li>
+<li>A failed track or an empty transcription no longer produces a successful completion marker. Audio is kept for another attempt. Recording-only mode archives the audio without discarding the sole copy of the meeting.</li>
+<li>Command-line summary and speaker-naming tools cannot hang indefinitely on blocked input or output. Deadlines and cancellation stop the child process, and timeouts remain eligible for retry.</li>
+<li>Denied microphone permission reopens setup instead of silently closing the app. A successful sound test no longer marks the whole setup as completed.</li>
+<li>Quitting from the menu bar now asks for confirmation while recording. Ordinary silence at the beginning of a call no longer triggers an immediate warning about system-audio permission.</li>
+<li>Analytics can be enabled after an opted-out launch, and disabling it from the command line is respected by the running app before further collection or sending. Pending events are cleared; requests already sent cannot be recalled.</li>
+<li>Analytics delivery preserves new events when the queue fills during a request, retries temporary HTTP failures, and replaces arbitrary engine, backend and trigger strings with a fixed value.</li>
+<li>Privacy explanations and troubleshooting have been clarified. The release checks now cover a clean checkout and both processor architectures.</li>
+<li>Validation: 364 Swift tests, 9 Python tests and the landing-page checks pass.</li>
 </ul>
 <h3>Requirements</h3>
-<p>macOS 15 or later, on Apple Silicon or Intel. The application is signed with a Developer ID certificate, uses the hardened runtime, and the disk image carries a stapled Apple notarization ticket.</p>
+<p>macOS 15 or later. The app includes Apple Silicon and Intel binaries; local Parakeet transcription requires Apple Silicon, and Intel requires a cloud transcription key. Physical Intel hardware and macOS 15 have not been tested. The app is signed with Developer ID and uses the hardened runtime. The disk image carries a stapled Apple notarization ticket.</p>
 <h3>Verifying the download</h3>
 <p>The checksum is attached alongside the disk image.</p>
 <ul>
-<li><code>shasum -a 256 -c amanu-v0.4.15-macos-universal.dmg.sha256</code></li>
-<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.15-macos-universal.dmg</code></li>
-<li><code>xcrun stapler validate amanu-v0.4.15-macos-universal.dmg</code></li>
+<li><code>shasum -a 256 -c amanu-v0.4.16-macos-universal.dmg.sha256</code></li>
+<li><code>spctl --assess --type open --context context:primary-signature -v amanu-v0.4.16-macos-universal.dmg</code></li>
+<li><code>xcrun stapler validate amanu-v0.4.16-macos-universal.dmg</code></li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.15/amanu-v0.4.15-macos-universal.dmg"
-                sparkle:version="273"
-                sparkle:shortVersionString="0.4.15"
-                sparkle:edSignature="aDNhFeeFlF1/xCQX+pQleURu1mi5freaSwYphPXO9+Znk+Mug+mwM7tDxS+jTubeWgZ6eHhl8ux4vn/FioxVDg=="
-                length="9366600"
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.16/amanu-v0.4.16-macos-universal.dmg"
+                sparkle:version="275"
+                sparkle:shortVersionString="0.4.16"
+                sparkle:edSignature="c2B2DCyaCGmCQmIuKTYQT3Tk0xecuqINFY/8n26/WvtXxQzAalk02N/B56cSTBlJDPpyKo+8IX40gk1yra/6BQ=="
+                length="9401686"
                 type="application/octet-stream" />
         </item>
     </channel>
