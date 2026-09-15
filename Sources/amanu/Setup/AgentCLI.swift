@@ -12,15 +12,29 @@ enum AgentCLI {
     static let path = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".local/bin/amanu")
 
+    /// Homebrew's standard prefixes. Finder launches do not inherit the shell's
+    /// PATH, so the app cannot ask `command -v`; these are the two locations a
+    /// supported macOS Homebrew installation uses on Apple Silicon and Intel.
+    static let managedCLIs = [
+        URL(fileURLWithPath: "/opt/homebrew/bin/amanu"),
+        URL(fileURLWithPath: "/usr/local/bin/amanu"),
+    ]
+
     /// Called at startup. Returns true when it changed something, so the app
     /// can say so once rather than every launch.
     @discardableResult
     static func install(
         at cli: URL = path,
         to executable: URL = Runtime.executableURL,
+        managedCLIs: [URL] = managedCLIs,
+        persistent: Bool = Runtime.supportsPersistentFeatures,
         now: Date = Date()
     ) -> Result<Bool, Error> {
-        guard Runtime.supportsPersistentFeatures else { return .success(false) }
+        guard persistent else { return .success(false) }
+        let target = executable.resolvingSymlinksInPath()
+        guard !managedCLIs.contains(where: {
+            $0.resolvingSymlinksInPath() == target
+        }) else { return .success(false) }
         return link(at: cli, to: executable, now: now)
     }
 

@@ -138,7 +138,13 @@ The constraints behind these choices are documented in
 
 ## Install
 
-Download the disk image from the
+Install with Homebrew:
+
+```sh
+brew install --cask gsamat/tap/amanu
+```
+
+Or download the disk image from the
 [latest release](https://github.com/gsamat/amanu/releases/latest), drag
 `Amanu.app` to Applications, and open it. The first-run setup requests
 microphone, system-audio, and optional calendar access, then asks how meetings
