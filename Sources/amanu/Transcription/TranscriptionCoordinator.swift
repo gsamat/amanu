@@ -34,6 +34,14 @@ actor TranscriptionCoordinator {
 
     private var queue: [URL] = []
     private var draining = false
+    /// The drain task, kept so a quit can cancel a transcription that is
+    /// mid-flight — whisper honours cancellation through its abort callback
+    /// and returns without leaving a half-written transcript behind.
+    private var drainTask: Task<Void, Never>?
+    /// Set by `stopForTermination()`. Nothing may start after that: the process
+    /// is on its way out, and an inference beginning underneath `exit()` is the
+    /// abort that whole path exists to avoid.
+    private var stopping = false
     private var engine: TranscriptionEngine?
     private var lastFailure: String?
     private var statusHandler: (@Sendable (Status) -> Void)?
@@ -43,11 +51,14 @@ actor TranscriptionCoordinator {
     /// the configured answer, and wants it decided late.
     private let fixedEngine: TranscriptionEngine?
     private let onStop: @Sendable () -> String?
+    private let enabled: @Sendable () -> Bool
 
     init(engine: TranscriptionEngine? = nil,
-         onStop: @escaping @Sendable () -> String? = { Config.onStop() }) {
+         onStop: @escaping @Sendable () -> String? = { Config.onStop() },
+         enabled: @escaping @Sendable () -> Bool = { Config.transcriptionEnabled() }) {
         fixedEngine = engine
         self.onStop = onStop
+        self.enabled = enabled
     }
 
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
@@ -57,7 +68,7 @@ actor TranscriptionCoordinator {
     /// Queue a finished session. With transcription disabled in config, the
     /// on_stop hook still fires — it just gets an untranscribed folder.
     func enqueue(_ sessionDir: URL) {
-        guard Config.transcriptionEnabled() else {
+        guard enabled() else {
             Task {
                 do { try await archiveRecordingOnly(sessionDir) }
                 catch { log(sessionDir, "recording-only archive deferred: \(error)") }
@@ -81,7 +92,7 @@ actor TranscriptionCoordinator {
     /// but were never transcribed. Folder names sort chronologically, so
     /// oldest-first is a name sort.
     func resumePending(root: URL) {
-        guard Config.transcriptionEnabled() else { return }
+        guard enabled() else { return }
         let pending = Self.pendingSessions(in: root)
         for dir in pending where !queue.contains(dir) {
             queue.append(dir)
@@ -123,14 +134,42 @@ actor TranscriptionCoordinator {
     // MARK: -
 
     private func drainIfIdle() {
-        guard !draining, !queue.isEmpty else { return }
+        // `stopping` is the whole point of the guard: a quit cancels the drain
+        // in flight, and `stopSession` then enqueues the session it has just
+        // closed. Starting that one would put a whisper inference under the
+        // `exit()` this path was written to keep quiet.
+        guard !stopping, !draining, !queue.isEmpty else { return }
         draining = true
         lastFailure = nil
-        Task { await drain() }
+        drainTask = Task { await drain() }
+    }
+
+    /// Whether a transcription is running right now. Read while a quit is being
+    /// prepared, to tell the person that the queue is being stopped rather than
+    /// leaving a window that has stopped answering for no visible reason.
+    var isTranscribing: Bool { draining }
+
+    /// Stop the queue for a quit: cancel the transcription that is running, and
+    /// refuse to start another.
+    ///
+    /// Nothing is lost by stopping. Whisper honours cancellation through its
+    /// abort callback and returns within seconds, the session keeps its partial
+    /// state (no transcript.json), and the scan `resumePending` runs at the next
+    /// launch offers it again.
+    ///
+    /// The refusal matters as much as the cancel, and is why this is not called
+    /// `cancel`. The quit path closes the live recording on its way out, which
+    /// enqueues the session it has just finished — and on the SIGTERM path that
+    /// enqueue lands while the deferred quit is waiting here.
+    func stopForTermination() async {
+        stopping = true
+        guard draining, let drainTask else { return }
+        drainTask.cancel()
+        await drainTask.value
     }
 
     private func drain() async {
-        while !queue.isEmpty {
+        while !queue.isEmpty, !Task.isCancelled {
             let dir = queue.removeFirst()
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
@@ -142,6 +181,16 @@ actor TranscriptionCoordinator {
                 // simply left where it is: the filesystem is the queue, and the
                 // next `resumePending` offers it again once the owner is done.
                 log(dir, "\(busy)")
+            } catch where Task.isCancelled {
+                // The quit, not a failure. Every engine reports cancellation in
+                // its own dialect — whisper as a `CancellationError` after the
+                // abort callback, a cloud upload as a cancelled URLSession task
+                // — so what makes this a quit is the task being cancelled, not
+                // the shape of the error. Counting it would spend one of the
+                // three attempts a session gets, and after three quits retire a
+                // recording that is perfectly fine and compress its audio under
+                // a transcript that was never written.
+                log(dir, "transcription cancelled — the session stays pending")
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
@@ -149,10 +198,19 @@ actor TranscriptionCoordinator {
             }
         }
         await releaseEngine()
-        publish(lastFailure.map { .failed(session: $0) } ?? .idle)
+        // A cancelled run has no verdict to publish: the person asked for the
+        // quit and the session is still pending, which is not a failure to
+        // report back to them.
+        if Task.isCancelled {
+            publish(.idle)
+        } else {
+            publish(lastFailure.map { .failed(session: $0) } ?? .idle)
+        }
         draining = false
         // An enqueue that landed between the loop exiting and the release
-        // finishing would otherwise sit until the next enqueue.
+        // finishing would otherwise sit until the next enqueue. Harmless after
+        // a cancellation — `drainIfIdle` refuses to start anything once
+        // `stopping` is set.
         drainIfIdle()
     }
 

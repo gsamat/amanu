@@ -166,7 +166,7 @@ struct Run: ParsableCommand {
         let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         sigint.setEventHandler {
             FileHandle.standardError.write(Data("\nshutting down\n".utf8))
-            MainActor.assumeIsolated { controller.shutdown() }
+            Self.quitFromTheRunLoop { MainActor.assumeIsolated { controller.shutdown() } }
         }
         sigint.resume()
         signal(SIGINT, SIG_IGN)
@@ -179,7 +179,7 @@ struct Run: ParsableCommand {
         let sigterm = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         sigterm.setEventHandler {
             FileHandle.standardError.write(Data("\nSIGTERM — finalizing\n".utf8))
-            MainActor.assumeIsolated { controller.shutdown() }
+            Self.quitFromTheRunLoop { MainActor.assumeIsolated { controller.shutdown() } }
         }
         sigterm.resume()
         signal(SIGTERM, SIG_IGN)
@@ -199,6 +199,21 @@ struct Run: ParsableCommand {
         // Retained until the run loop exits: NSApp's delegate reference is
         // weak, and a deallocated one silently stops handling Dock clicks.
         withExtendedLifetime(delegate) {}
+    }
+
+    /// Hand a quit out of the signal handler's main-queue drain and into the
+    /// run loop's own next turn.
+    ///
+    /// `NSApp.terminate` blocks in a nested event loop until the deferred-reply
+    /// callback answers it, and that callback is a main-actor job — a
+    /// main-queue block, which libdispatch will not drain underneath the drain
+    /// the signal handler is already running on this thread. Asked from inside
+    /// the handler, the app hangs on its way out of a logout with nothing on
+    /// screen to explain it; asked from the run loop's next turn it quits.
+    private static func quitFromTheRunLoop(_ quit: @escaping @MainActor () -> Void) {
+        RunLoop.main.perform(inModes: [.common]) {
+            MainActor.assumeIsolated { quit() }
+        }
     }
 
     /// A .regular app owns the menu bar while it's focused, and without a main
@@ -321,9 +336,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the one that brought amanu forward.
     var onReopen: ((_ alreadyActive: Bool) -> Void)?
     var onTerminate: (() -> Void)?
-    /// Gives asynchronous filesystem work a chance to cancel and remove its
-    /// unpublished staging folder before the process exits. Returning true
-    /// means the callback will answer AppKit's deferred termination request.
+    /// Gives asynchronous work a chance to stop before the process exits — an
+    /// import's staging folder, a whisper inference that must not be left
+    /// running underneath `exit()`. Returning true means the callback will
+    /// answer AppKit's deferred termination request.
     var onPrepareTermination: ((_ completion: @escaping () -> Void) -> Bool)?
     /// The app menu's Settings item hangs off the delegate because it is the
     /// only NSObject in the picture — AppController is a plain class, and a
@@ -712,16 +728,35 @@ final class AppController {
         Task { [mediaImport] in await mediaImport.cancel() }
     }
 
-    /// AppKit can defer quit, so use that time to wait for the import actor's
-    /// cancellation handler and staging-folder cleanup rather than leaving a
-    /// half-written `.import-*` folder behind.
+    /// AppKit can defer quit, so use that time to finish what must not outlive
+    /// the process.
+    ///
+    /// Two things qualify. An import in flight is cancelled so it can remove
+    /// its unpublished `.import-*` staging folder. A transcription in flight is
+    /// a whisper inference on another thread, and letting `exit()` run whisper's
+    /// static teardown underneath it aborts inside `ggml_metal_rsets_free` — a
+    /// crash dialog for a quit somebody asked for (.issues/011).
+    ///
+    /// Whether either is running is a question only the actors can answer, and
+    /// they answer asynchronously, so the deferral is unconditional: one
+    /// run-loop hop on a quiet quit costs nothing, and a cached flag that said
+    /// "idle" while whisper was mid-inference would cost exactly the crash this
+    /// exists to prevent.
     func prepareForTermination(completion: @escaping () -> Void) -> Bool {
-        guard let running = mediaImportTask else { return false }
+        let imports = mediaImportTask
         pendingImports.removeAll()
-        running.cancel()
-        Task { [mediaImport] in
+        imports?.cancel()
+        Task { [weak self, mediaImport, transcription] in
+            if await transcription.isTranscribing {
+                // The stop takes a moment and the window is still on screen.
+                // Saying what the wait is for is what keeps a second ⌘Q, or a
+                // Force Quit, from turning a clean stop into that crash.
+                self?.setTranscriptionLine(localised(
+                    "stopping the transcription…", "останавливаю расшифровку…"))
+            }
             await mediaImport.cancel()
-            await running.value
+            await imports?.value
+            await transcription.stopForTermination()
             completion()
         }
         return true
@@ -747,10 +782,16 @@ final class AppController {
     /// to happen when the quit came from ⌘Q or the Dock rather than from us.
     /// Idempotent: stopSession does nothing without a session.
     func finishForTermination() {
-        // `applicationShouldTerminate` normally waits for this cancellation.
-        // Keep the request here too for shutdown paths that skip that hook.
+        // `applicationShouldTerminate` normally waits for both of these. Keep
+        // the requests here too for shutdown paths that skip that hook — and
+        // `stopForTermination` takes effect at once even when the wait cannot
+        // be honoured, so the queue's refusal to start anything comes with the
+        // request rather than with the await.
         mediaImportTask?.cancel()
-        Task { [mediaImport] in await mediaImport.cancel() }
+        Task { [mediaImport, transcription] in
+            await mediaImport.cancel()
+            await transcription.stopForTermination()
+        }
         stopSession(reason: "app-quit")
     }
 
@@ -951,7 +992,13 @@ final class AppController {
     }
 
     private func showTranscription(_ status: TranscriptionCoordinator.Status) {
-        let text = Self.transcriptionLine(for: status)
+        setTranscriptionLine(Self.transcriptionLine(for: status))
+    }
+
+    /// Both surfaces that carry the queue's state, set together so they cannot
+    /// disagree — and reachable with a sentence that is not a status, which is
+    /// what the quit path needs.
+    private func setTranscriptionLine(_ text: String?) {
         menuBar.updateTranscription(text)
         window.updateTranscription(text)
     }

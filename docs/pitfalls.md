@@ -15,6 +15,29 @@ sleep-blocking one while recording. Remove either and the symptoms are
 confusing rather than obvious: IPC that answers seconds late, timers that
 drift, a request obeyed after the caller gave up.
 
+## A quit asked for from a signal handler must leave the handler's drain first
+
+`NSApp.terminate` blocks in a nested event loop until
+`reply(toApplicationShouldTerminate:)` answers it, and that reply is delivered as
+a main-actor job — a main-queue block. libdispatch will not drain the main queue
+underneath a drain that is already running on the same thread, and a
+`DispatchSource` handler for SIGINT or SIGTERM runs inside exactly such a drain.
+So a terminate asked for from the handler hangs: `applicationShouldTerminate`
+runs, the reply never arrives, and the process sits in `_shouldTerminate` with
+no window left to explain itself. Nothing is visible until somebody reboots the
+Mac or logs out and the system gives up waiting.
+
+This is not specific to amanu, and it was measured rather than reasoned about: a
+fifty-line app that sends itself SIGTERM, with `applicationShouldTerminate`
+returning `.terminateLater` and answering from a main-actor task. Asked from the
+handler it sat in `_shouldTerminate` and had to be killed; the same app asking
+through `RunLoop.perform(inModes: [.common])` exited. That is why `Run` hands the
+quit to the run loop's own turn instead of terminating inside the drain, and it
+is a five-minute thing to re-measure if this ever looks like a coincidence.
+
+Everything that defers AppKit's termination is exposed to this, which is why the
+signal handlers may not be the only caller of `AppController.shutdown()`.
+
 ## `Bundle.main` and the symlink
 
 The CLI reaches the executable through `~/.local/bin/amanu`, and Foundation
