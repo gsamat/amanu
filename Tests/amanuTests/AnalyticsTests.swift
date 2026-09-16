@@ -338,6 +338,8 @@ struct AnalyticsV2CatalogueTests {
             ("openai", "ft:private:customer-name", "custom"),
             ("assemblyai", "universal · auto-detect", "universal"),
             ("assemblyai", "private-model · ru+en", "custom"),
+            ("whisperai", "default · auto-detect", "default"),
+            ("whisperai", "ft:private:customer-name · ru+en", "custom"),
             ("other", "anything", "unknown"),
         ]
         for (engine, provenance, expected) in cases {

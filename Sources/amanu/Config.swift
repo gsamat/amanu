@@ -50,7 +50,7 @@ enum Config {
     }
 
     /// Configured engine: `auto` (default), a local engine, or a cloud
-    /// provider by name — `assemblyai` or `openai`.
+    /// provider by name — `assemblyai`, `openai` or `whisperai`.
     ///
     /// `auto` means "the best one available right now": the cloud provider
     /// when there is a key and the API answers, parakeet otherwise. That
@@ -76,10 +76,10 @@ enum Config {
         return configured
     }
 
-    /// Which cloud engine `auto` reaches for: `assemblyai` (default) or
-    /// `openai`. It only decides the provider — whether the cloud is used at
-    /// all is `engine`, and a `engine` naming a provider outright wins over
-    /// this.
+    /// Which cloud engine `auto` reaches for: `assemblyai` (default),
+    /// `openai`, or `whisperai`. It only decides the provider — whether the
+    /// cloud is used at all is `engine`, and a `engine` naming a provider
+    /// outright wins over this.
     ///
     /// The two are separate settings because they answer separate questions,
     /// and the setup window asks them separately: a switch for "may audio
@@ -98,7 +98,9 @@ enum Config {
 
     /// The cloud engines, by the name they carry in the config and in
     /// transcript.json's provenance.
-    static let cloudEngines: Set<String> = ["assemblyai", "openai"]
+    /// `whisperai` is the paid API; `whisper` in `localEngines` is the local
+    /// model that shares most of its name and none of its behaviour.
+    static let cloudEngines: Set<String> = ["assemblyai", "openai", "whisperai"]
     static let localEngines: Set<String> = ["parakeet", "whisper", "gigaam"]
 
     /// OpenAI's transcription model. The default is the only one of theirs
@@ -159,6 +161,7 @@ enum Config {
         .appendingPathComponent(".config/amanu/keys", isDirectory: true)
 
     static let assemblyAIKeyPath = keysDir.appendingPathComponent("assemblyai")
+    static let whisperAIKeyPath = keysDir.appendingPathComponent("whisperai")
     static let openAIKeyPath = keysDir.appendingPathComponent("openai")
     static let anthropicKeyPath = keysDir.appendingPathComponent("anthropic")
 
@@ -170,6 +173,7 @@ enum Config {
     /// in the second one while the window says "no key yet" is a person being
     /// asked to paste something they already have.
     static let assemblyAISharedKeyPaths = sharedKeyPaths("assemblyai")
+    static let whisperAISharedKeyPaths = sharedKeyPaths("whisperai")
     static let openAISharedKeyPaths = sharedKeyPaths("openai")
     static let anthropicSharedKeyPaths = sharedKeyPaths("anthropic")
 
@@ -224,6 +228,36 @@ enum Config {
 
     private static func assemblyAI() -> [String: Any]? {
         transcription()?["assemblyai"] as? [String: Any]
+    }
+
+    /// WhisperAI key, in the same order and for the same reasons as the
+    /// AssemblyAI one above.
+    static func whisperAIKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["WHISPERAI_API_KEY"],
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        if let inline = whisperAI()?["api_key"] as? String, !inline.trimmed.isEmpty {
+            return inline.trimmed
+        }
+        if let configured = (whisperAI()?["api_key_path"] as? String)
+            .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
+            return secret(at: configured)
+        }
+        return secret(at: whisperAIKeyPath) ?? secret(atAnyOf: whisperAISharedKeyPaths)
+    }
+
+    /// Override WhisperAI's default speech model. nil sends nothing and lets
+    /// the API pick.
+    static func whisperAISpeechModel() -> String? {
+        guard let model = whisperAI()?["speech_model"] as? String, !model.isEmpty else {
+            return nil
+        }
+        return model
+    }
+
+    private static func whisperAI() -> [String: Any]? {
+        transcription()?["whisperai"] as? [String: Any]
     }
 
     private static func transcription() -> [String: Any]? {

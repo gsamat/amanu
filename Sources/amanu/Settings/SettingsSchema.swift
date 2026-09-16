@@ -91,7 +91,7 @@ enum SettingsSchema {
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
                           "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
-                      .choice(["auto", "assemblyai", "openai"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "whisperai"]), default: "auto", askedInSetup: true),
                 Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                       localised(
                           "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
@@ -126,7 +126,7 @@ enum SettingsSchema {
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
                       "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
-                      .choice(["auto", "assemblyai", "openai", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "whisperai", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                   localised(
                       "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
@@ -286,6 +286,18 @@ enum SettingsSchema {
                   .text, default: "~/.config/amanu/keys/assemblyai"),
             Entry(["transcription", "assemblyai", "speech_model"],
                   localised("AssemblyAI speech model", "Модель речи AssemblyAI"),
+                  localised(
+                      "Empty sends nothing and lets the API pick its own default.",
+                      "Пусто — ничего не отправляется, и API выбирает сам."),
+                  .text, default: localised("the API's own default", "выбор самого API")),
+            Entry(["transcription", "whisperai", "api_key_path"],
+                  localised("WhisperAI key file", "Файл ключа WhisperAI"),
+                  localised(
+                      "Where the cloud engine's key is read from. WHISPERAI_API_KEY wins over it.",
+                      "Откуда читается ключ облачного движка. WHISPERAI_API_KEY важнее."),
+                  .text, default: "~/.config/amanu/keys/whisperai"),
+            Entry(["transcription", "whisperai", "speech_model"],
+                  localised("WhisperAI speech model", "Модель речи WhisperAI"),
                   localised(
                       "Empty sends nothing and lets the API pick its own default.",
                       "Пусто — ничего не отправляется, и API выбирает сам."),
@@ -592,12 +604,15 @@ enum SettingsSchema {
 
     /// Settings the program reads but the window deliberately doesn't show.
     ///
-    /// One entry, and it earns the exception: an API key pasted into the
-    /// config file is a secret, and a text field would put it on screen and
-    /// into a screenshot. The path to a key file is offered instead. Keys
-    /// listed here still count as known — a setting amanu obeys must never be
-    /// reported as one it ignores.
-    static let unrenderedKeys = ["transcription.assemblyai.api_key"]
+    /// Both entries earn the exception: an API key pasted into the config
+    /// file is a secret, and a text field would put it on screen and into a
+    /// screenshot. The path to a key file is offered instead. Keys listed here
+    /// still count as known — a setting amanu obeys must never be reported as
+    /// one it ignores.
+    static let unrenderedKeys = [
+        "transcription.assemblyai.api_key",
+        "transcription.whisperai.api_key",
+    ]
 
     /// Older releases exposed these choices. Retained audio now always becomes
     /// one compact stereo M4A, but accepting the keys keeps an old config from

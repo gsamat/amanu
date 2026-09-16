@@ -15,7 +15,7 @@ struct AssemblyAIEngineTests {
     /// recording ended; dropping the first would lose a real boundary phrase.
     @Test("Provider timestamps are clipped to the audio and impossible utterances are discarded")
     func timestampsStayInsideAudio() {
-        let bounded = AssemblyAIEngine.boundedSegments([
+        let bounded = ProviderTimestamps.bounded([
             .init(start: 33.967, end: 36.967, text: "near boundary", speaker: "2A"),
             .init(start: 63.867, end: 64.047, text: "outside", speaker: "2A"),
             .init(start: -0.2, end: 0.4, text: "early", speaker: "1A"),

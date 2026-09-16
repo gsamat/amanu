@@ -120,7 +120,7 @@ The section is four rows: Start at login, Microphone, System audio, Calendar.
 
 ## Transcription
 
-The section is two switches and a pair of provider cards, not a row of
+The section is two switches and a row of provider cards, not a row of
 mutually exclusive cards. Having both switches on *is* the fallback — the
 cloud when it answers, this Mac when it doesn't — so there is no third card
 for it any more.
@@ -131,9 +131,9 @@ for it any more.
 - Turn both off. Confirm `config.json` gains `transcription.enabled: false`
   and that `engine` is left alone, so turning one back on remembers the
   provider.
-- Confirm the **AssemblyAI** and **OpenAI** cards are on screen even while
-  **In the cloud** is off, each showing its price per hour, and that the card
-  for a key already on disk says **key works**.
+- Confirm the **AssemblyAI**, **OpenAI** and **WhisperAI** cards are on screen
+  even while **In the cloud** is off, each showing its price per hour, and that
+  the card for a key already on disk says **key works**.
 - With no key for the chosen provider, switch **In the cloud** on. Confirm the
   switch stays off, the key field takes focus, and the status says a key is
   needed. A switch that reads "on" while every transcript fails with HTTP 401
@@ -156,8 +156,12 @@ for it any more.
   key — that clicking its card leaves the working provider in force and only
   opens the key field.
 - Confirm **Get a key** appears on a card without a key and points at
-  `https://www.assemblyai.com/dashboard/signup` and
-  `https://platform.openai.com/api-keys` respectively.
+  `https://www.assemblyai.com/dashboard/signup`,
+  `https://platform.openai.com/api-keys` and
+  `https://whisperai.com/signup?returnTo=/developer` respectively.
+- Confirm the three provider cards still fit their row at the window's width,
+  and that the key field's placeholder follows the selected card: `sk-…` for
+  OpenAI, `wai_…` for WhisperAI.
 - Switch **On this Mac** on with the model absent. Confirm the download starts
   from the switch alone — there is no Download button — and that the progress
   bar and the megabyte count both advance without freezing the window, and

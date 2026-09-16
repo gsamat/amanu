@@ -401,7 +401,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             accessories: [link(
                 localised("Get a key", "Получить ключ"),
                 "https://platform.openai.com/api-keys")])
-        providerCards.adopt([assembly, openai])
+        let whisperai = ChoiceCard(
+            id: "whisperai",
+            title: "WhisperAI",
+            detail: localised(
+                "$0.60 an hour. Always auto-detects the language.",
+                "$0,60 за час. Язык всегда определяет сам."),
+            accessories: [link(
+                localised("Get a key", "Получить ключ"),
+                "https://whisperai.com/signup?returnTo=/developer")])
+        providerCards.adopt([assembly, openai, whisperai])
         providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
         cloudKey.placeholderString = localised("paste key", "вставьте ключ")
@@ -888,7 +897,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private func hasKey(for provider: String) -> Bool {
-        provider == "openai" ? Config.openAIKey() != nil : Config.assemblyAIKey() != nil
+        switch provider {
+        case "openai": return Config.openAIKey() != nil
+        case "whisperai": return Config.whisperAIKey() != nil
+        default: return Config.assemblyAIKey() != nil
+        }
     }
 
     /// Whichever window is showing the form — the setup wizard or the
@@ -1355,9 +1368,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard !key.isEmpty else { return }
         cloudKeyStatus.stringValue = Self.checkingKey
 
-        let accepted = target == "openai"
-            ? await SummaryKeyProbe.works(provider: .openAI, key: key)
-            : await Self.assemblyKeyWorks(key)
+        let accepted: Bool
+        switch target {
+        case "openai": accepted = await SummaryKeyProbe.works(provider: .openAI, key: key)
+        case "whisperai": accepted = await Self.whisperAIKeyWorks(key)
+        default: accepted = await Self.assemblyKeyWorks(key)
+        }
         guard accepted else {
             cloudKeyStatus.stringValue = hasKey(for: target)
                 ? localised(
@@ -1366,7 +1382,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 : localised("that key was refused", "этот ключ не приняли")
             return
         }
-        let path = target == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
+        let path: URL
+        switch target {
+        case "openai": path = Config.openAIKeyPath
+        case "whisperai": path = Config.whisperAIKeyPath
+        default: path = Config.assemblyAIKeyPath
+        }
         do {
             try Self.writeSecret(key, to: path)
         } catch {
@@ -1437,6 +1458,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private static func assemblyKeyWorks(_ key: String) async -> Bool {
         var request = URLRequest(
             url: URL(string: "https://api.assemblyai.com/v2/transcript?limit=1")!)
+        request.timeoutInterval = 15
+        request.setValue(key, forHTTPHeaderField: "authorization")
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else {
+            return false
+        }
+        return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    /// The same free check against WhisperAI: listing transcripts is
+    /// authenticated and bills nothing, so a key can be verified before the
+    /// first meeting depends on it.
+    private static func whisperAIKeyWorks(_ key: String) async -> Bool {
+        var request = URLRequest(
+            url: URL(string: "https://api.whisperai.com/v1/transcript?limit=1")!)
         request.timeoutInterval = 15
         request.setValue(key, forHTTPHeaderField: "authorization")
         guard let (_, response) = try? await URLSession.shared.data(for: request) else {
@@ -1683,8 +1718,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 good: known)
             card.showLink(!known)
         }
-        cloudKey.placeholderString = (pendingProvider ?? provider) == "openai"
-            ? "sk-…" : localised("paste key", "вставьте ключ")
+        // The prefix a provider's keys carry, where they carry one: it is how
+        // somebody holding three of them sees they have the right one in hand.
+        switch pendingProvider ?? provider {
+        case "openai": cloudKey.placeholderString = "sk-…"
+        case "whisperai": cloudKey.placeholderString = "wai_…"
+        default: cloudKey.placeholderString = localised("paste key", "вставьте ключ")
+        }
         // Written on every pass rather than only into an empty label: a line
         // left over from the last question describes the wrong one.
         if let prompt = TranscriptionChoice.keyPrompt(

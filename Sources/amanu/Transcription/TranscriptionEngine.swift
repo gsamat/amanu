@@ -92,6 +92,30 @@ enum MultichannelSpeakerLabels {
     }
 }
 
+/// Provider timestamps are untrusted data. AssemblyAI has returned an
+/// utterance almost thirty seconds beyond a real 35-second file, and that text
+/// otherwise becomes a plausible-looking part of the transcript. Every cloud
+/// engine passes its segments through here for the same reason.
+enum ProviderTimestamps {
+    static func bounded(
+        _ segments: [TranscriptSegment],
+        duration: TimeInterval
+    ) -> [TranscriptSegment] {
+        guard duration.isFinite, duration > 0 else { return [] }
+        return segments.compactMap { segment in
+            guard segment.start.isFinite, segment.end.isFinite else { return nil }
+            let start = max(0, segment.start)
+            let end = min(duration, segment.end)
+            guard start < duration, end > start else { return nil }
+            return TranscriptSegment(
+                start: start,
+                end: end,
+                text: segment.text,
+                speaker: segment.speaker)
+        }
+    }
+}
+
 /// A failure that retrying cannot fix: audio with no speech in it, a file that
 /// isn't audio at all. The distinction matters because the queue is persistent
 /// — a session with no transcript is picked up again at every launch, so a
@@ -114,5 +138,44 @@ protocol TranscriptionEngine: Sendable {
     var input: TranscriptionInput { get }
     func prepare() async throws
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment]
+    /// Words this recording is likely to contain — today, the people the
+    /// calendar says were invited. A recogniser told that "Galimov" is a word
+    /// spells it that way instead of inventing something that sounds like it.
+    ///
+    /// It has a default because most engines have nowhere to put it: a local
+    /// model takes no vocabulary, and an engine that ignores this is not
+    /// broken. Engines are reused across sessions, so the coordinator calls
+    /// this before every recording and an empty list means *forget the last
+    /// one* — otherwise yesterday's attendees bias tomorrow's meeting.
+    func expect(_ terms: [String]) async
     func release() async
+}
+
+extension TranscriptionEngine {
+    func expect(_ terms: [String]) async {}
+}
+
+/// What of a meeting's context is worth handing to a speech recogniser, and
+/// what must not be.
+enum SpokenTerms {
+    /// At most this many, which is the documented ceiling on WhisperAI's
+    /// custom vocabulary and a sane bound everywhere else.
+    static let limit = 100
+
+    /// Calendar attendees, reduced to the ones that are names.
+    ///
+    /// An attendee with no display name in the event arrives as their email
+    /// address — see `CalendarWatcher.convert`. An address is no use to a
+    /// recogniser, since nobody says it out loud, and it is somebody's
+    /// personal data going to a transcription vendor for nothing. So anything
+    /// that looks like an address is dropped rather than cleaned up.
+    static func from(attendees: [String]) -> [String] {
+        var seen = Set<String>()
+        return attendees
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.contains("@") }
+            .filter { seen.insert($0.lowercased()).inserted }
+            .prefix(limit)
+            .map { $0 }
+    }
 }
