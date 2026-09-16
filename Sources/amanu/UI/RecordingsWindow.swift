@@ -373,7 +373,7 @@ final class RecordingsWindow: NSObject {
     /// sentence nothing can call is a sentence nothing can check.
     static func decision(
         for item: SessionInventory.Item,
-        policy: PostProcessor.Policy = .configured,
+        policy: PostProcessor.Policy? = nil,
         transcriptionEnabled: Bool = Config.transcriptionEnabled()
     ) -> Decision {
         switch PostProcessor.plan(for: item, transcriptionEnabled: transcriptionEnabled) {

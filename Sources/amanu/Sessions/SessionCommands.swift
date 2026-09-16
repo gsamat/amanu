@@ -150,26 +150,26 @@ struct ProcessSession: ParsableCommand {
     private static func logHint(_ dir: URL) -> String {
         "See \(dir.appendingPathComponent("transcribe.log").lastPathComponent) for detail."
     }
+}
 
-    /// ArgumentParser's `run()` is synchronous, and this command is a one-shot
-    /// process whose whole purpose is the async work — so waiting for it is
-    /// the entire job rather than a blocked main thread.
-    private func runBlocking<T: Sendable>(
-        _ work: @escaping @Sendable () async throws -> T
-    ) throws -> T {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: Result<T, Error>?
-        Task {
-            do {
-                result = .success(try await work())
-            } catch {
-                result = .failure(error)
-            }
-            semaphore.signal()
+/// ArgumentParser's `run()` is synchronous, and these commands are one-shot
+/// processes whose whole purpose is the async work — so waiting for it is the
+/// entire job rather than a blocked main thread.
+func runBlocking<T: Sendable>(
+    _ work: @escaping @Sendable () async throws -> T
+) throws -> T {
+    let semaphore = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var result: Result<T, Error>?
+    Task {
+        do {
+            result = .success(try await work())
+        } catch {
+            result = .failure(error)
         }
-        semaphore.wait()
-        return try result!.get()
+        semaphore.signal()
     }
+    semaphore.wait()
+    return try result!.get()
 }
 
 extension String {

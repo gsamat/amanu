@@ -19,6 +19,11 @@ enum SessionState {
         /// won't work on a retry. Absent — nothing to do, either because the
         /// summary exists or because summarizing is off.
         static let summaryStatus = "summary_status"
+        /// `true` on a session `amanu transcribe` made for a file that was
+        /// asked for its text and nothing after it. Names and a summary are
+        /// then not owed, to that command or to any later sweep — see
+        /// `PostProcessor.Policy.configured(for:)`. Absent everywhere else.
+        static let transcriptOnly = "transcript_only"
         /// The same three states for putting names to the speaker labels.
         /// `deferred` — no model could be reached: retry later. `failed` — it
         /// won't work on a retry. Absent — nothing to do, either because

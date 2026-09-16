@@ -70,19 +70,25 @@ actor MediaImportCoordinator {
     private var activeHash: Task<String, Error>?
     private var activeNormalization: Task<Void, Error>?
 
+    /// `removingStaleStaging` is what the app wants — it is the one importer
+    /// on this Mac for the life of its process — and what a second process
+    /// beside it must not do, see below.
     init(
         root: URL,
         normalizer: any MediaNormalizing = MediaNormalizer(),
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        removingStaleStaging: Bool = true
     ) {
         self.root = root.standardizedFileURL.resolvingSymlinksInPath()
         self.normalizer = normalizer
         self.now = now
-        Self.removeStaleStaging(in: self.root)
+        if removingStaleStaging { Self.removeStaleStaging(in: self.root) }
     }
 
     /// Staging folders have no completion marker and can only belong to a
-    /// process that no longer exists when a fresh coordinator is created.
+    /// process that no longer exists when a fresh coordinator is created —
+    /// true of the app at launch, and not of `amanu transcribe`, which may
+    /// start while the app is halfway through an import of its own.
     /// Complete imported sessions never use this reserved prefix.
     private static func removeStaleStaging(in root: URL) {
         guard let entries = try? FileManager.default.contentsOfDirectory(
