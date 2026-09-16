@@ -18,11 +18,23 @@
 # Override the signing identity if you need to:
 #   make SIGN_ID="Developer ID Application: ..."
 
-# Universal: one binary with an arm64 and an x86_64 slice, so the same release
-# runs on Apple Silicon and Intel Macs. Two
-# --arch flags select a multi-arch directory. Ask SwiftPM for its path:
+# Universal by default: one binary with an arm64 and an x86_64 slice, so the
+# same release runs on Apple Silicon and Intel Macs. Ask SwiftPM for its path:
 # Xcode 27's Swift Build engine uses .build/out instead of .build/apple.
-BUILT = $(shell swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/amanu
+#
+# A machine-local arm64-only build exists for toolchains that can no longer
+# link the Intel slice — the Swift 6.4 Command Line Tools dropped the x86_64
+# slices of the Swift compatibility libraries, which fails every universal
+# link with undefined __swift_FORCE_LOAD_$_swiftCompatibility56:
+#
+#   make app ARCHES=arm64
+#
+# The default stays universal, and so does every release: a single-arch
+# disk image looks perfectly fine until someone on the other kind of Mac
+# opens it.
+ARCHES ?= arm64 x86_64
+ARCH_FLAGS = $(foreach arch,$(ARCHES),--arch $(arch))
+BUILT = $(shell swift build -c release $(ARCH_FLAGS) --show-bin-path)/amanu
 
 # The application bundle. Assembled by hand rather than by an Xcode project:
 # the package already builds and tests with SwiftPM, and an .app is a
@@ -67,8 +79,33 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
 	| grep -o '"Apple Development: [^"]*"' | head -1 | tr -d '"')
 endif
+# A development-machine identity, made by scripts/make-local-identity.sh.
+# Last before ad-hoc because its whole point is being *stable*: an ad-hoc
+# signature's identity is the binary hash, so every rebuild looks like a new
+# app to macOS and every TCC grant is left behind on the previous build —
+# which is a trap to test through, not a detail. A certificate gives the
+# bundle a designated requirement that survives rebuilding.
+ifeq ($(strip $(SIGN_ID)),)
+SIGN_ID := $(shell security find-identity -v -p codesigning 2>/dev/null \
+	| grep -o '"Amanu Local Signing"' | head -1 | tr -d '"')
+endif
 ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
+endif
+
+# The hardened runtime enables library validation, and macOS 27 enforces it:
+# whatever signs the app must also be able to satisfy it for every embedded
+# framework, or the app is killed at launch — "code signature ... not valid
+# for us" in the dyld error. A Developer ID or Apple Development certificate
+# carries a team the frameworks share; an ad-hoc signature has no anchor at
+# all and a self-signed one carries no team, so both drop the hardened
+# runtime. A real identity keeps it, and with it, notarization.
+ifeq ($(SIGN_ID),-)
+HARDENED =
+else ifeq ($(SIGN_ID),Amanu Local Signing)
+HARDENED =
+else
+HARDENED = --options runtime
 endif
 
 .PHONY: all build localvqe verify-localvqe app icon run-app identities verify clean release release-dry
@@ -82,7 +119,7 @@ verify-localvqe: localvqe
 	@scripts/verify-localvqe.py
 
 build: localvqe
-	swift build -c release --arch arm64 --arch x86_64
+	swift build -c release $(ARCH_FLAGS)
 
 # Drawn from the same feather the menu bar uses, so the Dock, the window and
 # the status item are one program rather than three.
@@ -104,7 +141,9 @@ app: build $(ICON)
 		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
 	@cp $(BUILT_ICON)/Amanu.icns $(APP)/Contents/Resources/Amanu.icns
-	@cp $(BUILT_ICON)/Assets.car $(APP)/Contents/Resources/Assets.car
+	@if [ -f $(BUILT_ICON)/Assets.car ]; then \
+		cp $(BUILT_ICON)/Assets.car $(APP)/Contents/Resources/Assets.car; \
+	fi
 	@mkdir -p $(APP)/Contents/Resources/Licenses
 	@cp LICENSE $(APP)/Contents/Resources/LICENSE
 	@cp THIRD-PARTY-NOTICES.md $(APP)/Contents/Resources/
@@ -132,11 +171,13 @@ app: build $(ICON)
 		$(APP)/Contents/Resources/Licenses/transcribe.cpp-miniz-LICENSE
 	@test -s $(APP)/Contents/Resources/LICENSE \
 		&& test -s $(APP)/Contents/Resources/Amanu.icns \
-		&& test -s $(APP)/Contents/Resources/Assets.car \
 		&& test -s $(APP)/Contents/Resources/THIRD-PARTY-NOTICES.md \
 		&& test -s $(APP)/Contents/Resources/Models/localvqe-v1.4-aec-200K-f32.gguf \
 		&& test -s $(APP)/Contents/Resources/LocalVQE-verification.json \
 		&& test "$$(find $(APP)/Contents/Resources/Licenses -type f | wc -l | tr -d ' ')" = 12
+	@# Assets.car exists only when actool did — a Command Line Tools build
+	@# ships the classic icon without it.
+	@if [ -f $(BUILT_ICON)/Assets.car ]; then test -s $(APP)/Contents/Resources/Assets.car; fi
 	@test -n "$(SPARKLE_FW)" || (echo "Sparkle.framework not found — run swift build first"; exit 1)
 	@test -n "$(WHISPER_FW)" || (echo "whisper.framework not found — run swift build first"; exit 1)
 	@test -n "$(TRANSCRIBE_FW)" || (echo "CTranscribe.framework not found — run swift build first"; exit 1)
@@ -176,23 +217,25 @@ app: build $(ICON)
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate \
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app \
 		$(APP)/Contents/Frameworks/Sparkle.framework ; do \
-		codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp "$$nested" \
-			2>/dev/null \
-		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
+		codesign --force --sign "$(SIGN_ID)" $(HARDENED) --timestamp "$$nested" 2>/dev/null \
+		|| codesign --force --sign "$(SIGN_ID)" $(HARDENED) --timestamp=none "$$nested" ; \
 	done
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(HARDENED) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp $(APP) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(HARDENED) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
 	@# A missing slice is invisible until someone on the wrong Mac opens the
-	@# disk image, so fail here instead.
+	@# disk image, so fail here instead. The universal assertion applies only
+	@# when both arches were asked for; an ARCHES=arm64 local build asserts
+	@# the slice it promised.
+ifneq (,$(findstring x86_64,$(ARCHES)))
 	@lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q x86_64 \
 		&& lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q arm64 \
 		|| (echo "not universal: $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"; exit 1)
@@ -205,6 +248,12 @@ app: build $(ICON)
 	@lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe | grep -q x86_64 \
 		&& lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe | grep -q arm64 \
 		|| (echo "CTranscribe.framework not universal: $$(lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe)"; exit 1)
+else
+	@lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q arm64 \
+		|| (echo "not arm64: $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"; exit 1)
+	@lipo -archs $(APP)/Contents/Frameworks/liblocalvqe.dylib | grep -q arm64 \
+		|| (echo "LocalVQE lacks arm64: $$(lipo -archs $(APP)/Contents/Frameworks/liblocalvqe.dylib)"; exit 1)
+endif
 	@python3 scripts/verify-macos-compatibility.py $(APP) $(MINIMUM_MACOS)
 	@echo "built → $(APP) ($(VERSION) build $(BUILD)) · $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"
 
