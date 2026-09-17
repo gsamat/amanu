@@ -55,6 +55,38 @@ struct WhisperEngineTests {
         }
     }
 
+    @Test("A repetition loop from a quiet microphone is dropped, real speech is kept")
+    func repetitionLoopsAreDropped() async throws {
+        let store = try fixtureStore()
+        // The mic track of a real meeting whose first minutes carried no
+        // intelligible speech: whisper said this, once per 30-second window.
+        let loop = WhisperRuntimeSegment(
+            start: 0, end: 7,
+            text: "I'm going to go ahead and put it in the middle of the middle "
+                + "of the middle of the middle of the middle.")
+        let real = WhisperRuntimeSegment(start: 7, end: 9, text: "Regarding the open AI incidents.")
+        let runtime = ScriptedWhisperRuntime(segments: [loop, real])
+        let engine = WhisperEngine(modelStore: store, runtime: runtime, chunkDuration: 10)
+        try await engine.prepare()
+        let audio = try makeAudio(seconds: 10, sampleRate: 16_000, channels: 1)
+
+        let segments = try await engine.transcribe(audio)
+
+        #expect(segments.map(\.text) == ["Regarding the open AI incidents."])
+    }
+
+    @Test("Repetition loops are recognized whatever the phrase")
+    func repetitionLoopDetection() {
+        #expect(WhisperEngine.isRepetitionLoop(
+            "I'm going to go ahead and put it in the middle of the middle of the middle "
+                + "of the middle of the middle."))
+        #expect(WhisperEngine.isRepetitionLoop(
+            "так сказать так сказать так сказать так сказать"))
+        #expect(!WhisperEngine.isRepetitionLoop("Regarding the open AI incidents."))
+        #expect(!WhisperEngine.isRepetitionLoop("Okay. Yeah, absolutely. Yes."))
+        #expect(!WhisperEngine.isRepetitionLoop("Да."))
+    }
+
     private func fixtureStore() throws -> WhisperModelStore {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-whisper-engine-\(UUID().uuidString)")
@@ -93,6 +125,22 @@ struct WhisperEngineTests {
         try file.write(from: buffer)
         return url
     }
+}
+
+private actor ScriptedWhisperRuntime: WhisperRuntime {
+    let segments: [WhisperRuntimeSegment]
+    init(segments: [WhisperRuntimeSegment]) { self.segments = segments }
+
+    func prepare(model: URL) async throws {}
+
+    func transcribe(
+        samples: [Float], language: String?,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment] {
+        segments
+    }
+
+    func release() async {}
 }
 
 private struct RuntimeFixtureError: Error {}
