@@ -118,7 +118,7 @@ enum SessionInventory {
     }
 
     static func item(for dir: URL) -> Item? {
-        item(for: dir, policy: .configured)
+        item(for: dir, policy: .configured(for: dir))
     }
 
     static func item(for dir: URL, policy: PostProcessor.Policy) -> Item? {

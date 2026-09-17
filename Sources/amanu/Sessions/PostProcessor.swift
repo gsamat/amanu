@@ -28,6 +28,24 @@ enum PostProcessor {
                 names: Config.speakerNames().enabled,
                 summary: summary.enabled && summary.backend != "none")
         }
+
+        /// The configured policy, narrowed by what the session says about
+        /// itself.
+        ///
+        /// A folder `amanu transcribe` makes for a file was asked for that
+        /// file's text and nothing more, and records it as `transcript_only`:
+        /// a downloaded talk is not a meeting, and naming its one speaker and
+        /// summarizing it would spend a model call each on an answer nobody
+        /// asked for. Such a session owes neither step — to the run that made
+        /// it, to the sweep at the next launch, or to the button — which is
+        /// the same state a step is in when the config turns it off, and it
+        /// is shown the same way. The command's `--summary` takes the note
+        /// back, and the session is then finished like any other.
+        static func configured(for dir: URL) -> Policy {
+            guard SessionState.value(dir, SessionState.Key.transcriptOnly) as? Bool == true
+            else { return configured }
+            return Policy(names: false, summary: false)
+        }
     }
 
     /// Steps outstanding for one session, in the order they must run.
@@ -42,7 +60,12 @@ enum PostProcessor {
     /// A step is outstanding when its artifact is missing and its state isn't
     /// `failed` — a session that will never summarize must stop being offered,
     /// or every sweep picks it up again for ever.
-    static func outstanding(_ dir: URL, policy: Policy = .configured) -> Work {
+    ///
+    /// `policy` defaults to the session's own reading of the config, which is
+    /// the configured one unless the folder says it was only ever asked for
+    /// its transcript.
+    static func outstanding(_ dir: URL, policy: Policy? = nil) -> Work {
+        let policy = policy ?? .configured(for: dir)
         let fm = FileManager.default
         func exists(_ name: String) -> Bool {
             fm.fileExists(atPath: dir.appendingPathComponent(name).path)
@@ -81,7 +104,7 @@ enum PostProcessor {
     /// say which steps it is exercising instead of inheriting whatever the
     /// machine owner has turned on this week.
     @discardableResult
-    static func finish(_ dir: URL, policy: Policy = .configured) async -> Work {
+    static func finish(_ dir: URL, policy: Policy? = nil) async -> Work {
         let work = outstanding(dir, policy: policy)
         guard !work.isEmpty else { return work }
 

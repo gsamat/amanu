@@ -200,8 +200,20 @@ amanu record start           # ask the running app to start recording
 amanu record stop
 amanu sessions               # list recordings and outstanding work
 amanu process <folder>       # finish or retry one meeting
+amanu transcribe note.m4a    # a file amanu did not record: note.txt beside it
+amanu transcribe talk.mp4 --format srt --format vtt
+amanu transcribe *.m4a --output-dir ~/Transcripts
+amanu transcribe note.m4a --stdout | pbcopy
 amanu setup                  # reopen first-run setup
 ```
+
+`amanu transcribe` runs a file through the same import and transcription the
+app uses, with the engine the configuration already chose, and writes the
+transcript beside the file (or into `--output-dir`, or to standard output).
+The file becomes an ordinary session in the recordings folder, so asking for
+the same file again — in another format, say — reuses it instead of running
+the model again. Such a session is asked for its transcript and nothing more;
+`--summary` has it named and summarized like a meeting.
 
 Run `amanu --help` or `amanu <command> --help` for the complete command-line
 interface. Most people never need it: recording and post-processing are
