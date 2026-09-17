@@ -107,6 +107,7 @@ final class RecordingsWindow: NSObject {
         let columns: [(String, String, CGFloat)] = [
             ("when", localised("When", "Когда"), 130),
             ("meeting", localised("Meeting", "Встреча"), 250),
+            ("video", localised("Video", "Видео"), 90),
             ("transcript", localised("Transcript", "Расшифровка"), 150),
             ("names", localised("Names", "Имена"), 110),
             ("summary", localised("Summary", "Саммари"), 90),
@@ -339,6 +340,17 @@ final class RecordingsWindow: NSObject {
         return localised("Re-transcribe", "Расшифровать заново")
     }
 
+    /// And the same idea for the video column: the raw recording is in the
+    /// folder while the merged copy is not, which is what a merge that failed
+    /// or was interrupted looks like afterwards. The raw file is the one thing
+    /// a re-merge needs, so this is both the reason and the material — and the
+    /// session keeps its audio until the merge is done, so the material is
+    /// always there.
+    static func inlineRemergeVideoTitle(for item: SessionInventory.Item) -> String? {
+        guard item.video == .recorded, item.hasAudio else { return nil }
+        return localised("Re-merge video", "Собрать видео заново")
+    }
+
     // MARK: - actions
 
     @objc private func nameEdited(_ sender: NSTextField) {
@@ -489,6 +501,40 @@ final class RecordingsWindow: NSObject {
         retranscribeClicked()
     }
 
+    /// The merge the recording was owed and never got. Runs in the window,
+    /// like Finish processing does: the buttons are held while it works, the
+    /// row is reloaded from disk afterwards, and a failure is said out loud
+    /// with the originals kept exactly where they were.
+    @objc private func remergeVideoClicked(_ sender: NSButton) {
+        // A second press while the first is still merging would be refused by
+        // the session's own claim and then reported as a failure, which is a
+        // worse answer than not starting it.
+        guard !working, sender.tag >= 0, sender.tag < items.count else { return }
+        table.selectRowIndexes(IndexSet(integer: sender.tag), byExtendingSelection: false)
+        showDetail()
+        guard let item = selected else { return }
+
+        working = true
+        updateButtons()
+        let itemDir = item.dir
+        Task {
+            var failure: Error?
+            do {
+                _ = try await VideoMerger.remerge(sessionDir: itemDir)
+            } catch {
+                failure = error
+            }
+            working = false
+            reload()
+            if let failure {
+                say(localised(
+                    "The video could not be merged — the raw recording is kept: \(failure)",
+                    "Видео не удалось собрать — исходная запись на месте: \(failure)"),
+                    about: item)
+            }
+        }
+    }
+
     @objc private func chooseImportClicked() { onChooseImport?() }
 
     @objc private func openFolderClicked() {
@@ -558,6 +604,15 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
         let label = NSTextField(labelWithString: Self.cell(item, column: column) ?? "")
         label.lineBreakMode = .byTruncatingTail
 
+        if column == "video", let title = Self.inlineRemergeVideoTitle(for: item) {
+            let remerge = NSButton(
+                title: title, target: self, action: #selector(remergeVideoClicked(_:)))
+            remerge.bezelStyle = .rounded
+            remerge.controlSize = .mini
+            remerge.tag = row
+            return remerge
+        }
+
         guard column == "transcript", let title = Self.inlineRetranscribeTitle(for: item) else {
             return label
         }
@@ -593,6 +648,8 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
                 localised(" · \(Int($0 / 60))m", " · \(Int($0 / 60)) мин")
             } ?? ""
             return (item.title ?? item.name) + length
+        case "video":
+            return item.video.label
         case "transcript":
             return item.transcript.described + (item.engine.map { " (\($0))" } ?? "")
         case "names":

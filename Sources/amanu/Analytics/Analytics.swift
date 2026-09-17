@@ -69,6 +69,10 @@ enum Analytics {
         case durationBucket = "duration_bucket"
         case liveUsed = "live_used"
         case systemAudio = "system_audio"
+        /// `recording_started`/`recording_finished` — whether a video track
+        /// was recorded. Never which window or display: that would be a
+        /// fingerprint of what was on the screen.
+        case video
         case engine
         case backend
         case model

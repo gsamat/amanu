@@ -30,6 +30,7 @@ enum DoctorReport {
             checkLiveRecording(recordingsRoot),
             checkMicrophone(),
             checkSystemAudio(),
+            checkVideo(),
             checkRecordingsRoot(recordingsRoot),
         ]
         guard includeBackendChecks else { return startup }
@@ -222,6 +223,38 @@ enum DoctorReport {
             name: "system audio",
             status: .warn("grant state unknowable until first use"),
             remediation: "if system.caf is silent: System Settings → Privacy & Security → System Audio Recording Only"
+        )
+    }
+
+    /// Video is the only track that needs the Screen Recording grant, which
+    /// the system-audio tap never asks for and does not confer (rca-002 — the
+    /// two live in the same pane but are different lists). Off, there is
+    /// nothing to say; on without the grant, meetings silently become
+    /// audio-only, which the person should hear about before the first one.
+    /// A preflight, not a prompt: asking here would raise the system alert at
+    /// a moment nobody chose, and the grant only takes hold on relaunch anyway.
+    static func checkVideo() -> Check {
+        guard Config.videoStartsAutomatically() else {
+            return Check(name: "video", status: .ok, remediation: nil)
+        }
+        return checkVideo(granted: CGPreflightScreenCaptureAccess())
+    }
+
+    /// Warnings here read as the *preflight's* answer rather than as the
+    /// grant's state, because the preflight has been seen to answer no on a Mac
+    /// whose System Settings pane shows amanu allowed — and a row that reports
+    /// that lie as a fact sends somebody to a pane that already says yes.
+    static func checkVideo(granted: Bool) -> Check {
+        guard !granted else {
+            return Check(name: "video", status: .ok, remediation: nil)
+        }
+        return Check(
+            name: "video",
+            status: .warn("enabled, and the screen-recording preflight says no — meetings may record audio-only"),
+            remediation: "If System Settings already shows amanu allowed, ignore this row: that preflight "
+                + "has been seen to answer no anyway. Otherwise enable amanu in System Settings → "
+                + "Privacy & Security → Screen & System Audio Recording, then quit and reopen it "
+                + "(macOS applies the grant only to a fresh launch)"
         )
     }
 

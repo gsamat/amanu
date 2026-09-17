@@ -219,6 +219,29 @@ enum SetupPermissions {
         try? await Task.sleep(for: .milliseconds(400))
     }
 
+    // MARK: - screen recording (video)
+
+    /// Whether the Screen Recording grant exists — the one the video track
+    /// needs, and the one the system-audio tap never asks for (rca-002: the
+    /// tap is gated on "System Audio Recording Only", a different list in the
+    /// same pane). A preflight reads the state without raising anything;
+    /// cached per turn like every other read here, because a change means a
+    /// trip to System Settings, which turns the run loop.
+    static func screenRecording() -> Bool {
+        ThisTurn.answer("screen-recording") {
+            CGPreflightScreenCaptureAccess()
+        }
+    }
+
+    /// Raise the system prompt for Screen Recording. The answer still reads as
+    /// missing until the app is relaunched — this is the one grant that cannot
+    /// be re-read after it is given — which is why the row says so out loud
+    /// instead of reporting a fresh answer.
+    static func requestScreenRecording() {
+        _ = CGRequestScreenCaptureAccess()
+        ThisTurn.forget()
+    }
+
     // MARK: - System Settings
 
     /// Panes worth being able to send someone to. The identifiers are the ones

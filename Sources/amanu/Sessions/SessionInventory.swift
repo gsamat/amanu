@@ -71,6 +71,9 @@ enum SessionInventory {
         /// cleaned out with the Finder — the difference doesn't matter to
         /// anything asking, which is always asking "can this be done again".
         let hasAudio: Bool
+        /// Whether the session has a video track, in words the recordings
+        /// table can show as-is.
+        let video: VideoState
 
         /// Whether anything is left to do that a person might want to trigger.
         var isOutstanding: Bool {
@@ -99,6 +102,33 @@ enum SessionInventory {
             f.dateFormat = "yyyy-MM-dd HH:mm"
             return f
         }()
+    }
+
+    /// Whether a session has a video track, in words the recordings table
+    /// can show as-is.
+    enum VideoState: Equatable {
+        /// No video was recorded for this session — the common case.
+        case none
+        /// `video.mp4` is in the folder, silent and unmerged.
+        case recorded
+        /// `meeting.mp4` exists (picture and sound); the raw video may or
+        /// may not also be there, per `video.remove_raw`.
+        case merged
+        /// The video was recorded and is not in the folder now — the raw file
+        /// removed after a merge, with the merged copy gone since. meta.json
+        /// still records that a video was made; nothing amanu does by itself
+        /// reaches this state, so seeing it means a folder was tidied by hand.
+        case removed
+
+        /// One word for the recordings table's video column.
+        var label: String? {
+            switch self {
+            case .none: return nil
+            case .recorded: return localised("raw", "исходник")
+            case .merged: return localised("merged", "склеено")
+            case .removed: return localised("removed", "удалено")
+            }
+        }
     }
 
     /// Every session under `root`, newest first — which is the order a person
@@ -174,8 +204,29 @@ enum SessionInventory {
             ),
             namedSpeakers: counts,
             sizeBytes: size(of: dir),
-            hasAudio: audioSurvives(dir, meta: meta)
+            hasAudio: audioSurvives(dir, meta: meta),
+            video: videoState(of: meta, dir: dir)
         )
+    }
+
+    /// From a session's meta.json and folder: what became of the video. The
+    /// files on disk decide between recorded and merged — meta.json records
+    /// what was made, not what survived a later cleanup.
+    private static func videoState(of meta: [String: Any], dir: URL) -> VideoState {
+        guard meta["video"] != nil else { return .none }
+        let fm = FileManager.default
+        if fm.fileExists(atPath: dir.appendingPathComponent("meeting.mp4").path) {
+            return .merged
+        }
+        if fm.fileExists(atPath: dir.appendingPathComponent("video.mp4").path) {
+            return .recorded
+        }
+        // meta.json names a video and neither file is in the folder: the raw
+        // one was removed after its merge and the merged copy has gone since.
+        // Nothing amanu does on its own ends up here — this is a folder
+        // somebody has been tidying — so the label says only what is true of
+        // it: the picture is not in this recording.
+        return .removed
     }
 
     /// The same question the re-transcribe button and `amanu process` ask,

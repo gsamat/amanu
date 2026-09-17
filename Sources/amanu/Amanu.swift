@@ -510,6 +510,15 @@ final class AppController {
     private var automaticFeaturesStarted = false
     private var mediaImportTask: Task<Void, Never>?
     private var pendingImports = MediaImportPendingQueue()
+    /// Held while the system's content picker is on screen, and then while the
+    /// picture it chose is being written: the same picker is how a running
+    /// stream is re-pointed at another window, and macOS delivers that to the
+    /// same observer. It hands its observers back weakly, so a picker nothing
+    /// holds dismisses itself before anybody can click a window in it.
+    private var videoPicker: VideoContentPicker?
+    /// True between opening the picker and its first answer, so a picker is not
+    /// released while a choice is still being made.
+    private var choosingVideo = false
 
     init(root: URL) {
         self.root = root
@@ -524,10 +533,11 @@ final class AppController {
 
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onTogglePause = { [weak self] in self?.togglePause() }
+        menuBar.onStartWithVideo = { [weak self] in self?.startSessionWithVideo() }
+        menuBar.onToggleVideo = { [weak self] in self?.toggleVideo() }
         menuBar.onToggleAutoRecord = { [weak self] in self?.toggleAutoRecord() }
         menuBar.onOpenFolder = { [weak self] in self?.openFolder() }
         menuBar.onShowRecordings = { [weak self] in self?.showRecordings() }
-        menuBar.onImport = { [weak self] in self?.chooseMediaToImport() }
         menuBar.onShowWindow = { [weak self] in self?.showWindow() }
         menuBar.onShowSettings = { [weak self] in self?.showSettings() }
         menuBar.onShowSetup = { [weak self] in self?.showSetup() }
@@ -786,6 +796,124 @@ final class AppController {
         tick()
     }
 
+    /// Start a meeting with the picture as well.
+    ///
+    /// The audio goes first and the picker follows it. A picker is a panel
+    /// somebody can leave on screen while they decide, and the meeting must
+    /// not be waiting behind it: the video is written from the moment the
+    /// choice lands, and the session's own `video_start_offset_ms` is what
+    /// keeps the file on the audio's clock. A cancelled picker costs the
+    /// picture and nothing else.
+    private func startSessionWithVideo() {
+        guard session == nil else { return }
+        toggle()
+        // Starting can refuse — no microphone, no system tap — and says so
+        // itself, in an alert and a notification.
+        guard let session else { return }
+        // With `video.start_automatically` on, the picture is already being
+        // written to a target the config named: asking which window to record
+        // would be asking a question that has been answered.
+        guard session.videoCanStart else { return }
+        chooseVideoContent()
+    }
+
+    /// The video item: start the picture mid-meeting, or stop it and let the
+    /// audio run on. `videoCanStart` is false once this session has had its
+    /// video file, so there is a state where the item is simply not offered.
+    private func toggleVideo() {
+        guard let session else { return }
+        if session.videoActive {
+            session.stopVideo()
+        } else if session.videoCanStart {
+            chooseVideoContent()
+        }
+        presentVideo()
+    }
+
+    /// Ask which window or display to record, with macOS's own picker. A call
+    /// app has a launcher, a meeting window, a toolbar and a chat panel, all in
+    /// one family, and no heuristic outside Apple can say which of them the
+    /// person means — so the question goes to the person.
+    ///
+    /// The picker outlives its first answer on purpose: it stays available
+    /// while the picture is running, and the next answer it delivers is the
+    /// person pointing the same stream somewhere else.
+    private func chooseVideoContent() {
+        let picker = VideoContentPicker()
+        videoPicker = picker
+        choosingVideo = true
+        picker.onSelection = { [weak self] filter in
+            guard let self else { return }
+            self.choosingVideo = false
+            guard let session = self.session else { return }
+            if session.videoActive {
+                session.applyVideoFilter(filter)
+            } else {
+                session.startVideo(with: filter)
+            }
+            self.presentVideo()
+        }
+        picker.onCancel = { [weak self] in
+            // The audio was never waiting on the answer, so a cancelled
+            // question needs no explaining. The system's capture indicator
+            // does: it follows `isActive`, and a picker that ended without a
+            // stream must not leave macOS saying amanu is recording a screen.
+            self?.choosingVideo = false
+            self?.releaseVideoPicker()
+        }
+        picker.onStartFailed = { [weak self] error in
+            self?.choosingVideo = false
+            self?.releaseVideoPicker()
+            self?.reportVideoPickerFailure(error)
+        }
+        picker.present()
+    }
+
+    /// Let the picker go, and with it the system's claim that a screen is being
+    /// shared — unless one is: a stream that is still writing keeps the flag
+    /// (and the system menu that re-points it) alive.
+    private func releaseVideoPicker() {
+        choosingVideo = false
+        guard videoPicker != nil else { return }
+        videoPicker?.dismiss()
+        videoPicker = nil
+        VideoContentPicker.setActive(session?.videoActive == true)
+    }
+
+    /// The picker itself would not open, so the video somebody just asked for
+    /// is not happening. Said where the session keeps its story and where the
+    /// person is looking, with the audio left alone — the same contract as a
+    /// stream that dies mid-meeting.
+    private func reportVideoPickerFailure(_ error: Error) {
+        guard let session else { return }
+        appendSessionLog(
+            localised(
+                "video not recorded: the picker did not open (\(error))",
+                "видео не записано: панель выбора не открылась (\(error))"),
+            to: session.dir)
+        notifyUser(
+            title: localised("amanu: recording without video", "amanu: запись без видео"),
+            body: localised(
+                "The screen picker did not open, so this meeting is being recorded audio-only.",
+                "Панель выбора экрана не открылась — эта встреча записывается только звуком."),
+            opening: session.dir
+        )
+    }
+
+    /// What the video item offers right now: the way in while the picture can
+    /// still start, the way out while it is being written, and nothing once
+    /// this session has had its one video file. Read every tick as well, so a
+    /// stream that dies on its own stops being offered as if it were running.
+    private func presentVideo() {
+        let active = session?.videoActive ?? false
+        menuBar.updateVideo(
+            visible: session.map { active || $0.videoCanStart } ?? false,
+            active: active)
+        // A picker is worth holding only while it can still answer: while a
+        // choice is being made, or while the stream it chose is running.
+        if !active, !choosingVideo { releaseVideoPicker() }
+    }
+
     private func toggleAutoRecord() {
         autoRecord.enabled.toggle()
         if autoRecord.enabled { autoRecord.start() } else { autoRecord.stop() }
@@ -880,6 +1008,7 @@ final class AppController {
         }
 
         present(.recording, elapsed: "0:00")
+        presentVideo()
     }
 
     private func stopSession(reason: String = "manual") {
@@ -895,7 +1024,12 @@ final class AppController {
             "○ stopped (\(reason)) · \(Self.format(duration)) · \(session.dir.path)\n".utf8
         ))
         self.session = nil
+        // A picker that was still on screen when the meeting ended has nothing
+        // left to point at, and the choice it was waiting for goes with the
+        // session.
+        releaseVideoPicker()
         present(.idle, elapsed: nil)
+        presentVideo()
         // If Sparkle was told to wait for this recording, it has waited.
         updates.recordingDidFinish()
 
@@ -1031,7 +1165,8 @@ final class AppController {
     /// Reflect state everywhere it's shown at once, so the three surfaces can
     /// never disagree about whether something is being recorded.
     private func present(_ state: MenuBarController.State, elapsed: String?) {
-        menuBar.update(state: state, elapsed: elapsed)
+        menuBar.update(
+            state: state, elapsed: elapsed, videoActive: session?.videoActive ?? false)
         window.update(state: state, elapsed: elapsed)
         DockPresentation.update(state: state, elapsed: elapsed)
     }
@@ -1045,6 +1180,7 @@ final class AppController {
             session.isPaused ? .paused : .recording,
             elapsed: Self.format(Date().timeIntervalSince(session.startedAt))
         )
+        presentVideo()
     }
 
     private func openFolder() {

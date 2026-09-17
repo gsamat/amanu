@@ -20,18 +20,30 @@ import Foundation
 /// processes may reach for the same folder in the same instant — so it is
 /// created with `O_EXCL` and the loser is told, rather than written over the
 /// top and both continuing.
+///
+/// The merge has a marker of its own, for the reason the other two share one:
+/// they never run at the same time on a session, and a merge and a transcription
+/// do. A merge is seconds old when the transcript is still minutes away, and
+/// both are true of the same folder at once (`VideoMerger`).
 enum SessionClaim {
     /// Beside `.recording.json`, and dot-prefixed for the same reason: this is
     /// bookkeeping, and a person opening the folder in the Finder is looking
     /// for their recording.
     static let file = ".transcribing.json"
 
-    /// Which of the two cost centres the owner is in. One file covers both:
-    /// they never run at the same time on one session, and a single marker is
-    /// one thing to reason about when it is left behind by a crash.
+    /// The merge's marker. Its own file because the merge and the transcription
+    /// of one session are meant to overlap — the merge starts seconds after a
+    /// stop, the transcript can take minutes — so one marker cannot mean both.
+    static let mergeFile = ".merging.json"
+
+    /// Which cost centre the owner is in. The transcript and the post-processing
+    /// share one file: they never run at the same time on one session, and a
+    /// single marker is one thing to reason about when it is left behind by a
+    /// crash.
     enum Stage: String {
         case transcribe
         case finish
+        case merge
     }
 
     /// A claim as it is on disk, whether or not the process that wrote it is
@@ -59,16 +71,23 @@ enum SessionClaim {
         /// Nil when the claim file is there but can't be read, which is the one
         /// case where we know nothing except that we must not touch anything.
         let holder: Holder?
+        /// Which marker this is about. The default is the transcription one,
+        /// where every caller but the merge is; it is only named out loud in the
+        /// unreadable case, so that the file to delete is the right one.
+        var file: String = SessionClaim.file
 
         var description: String {
             guard let holder else {
                 return "Something else is already working on this recording: its "
-                    + "\(SessionClaim.file) can't be read, so amanu is leaving the folder "
+                    + "\(file) can't be read, so amanu is leaving the folder "
                     + "alone. Delete that file if no other copy of amanu is running."
             }
-            let what = holder.stage == Stage.finish.rawValue
-                ? "naming and summarizing this recording"
-                : "transcribing this recording"
+            let what: String
+            switch holder.stage {
+            case Stage.finish.rawValue: what = "naming and summarizing this recording"
+            case Stage.merge.rawValue: what = "merging the video for this recording"
+            default: what = "transcribing this recording"
+            }
             // The owner can be this very process — the sweep and the button
             // reach for folders the transcription queue is already in — and
             // telling somebody to quit the copy they are reading the message
@@ -86,9 +105,15 @@ enum SessionClaim {
     /// that can't be read, which is treated as held for the same reason
     /// `recoverInterrupted` leaves an unreadable manifest alone: not knowing who
     /// owns a folder is not a licence to take it.
-    static func isHeld(_ dir: URL) -> Bool {
-        guard FileManager.default.fileExists(atPath: url(dir).path) else { return false }
-        guard let holder = holder(dir) else { return true }
+    static func isHeld(_ dir: URL) -> Bool { isHeld(dir, file) }
+
+    /// Whether a merge has this folder — which is a reason to leave a session
+    /// alone, since the two temp files a merge works through have fixed names.
+    static func isMergeHeld(_ dir: URL) -> Bool { isHeld(dir, mergeFile) }
+
+    private static func isHeld(_ dir: URL, _ file: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: url(dir, file).path) else { return false }
+        guard let holder = holder(dir, file) else { return true }
         return holder.isAlive
     }
 
@@ -97,9 +122,11 @@ enum SessionClaim {
     /// and the contents cannot be one operation — and that reads as unparsable,
     /// which sends a rival to back off. That is the right answer for the
     /// instant it lasts.
-    static func holder(_ dir: URL) -> Holder? {
+    static func holder(_ dir: URL) -> Holder? { holder(dir, file) }
+
+    private static func holder(_ dir: URL, _ file: String) -> Holder? {
         guard
-            let data = try? Data(contentsOf: url(dir)),
+            let data = try? Data(contentsOf: url(dir, file)),
             let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let pid = json["pid"] as? Int32
         else { return nil }
@@ -118,39 +145,57 @@ enum SessionClaim {
     /// the next run finds its pid dead and reclaims it, which is the same
     /// bargain crash recovery already makes with `.recording.json`.
     static func acquire(_ dir: URL, stage: Stage) throws {
-        if try create(url(dir), stage: stage) { return }
+        try acquire(dir, file: file, stage: stage)
+    }
+
+    /// Take the folder for a merge. Paired with `releaseMerge`, and held for the
+    /// whole merge: the two temp files it works through are named the same in
+    /// every attempt, so a second merge in one folder rewrites what the first is
+    /// still reading and writing.
+    static func acquireMerge(_ dir: URL) throws {
+        try acquire(dir, file: mergeFile, stage: .merge)
+    }
+
+    private static func acquire(_ dir: URL, file: String, stage: Stage) throws {
+        if try create(url(dir, file), stage: stage) { return }
 
         // Somebody got there first. An owner still running keeps it; one that
         // died mid-transcription left litter, and litter must not retire a
         // session for ever.
-        guard let holder = holder(dir) else {
-            throw Busy(session: dir.lastPathComponent, holder: nil)
+        guard let holder = holder(dir, file) else {
+            throw Busy(session: dir.lastPathComponent, holder: nil, file: file)
         }
         guard !holder.isAlive else {
-            throw Busy(session: dir.lastPathComponent, holder: holder)
+            throw Busy(session: dir.lastPathComponent, holder: holder, file: file)
         }
 
-        try? FileManager.default.removeItem(at: url(dir))
+        try? FileManager.default.removeItem(at: url(dir, file))
         appendSessionLog(
             "reclaiming \(file) from pid \(holder.pid), which is no longer running", to: dir)
         // One retry only: a second collision means a third process is in this
         // folder too, and racing it round a loop is worse than coming back.
-        guard try create(url(dir), stage: stage) else {
-            throw Busy(session: dir.lastPathComponent, holder: Self.holder(dir))
+        guard try create(url(dir, file), stage: stage) else {
+            throw Busy(session: dir.lastPathComponent, holder: Self.holder(dir, file), file: file)
         }
     }
 
     /// Give the session back — but only if it is still ours. A release that
     /// deleted whatever was there would hand the folder to a third process at
     /// exactly the moment a second one had legitimately reclaimed it.
-    static func release(_ dir: URL) {
-        guard holder(dir)?.pid == ProcessInfo.processInfo.processIdentifier else { return }
-        try? FileManager.default.removeItem(at: url(dir))
+    static func release(_ dir: URL) { release(dir, file) }
+
+    static func releaseMerge(_ dir: URL) { release(dir, mergeFile) }
+
+    private static func release(_ dir: URL, _ file: String) {
+        guard holder(dir, file)?.pid == ProcessInfo.processInfo.processIdentifier else { return }
+        try? FileManager.default.removeItem(at: url(dir, file))
     }
 
     // MARK: -
 
-    static func url(_ dir: URL) -> URL { dir.appendingPathComponent(file) }
+    static func url(_ dir: URL) -> URL { url(dir, file) }
+
+    static func url(_ dir: URL, _ file: String) -> URL { dir.appendingPathComponent(file) }
 
     /// Create the claim file if nobody else has, and say whether we did.
     /// `O_EXCL` rather than the atomic write the manifest uses, because this is

@@ -56,5 +56,9 @@
     <string>Amanu records system audio (the other side of your meetings) so you can transcribe them later. Transcription stays on this Mac unless you choose a cloud engine.</string>
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>Amanu reads your calendar to identify and name meetings and, if you enable it, start recording scheduled calls. Meeting titles and participants stay on this Mac unless you choose a cloud or CLI model for summaries or speaker names.</string>
+    <!-- Only read when video recording is turned on; the screen-capture prompt
+         macOS raises on first use shows this. -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Amanu records the meeting window when video recording is enabled, so the picture is kept alongside the transcript. Frames stay on this Mac.</string>
 </dict>
 </plist>

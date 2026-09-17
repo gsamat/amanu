@@ -24,15 +24,18 @@ struct MediaImportEntryPointTests {
         withExtendedLifetime(delegate) {}
     }
 
-    @Test("The menu-bar menu routes Import through its callback")
-    func menuBarOffersImport() {
+    /// The status menu used to carry a third copy of Import. It is in the File
+    /// menu of the application menu and in the window it belongs to, and in a
+    /// menu about recording it was one door too many — so what is checked here
+    /// is that it is gone from this one, and that it is still somewhere.
+    @Test("The menu-bar menu leaves importing to the File menu and the window")
+    func menuBarDoesNotOfferImport() throws {
         let menuBar = MenuBarController(visible: false)
-        var calls = 0
-        menuBar.onImport = { calls += 1 }
+        #expect(!menuBar.offeredItemTitles.contains("Import…"))
 
-        #expect(menuBar.offeredItemTitles.contains("Import…"))
-        #expect(menuBar.performOfferedItem(titled: "Import…"))
-        #expect(calls == 1)
+        let main = Run.mainMenu(settingsTarget: AppDelegate())
+        let file = try #require(main.items.compactMap(\.submenu).first { $0.title == "File" })
+        #expect(file.items.contains { $0.title == "Import…" })
         withExtendedLifetime(menuBar) {}
     }
 

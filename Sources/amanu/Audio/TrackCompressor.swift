@@ -29,16 +29,36 @@ enum TrackCompressor {
         }
     }
 
+    /// Finish the cleanup a video merge was holding up — called from the
+    /// merge task, and safe only because of the guard: what this deletes is
+    /// the audio a transcriber still needs, and a merge finishes seconds
+    /// after a stop while transcription can take minutes. With no transcript
+    /// yet it does nothing, and the transcriber's own `settle` runs later and
+    /// finds the merge already done.
+    static func settleIfTranscribed(_ dir: URL) {
+        guard !Config.keepAudio() else { return }
+        guard FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("transcript.json").path)
+        else { return }
+        settle(sessionDir: dir)
+    }
+
     /// Delete the audio, leaving the transcript, the summary and the record of
     /// what was recorded. meta.json keeps its `files` — it is the session's
     /// account of itself, and "there was a mic track called mic.caf" stays
-    /// true after the file goes — and gains `audio_discarded`, which is what
-    /// stops the recordings window offering to transcribe it again.
+    /// true after the track is gone, the way it stays true of a video removed
+    /// after its merge.
     static func discard(sessionDir dir: URL) {
         func log(_ message: String) { appendSessionLog(message, to: dir) }
         let fm = FileManager.default
 
-        let named = (SessionState.read(dir)?["files"] as? [String: String]).map { Array($0.values) } ?? []
+        if mergeStillPending(in: dir) {
+            log("audio discard deferred until video merge completes")
+            return
+        }
+
+        let named = (SessionState.read(dir)?["files"] as? [String: String])
+            .map { Array($0.values) } ?? []
         // Both extensions for every track: a session interrupted between
         // compressing and rewriting meta.json has one of each on disk.
         var candidates = Set<String>()
@@ -53,6 +73,12 @@ enum TrackCompressor {
         candidates.insert("multichannel.tmp.m4a")
         candidates.insert("audio.m4a")
         candidates.insert("audio.tmp.m4a")
+        // A hard kill mid-merge leaves these derived temps; the audio one is
+        // audio like the rest, and the partial merged picture is worthless
+        // without the sources it was built from. meeting.mp4 itself is NOT a
+        // candidate — it is a recording, not litter.
+        candidates.insert("meeting.tmp.m4a")
+        candidates.insert("meeting.tmp.mp4")
 
         var freed: Int64 = 0
         var removed = 0
@@ -74,12 +100,35 @@ enum TrackCompressor {
         log("audio discarded — \(mb(freed)) freed (keep_audio is off)")
     }
 
+    /// Whether a merge still has to read the two raw tracks. The rule is the
+    /// person's, not the pipeline's: a session with a recorded video keeps its
+    /// audio until the merged copy actually exists — a merge that failed or
+    /// was interrupted is retried from the raw tracks, so cleaning them up
+    /// after a failure would turn a recoverable merge into a lost one. Both
+    /// compressing and discarding ask this first. The merge task finishes the
+    /// cleanup itself when it is done, through `settleIfTranscribed`.
+    private static func mergeStillPending(in dir: URL) -> Bool {
+        let state = SessionState.read(dir)
+        return (state?["video"] as? String) != nil
+            && Config.videoMergesAudio()
+            && state?["merged"] == nil
+            && !FileManager.default.fileExists(
+                atPath: dir.appendingPathComponent("meeting.mp4").path)
+    }
+
     /// Align the mic and system tracks on their shared clock, archive them as
     /// the left and right channels of one M4A, then delete what's been
     /// replaced. A missing track becomes a silent channel; an existing track
     /// that cannot be read aborts the operation and remains untouched.
     static func compress(sessionDir dir: URL) {
         func log(_ message: String) { appendSessionLog(message, to: dir) }
+
+        // The same wait `discard` does, and for the same reason: this is what
+        // deletes the two `.caf` files a pending merge reads.
+        guard !mergeStillPending(in: dir) else {
+            log("compression deferred until video merge completes")
+            return
+        }
 
         let metaURL = dir.appendingPathComponent("meta.json")
         guard

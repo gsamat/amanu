@@ -145,8 +145,13 @@ struct SetupTests {
         try FileManager.default.createDirectory(at: session, withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: [
             "pid": ProcessInfo.processInfo.processIdentifier,
+            // On a whole second, because that is all the manifest can carry and
+            // the check formats what it reads back: a fixture starting at
+            // 10:03:14.6 comes back as the second the formatter chose, and the
+            // elapsed time lands either side of the boundary the test asserts.
             "started": ISO8601DateFormatter().string(
-                from: Date().addingTimeInterval(-startedSecondsAgo)),
+                from: Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down)
+                    - startedSecondsAgo)),
             "files": ["mic": "mic.caf", "system": "system.caf"],
             "trigger": "manual",
         ]).write(to: session.appendingPathComponent(".recording.json"))

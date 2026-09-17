@@ -446,6 +446,77 @@ enum Config {
         load()?["keep_audio"] as? Bool ?? false
     }
 
+    // MARK: - video
+
+    /// Start recording video with every recording, without asking. Off by
+    /// default: video costs about a gigabyte an hour and needs the Screen
+    /// Recording grant, which the audio tracks never asked for (rca-002 —
+    /// the tap's grant does not cover the screen). When off, video is still
+    /// one menu click away during any recording — "Record video" in the
+    /// feather's menu, or "Start recording with video" before one begins.
+    static func videoStartsAutomatically() -> Bool {
+        videoStartsAutomatically(in: load())
+    }
+
+    /// The same decision against supplied JSON, so an absent key's behavior is
+    /// testable without reading or rewriting the person's real config file.
+    static func videoStartsAutomatically(in config: [String: Any]?) -> Bool {
+        (config?["video"] as? [String: Any])?["start_automatically"] as? Bool ?? false
+    }
+
+    /// What the video stream points at: `window` (default) follows the call
+    /// app's own window, falling back to the whole display when no window can
+    /// be identified; `display` records the main display outright.
+    static func videoCapture() -> String {
+        videoCapture(in: load())
+    }
+
+    static func videoCapture(in config: [String: Any]?) -> String {
+        (config?["video"] as? [String: Any])?["capture"] as? String ?? "window"
+    }
+
+    /// The video's height ceiling in pixels — never a target to upscale to,
+    /// only a ceiling to scale down to. 1080 keeps a Retina display's native
+    /// output from eating disk and encoder for detail a meeting doesn't have.
+    static func videoHeight() -> Int {
+        videoHeight(in: load())
+    }
+
+    static func videoHeight(in config: [String: Any]?) -> Int {
+        (config?["video"] as? [String: Any])?["height"] as? Int ?? 1080
+    }
+
+    /// Also write `meeting.mp4` — the video and both audio sides in one file
+    /// — after a session that recorded video. On by default: the merged file
+    /// is what you send someone, and the point of the picture is sharing it.
+    /// It is built in the background after the recording stops, at no
+    /// re-encode cost to the video, and every source keeps existing: the
+    /// audio tracks and video.mp4 are never touched by the merge.
+    static func videoMergesAudio() -> Bool {
+        videoMergesAudio(in: load())
+    }
+
+    static func videoMergesAudio(in config: [String: Any]?) -> Bool {
+        (config?["video"] as? [String: Any])?["merge_audio"] as? Bool ?? true
+    }
+
+    /// Delete `video.mp4` — the silent original — once the merged
+    /// `meeting.mp4` is on disk and verified. Off by default: the raw video
+    /// is the only thing a re-merge could be made from, and the merge is
+    /// derived. Advanced, in the sense that turning it on trades that
+    /// possibility for about a gigabyte an hour.
+    ///
+    /// Only ever applies after a merge that finished; with `merge_audio` off
+    /// there is nothing to delete it in favour of, and the raw video is the
+    /// whole of the picture.
+    static func videoRemovesRaw() -> Bool {
+        videoRemovesRaw(in: load())
+    }
+
+    static func videoRemovesRaw(in config: [String: Any]?) -> Bool {
+        (config?["video"] as? [String: Any])?["remove_raw"] as? Bool ?? false
+    }
+
     // MARK: - summary
 
     /// Post-transcript summarization. `backend: auto` walks the chain in

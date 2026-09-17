@@ -122,6 +122,11 @@ actor WhisperEngine: TranscriptionEngine {
             out += segments.compactMap { segment in
                 let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { return nil }
+                // Whisper's failure on quiet audio is a loop rather than
+                // silence: one short phrase said over and over until the
+                // window is full. A phrase that many repeats inside a single
+                // segment is not something anybody said.
+                guard !Self.isRepetitionLoop(text) else { return nil }
                 return TranscriptSegment(
                     start: chunkStart + segment.start,
                     end: chunkStart + segment.end,
@@ -135,6 +140,29 @@ actor WhisperEngine: TranscriptionEngine {
 
     func release() async {
         await runtime.release()
+    }
+
+    /// Whether a segment is whisper looping on quiet audio rather than
+    /// transcribing speech: one short phrase said over and over until the
+    /// window is full — "put it in the middle of the middle of the middle" —
+    /// once per 30-second window when the microphone carried nothing
+    /// intelligible. Real speech repeats words, but rarely the same two-word
+    /// phrase four times inside a single segment, and when it does, the
+    /// segment is not worth keeping anyway.
+    static func isRepetitionLoop(_ text: String) -> Bool {
+        let words = text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        guard words.count >= 6 else { return false }
+        for length in 1...3 {
+            var counts: [String: Int] = [:]
+            for start in 0...(words.count - length) {
+                let gram = words[start..<(start + length)].joined(separator: " ")
+                counts[gram, default: 0] += 1
+            }
+            if let repeats = counts.values.max(), repeats >= 4 { return true }
+        }
+        return false
     }
 }
 

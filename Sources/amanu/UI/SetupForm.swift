@@ -94,6 +94,13 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         detail: "",
         action: localised("Allow and test", "Разрешить и проверить"),
         grantedNote: localised("heard the tone", "тон услышан"))
+    private let videoRow = AccessRow(
+        title: localised("Video", "Видео"),
+        detail: localised(
+            "Needed only when video recording is on. After granting, quit and reopen Amanu.",
+            "Нужно, только когда включена запись видео. После выдачи перезапустите Amanu."),
+        action: localised("Allow", "Разрешить"),
+        grantedNote: localised("allowed", "разрешено"))
     private let calendarRow = AccessRow(
         title: localised("Calendar", "Календарь"),
         detail: localised(
@@ -203,7 +210,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         form.addArrangedSubview(SetupLayout.section(
             localised("Access", "Доступ"),
-            content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
+            content: SetupLayout.box([launchRow, micRow, audioRow, videoRow, calendarRow])))
 
         var transcription: [NSView] = [transcriptionRows(), languageRow()]
         // The live transcript is a local streaming model, so on an Intel Mac
@@ -774,6 +781,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         launchRow.onAct = { [weak self] in self?.startAtLogin() }
         micRow.onAct = { [weak self] in Task { await self?.askMicrophone() } }
         audioRow.onAct = { [weak self] in Task { await self?.testSystemAudio() } }
+        videoRow.onAct = { [weak self] in self?.askVideo() }
         calendarRow.onAct = { [weak self] in Task { await self?.askCalendar() } }
     }
 
@@ -1048,6 +1056,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         let state = await SetupPermissions.requestMicrophone()
         if state == .denied { SetupPermissions.openSettings(.microphone) }
         refresh()
+    }
+
+    /// The Screen Recording prompt is raised here and nowhere else: a dialog
+    /// the person asked for by pressing a button that says what it does. The
+    /// grant itself lands in System Settings, so the pane is opened beside
+    /// it, and the row keeps saying what to do after — the answer does not
+    /// read as granted until the next launch.
+    private func askVideo() {
+        SetupPermissions.requestScreenRecording()
+        SetupPermissions.openSettings(.systemAudio)
+        refresh()
+        videoRow.update(.denied, detail: localised(
+            "Allow it in the pane that opened, then quit and reopen Amanu.",
+            "Разрешите в открывшейся панели, затем перезапустите Amanu."))
     }
 
     private func askCalendar() async {
@@ -1583,6 +1605,21 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         }
         micRow.update(SetupPermissions.microphone())
         calendarRow.update(calendarGrant ?? SetupPermissions.calendar())
+        if SetupPermissions.screenRecording() {
+            videoRow.update(.granted)
+        } else {
+            // Deliberately not "denied": this is a preflight, and it has been
+            // seen to answer no on a Mac whose pane says amanu is allowed.
+            // But the louder truth is that video is a bonus — recording works
+            // whole without it, so this row is one a person may ignore.
+            videoRow.update(.notAsked, detail: localised(
+                "Video is entirely optional — audio-only recording works without it. "
+                    + "Ignore this setting if video recording is not needed or allow it "
+                    + "here, quit and reopen Amanu.",
+                "Видео полностью опционально — запись звука работает и без него. "
+                    + "Настройку можно игнорировать, если запись видео не нужна; иначе "
+                    + "разрешите здесь и перезапустите Amanu."))
+        }
 
         switch systemAudio {
         case .heard:
@@ -1786,7 +1823,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// one. The order below is the same one `nextAction` walks, because the
     /// highlight is meant to point at the button, not compete with it.
     private func highlightNextGrant() {
-        let rows = [launchRow, micRow, audioRow, calendarRow]
+        let rows = [launchRow, micRow, audioRow, videoRow, calendarRow]
         let pending: AccessRow?
         if SetupPermissions.needsStartAtLogin {
             pending = launchRow
@@ -1794,6 +1831,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             pending = micRow
         } else if SetupPermissions.needsSystemAudioTest(systemAudio) || systemAudio == .silent {
             pending = audioRow
+        } else if Config.videoStartsAutomatically(), !SetupPermissions.screenRecording() {
+            // Only ever highlighted when video starts with the recording: a
+            // permission that only matters to a menu click nobody has made
+            // is not the next thing worth a tint.
+            pending = videoRow
         } else {
             pending = nil
         }
@@ -1838,6 +1880,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         if SetupPermissions.needsStartAtLogin { left.append(.startAtLogin) }
         if SetupPermissions.microphone() != .granted { left.append(.microphone) }
         if systemAudio != .heard { left.append(.systemAudio) }
+        if Config.videoStartsAutomatically(), !SetupPermissions.screenRecording() {
+            left.append(.video)
+        }
         if localModelIsWantedAndMissing { left.append(.parakeet) }
         if Config.liveTranscriptionEnabled() {
             let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
@@ -1860,6 +1905,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         case startAtLogin
         case microphone
         case systemAudio
+        /// Video recording is on in the settings, and its Screen Recording
+        /// grant is not here.
+        case video
         case parakeet
         case liveModel
         /// Summaries are on, and whatever was chosen to write them isn't here.
@@ -1870,6 +1918,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             case .startAtLogin: return localised("start at login", "запуск при входе")
             case .microphone: return localised("microphone", "микрофон")
             case .systemAudio: return localised("system audio", "звук системы")
+            case .video: return localised("video", "видео")
             // A name, and names are not translated.
             case .parakeet: return "parakeet"
             case .liveModel:

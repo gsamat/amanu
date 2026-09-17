@@ -1,0 +1,342 @@
+import AVFoundation
+import CoreMedia
+import Foundation
+
+/// Merges a session's video and audio into one file — `meeting.mp4` — while
+/// leaving every source exactly where it was. The audio files stay because
+/// they are the durable artifact (a crash takes the video, never the audio),
+/// and video.mp4 stays because the merge is derived and a person may want the
+/// silent original.
+///
+/// As fast as the format allows, and deliberately built from the two pieces
+/// the rest of this program already trusts. The audio is mixed by
+/// `TrackCompressor.encodeStereo` — the same code the keep_audio archive
+/// uses, reading frames through `AVAudioFile` and asking macOS for nothing.
+/// The picture is then remuxed, not re-encoded: compressed H.264 samples pass
+/// through an `AVAssetReader` into an `AVAssetWriter` untouched, so the merge
+/// costs disk speed rather than encoder time. The export session is not
+/// involved, for the reason `AudioMixer` documents at length — it makes macOS
+/// ask for Photos and Music access, which is absurd for a meeting recorder.
+enum VideoMerger {
+    enum MergeError: Error, CustomStringConvertible {
+        case videoTrackMissing(URL)
+        case audioTrackMissing(URL)
+        case writeFailed(Error?)
+        /// A session that cannot be re-merged at all: meta.json does not
+        /// describe a finished video, or the file it names is not there.
+        case remergeImpossible(URL, String)
+        /// A sample the merge had to place and could not. Counted as a
+        /// failure rather than skipped: the file would still seal, and a
+        /// `meeting.mp4` with a hole in it reads as complete.
+        case frameNotWritten(String)
+
+        var description: String {
+            switch self {
+            case .videoTrackMissing(let url): return "no video track in \(url.lastPathComponent)"
+            case .audioTrackMissing(let url): return "no audio track in \(url.lastPathComponent)"
+            case .writeFailed(let error):
+                return "the merged file could not be written: \(error.map(String.init(describing:)) ?? "unknown reason")"
+            case .remergeImpossible(let dir, let why):
+                return "nothing to merge in \(dir.lastPathComponent): \(why)"
+            case .frameNotWritten(let what):
+                return "\(what) would not take a frame — the merged file would have had holes in it"
+            }
+        }
+    }
+
+    /// Build `meeting.mp4` again for a session whose merge never finished —
+    /// the app died mid-merge and left `meeting.tmp.*` behind, or the merge
+    /// failed and kept the originals. Everything the first attempt needed is
+    /// still in the folder: the raw video, the two audio tracks that the
+    /// deferred cleanup deliberately spared, and meta.json's offsets.
+    ///
+    /// Reads meta.json rather than taking a caller's word for any of it, and
+    /// ends exactly as the automatic merge does — `merged` in the session state
+    /// on success, `merge_failed` and the originals on failure, then the
+    /// deferred audio cleanup the merge was holding up. A merge already in
+    /// flight for this folder is refused rather than joined: two of them would
+    /// delete each other's temp files, which is the failure this can be pressed
+    /// to fix rather than to cause.
+    @discardableResult
+    static func remerge(sessionDir dir: URL) async throws -> URL {
+        guard
+            let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
+            let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let files = meta["files"] as? [String: String],
+            let mic = files["mic"], let system = files["system"],
+            let video = meta["video"] as? String
+        else {
+            throw MergeError.remergeImpossible(
+                dir, "meta.json does not describe a recorded video")
+        }
+        let videoURL = dir.appendingPathComponent(video)
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            throw MergeError.remergeImpossible(dir, "\(video) is not in the folder")
+        }
+        // Sessions from before the deferred cleanup could have had their audio
+        // discarded or compressed away after a failed merge. Without both
+        // tracks there is nothing this can build, and opening what is not
+        // there only produces a Core Audio error nobody can read.
+        let offsets = meta["start_offset_ms"] as? [String: Int] ?? [:]
+        for track in [mic, system] where !FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent(track).path) {
+            throw MergeError.remergeImpossible(
+                dir, "the audio track \(track) is no longer in the folder")
+        }
+        let output = dir.appendingPathComponent("meeting.mp4")
+
+        // A previous attempt's leftovers. The merge cleans these itself when it
+        // ends, but a merge the process did not survive cannot — and clearing
+        // them is the difference between a re-merge and a re-crash.
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("meeting.tmp.m4a"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("meeting.tmp.mp4"))
+
+        do {
+            _ = try await merge(
+                video: videoURL,
+                videoOffsetMs: meta["video_start_offset_ms"] as? Int ?? 0,
+                mic: TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent(mic),
+                    offsetMs: offsets["mic"] ?? 0),
+                system: TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent(system),
+                    offsetMs: offsets["system"] ?? 0),
+                to: output)
+            SessionState.update(dir, with: ["merged": output.lastPathComponent])
+            appendSessionLog(
+                "merged video + audio → \(output.lastPathComponent) (re-merged)", to: dir)
+        } catch let busy as SessionClaim.Busy {
+            // Not this attempt's failure: another amanu has the folder and is
+            // merging it now, and that one records how it went. Writing
+            // `merge_failed` here would be a lie about a merge that is running.
+            appendSessionLog("re-merge skipped — \(busy)", to: dir)
+            throw busy
+        } catch {
+            SessionState.update(dir, with: ["merge_failed": "\(error)"])
+            appendSessionLog(
+                "re-merge failed, keeping the originals: \(error)", to: dir)
+            throw error
+        }
+        TrackCompressor.settleIfTranscribed(dir)
+        return output
+    }
+
+    /// Build `meeting.mp4`: stereo audio (mic left, system right) on the
+    /// shared clock that starts at zero, with the video laid in
+    /// `videoOffsetMs` later — the same clock meta.json records for every
+    /// track. Runs off the cooperative pool at utility priority: this is
+    /// disk-bound work over a gigabyte, and a recording may be starting.
+    ///
+    /// Takes the session's merge claim for the whole of it. The two temp files
+    /// in the middle of this are named the same in every attempt —
+    /// `meeting.tmp.m4a` and `meeting.tmp.mp4` — so a second merge in one folder
+    /// clears and rewrites what the first is still reading, which arrives as a
+    /// Core Audio error about a file that was there a moment ago. Both entry
+    /// points come through here, so both are covered.
+    @discardableResult
+    static func merge(
+        video: URL,
+        videoOffsetMs: Int,
+        mic: TrackCompressor.StereoTrack?,
+        system: TrackCompressor.StereoTrack?,
+        to output: URL
+    ) async throws -> URL {
+        // The merge's own marker rather than the transcription one: those two
+        // are meant to overlap, and this claim is only about the temp names.
+        let dir = output.deletingLastPathComponent()
+        try SessionClaim.acquireMerge(dir)
+        defer { SessionClaim.releaseMerge(dir) }
+
+        return try await Task.detached(priority: .utility) { () -> URL in
+            let mix = output.deletingLastPathComponent()
+                .appendingPathComponent("meeting.tmp.m4a")
+            let partial = output.deletingLastPathComponent()
+                .appendingPathComponent("meeting.tmp.mp4")
+            defer {
+                // The mix is derived and the partial is worthless: a merge
+                // that ends — well or badly — leaves neither behind.
+                try? FileManager.default.removeItem(at: mix)
+                try? FileManager.default.removeItem(at: partial)
+            }
+
+            // Stage 1 — the audio. Written to a temp name and only renamed
+            // once the remux has used it, so an interrupted merge never
+            // leaves a meeting.mp4 someone mistakes for complete.
+            _ = try TrackCompressor.encodeStereo(mic: mic, system: system, to: mix)
+            try await remux(video: video, videoOffsetMs: videoOffsetMs, audio: mix,
+                to: partial)
+            try? FileManager.default.removeItem(at: output)
+            try FileManager.default.moveItem(at: partial, to: output)
+            return output
+        }.value
+    }
+
+    // MARK: - the remux
+
+    /// Copy the compressed samples of one video track and one audio track
+    /// into a single MP4 — no decoding, no encoding, two files read and one
+    /// written. The video's presentation times are shifted onto the audio's
+    /// clock, which is the timeline the transcript already speaks.
+    private static func remux(
+        video: URL, videoOffsetMs: Int, audio: URL, to output: URL
+    ) async throws {
+        let videoAsset = AVURLAsset(url: video)
+        let audioAsset = AVURLAsset(url: audio)
+
+        guard let videoTrack = try await videoAsset.loadTracks(withMediaType: .video).first else {
+            throw MergeError.videoTrackMissing(video)
+        }
+        guard let audioTrack = try await audioAsset.loadTracks(withMediaType: .audio).first else {
+            throw MergeError.audioTrackMissing(audio)
+        }
+
+        let videoReader = try AVAssetReader(asset: videoAsset)
+        let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
+        videoReader.add(videoOutput)
+        let audioReader = try AVAssetReader(asset: audioAsset)
+        let audioOutput = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: nil)
+        audioReader.add(audioOutput)
+
+        try? FileManager.default.removeItem(at: output)
+        // Passthrough into MP4 wants to know what it will receive before the
+        // first sample arrives. `sourceFormatHint` — the source track's own
+        // format description — is the honest statement of what this remux is:
+        // the same bytes, a new container. (A full outputSettings dictionary
+        // would mean re-encoding, the opposite of the point.)
+        guard let videoDescription = try await videoTrack.load(.formatDescriptions).first else {
+            throw MergeError.videoTrackMissing(video)
+        }
+        let videoInput = AVAssetWriterInput(
+            mediaType: .video, outputSettings: nil, sourceFormatHint: videoDescription)
+        guard let audioDescription = try await audioTrack.load(.formatDescriptions).first else {
+            throw MergeError.audioTrackMissing(audio)
+        }
+        let audioInput = AVAssetWriterInput(
+            mediaType: .audio, outputSettings: nil, sourceFormatHint: audioDescription)
+        videoInput.expectsMediaDataInRealTime = false
+        audioInput.expectsMediaDataInRealTime = false
+
+        let writer = try AVAssetWriter(url: output, fileType: .mp4)
+        writer.add(videoInput)
+        writer.add(audioInput)
+
+        guard writer.startWriting() else {
+            throw MergeError.writeFailed(writer.error)
+        }
+        videoReader.startReading()
+        audioReader.startReading()
+        // The audio mix starts at zero by construction, so the session does
+        // too, and the video lands `videoOffsetMs` into it.
+        writer.startSession(atSourceTime: .zero)
+
+        var videoFinished = false
+        var audioFinished = false
+
+        // One loop, both tracks: feed whichever input is ready, sleep 10 ms
+        // when neither is. The straight-line shape is MediaNormalizer's, the
+        // one pump in this program measured to finish; the two-thread and
+        // requestMediaDataWhenReady shapes were tried first and wedged —
+        // the writer sat in .writing forever with both readers completed.
+        //
+        // Every append is checked, as it is there: an input that refuses a
+        // sample is how a file ends up sealed, playable and missing the frames
+        // nobody counted, which is worse than a merge that fails and keeps the
+        // originals (which is what `merge_failed` means).
+        func place(_ sample: CMSampleBuffer, in input: AVAssetWriterInput, what: String) throws {
+            guard input.append(sample) else {
+                writer.cancelWriting()
+                guard let reason = writer.error else {
+                    throw MergeError.frameNotWritten(what)
+                }
+                throw MergeError.writeFailed(reason)
+            }
+        }
+        while !videoFinished || !audioFinished {
+            var fed = false
+            if !videoFinished {
+                if videoReader.status == .reading {
+                    if videoInput.isReadyForMoreMediaData,
+                       let sample = videoOutput.copyNextSampleBuffer() {
+                        // Retiming allocates, so it can fail; a frame the merge
+                        // cannot place is a frame it must not lose.
+                        if videoOffsetMs != 0 {
+                            guard let moved = shifted(sample, byMs: videoOffsetMs) else {
+                                videoInput.markAsFinished()
+                                writer.cancelWriting()
+                                throw MergeError.frameNotWritten("the video stream")
+                            }
+                            try place(moved, in: videoInput, what: "the video track")
+                        } else {
+                            try place(sample, in: videoInput, what: "the video track")
+                        }
+                        fed = true
+                    }
+                } else if videoReader.status != .unknown {
+                    videoInput.markAsFinished()
+                    videoFinished = true
+                }
+            }
+            if !audioFinished {
+                if audioReader.status == .reading {
+                    if audioInput.isReadyForMoreMediaData,
+                       let sample = audioOutput.copyNextSampleBuffer() {
+                        try place(sample, in: audioInput, what: "the audio track")
+                        fed = true
+                    }
+                } else if audioReader.status != .unknown {
+                    audioInput.markAsFinished()
+                    audioFinished = true
+                }
+            }
+
+            if videoReader.status == .failed || audioReader.status == .failed {
+                break
+            }
+
+            if fed {
+                await Task.yield()
+            } else {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+        }
+        // A reader that ended in failure poisons the file; surface it rather
+        // than sealing half a movie.
+        if videoReader.status == .failed {
+            writer.cancelWriting()
+            throw MergeError.writeFailed(videoReader.error)
+        }
+        if audioReader.status == .failed {
+            writer.cancelWriting()
+            throw MergeError.writeFailed(audioReader.error)
+        }
+        // Out of the loop, ensure both inputs are marked finished.
+        if !videoFinished { videoInput.markAsFinished() }
+        if !audioFinished { audioInput.markAsFinished() }
+        await writer.finishWriting()
+        guard writer.status == .completed else {
+            throw MergeError.writeFailed(writer.error)
+        }
+    }
+
+    /// The same samples on a later clock. The decode timestamp moves with the
+    /// presentation timestamp, or the encoder order — which passthrough
+    /// preserves — would contradict the timeline it lands on.
+    private static func shifted(_ buffer: CMSampleBuffer, byMs ms: Int) -> CMSampleBuffer? {
+        let offset = CMTime(value: CMTimeValue(ms), timescale: 1000)
+        let decode = CMSampleBufferGetDecodeTimeStamp(buffer)
+        var timing = CMSampleTimingInfo(
+            duration: CMSampleBufferGetDuration(buffer),
+            presentationTimeStamp: CMSampleBufferGetPresentationTimeStamp(buffer) + offset,
+            decodeTimeStamp: decode.isNumeric ? decode + offset : .invalid
+        )
+        var copy: CMSampleBuffer?
+        guard
+            CMSampleBufferCreateCopyWithNewTiming(
+                allocator: nil, sampleBuffer: buffer,
+                sampleTimingEntryCount: 1, sampleTimingArray: &timing,
+                sampleBufferOut: &copy
+            ) == noErr
+        else { return nil }
+        return copy
+    }
+}

@@ -416,7 +416,8 @@ read once at startup, which is what the row under it says.
   not open automatically again.
 - Reopen Setup from both the menu-bar menu and the app menu. Both also carry
   **Check for updates…**, which is present only in a real bundle, and **About
-  Amanu**, which is first in the app menu and last but one in the other.
+  Amanu**, which is first in the app menu and heads the same group as
+  **Settings…** in the other.
 - Open **About Amanu** and confirm it names the version this build actually
   is — that line comes from the bundle's `Info.plist` and is the one thing in
   the window a bare `swift run` cannot show. Click all three links and confirm
