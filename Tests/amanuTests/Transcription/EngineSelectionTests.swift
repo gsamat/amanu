@@ -68,6 +68,15 @@ struct EngineSelectionTests {
         #expect(Self.choice("assemblyai", key: true, localModels: false) == .cloud)
     }
 
+    /// whisperai is the third cloud engine, and `whisper` beside it is a
+    /// local one. Naming either must not select the other.
+    @Test("whisperai is a cloud engine and whisper is not")
+    func whisperAIIsCloud() {
+        #expect(Self.choice("whisperai", key: false, localModels: true) == .cloud)
+        #expect(Self.choice("whisperai", key: true, localModels: false) == .cloud)
+        #expect(Self.choice("whisper", key: true, localModels: true) == .local)
+    }
+
     /// openai is a cloud engine like assemblyai, and is treated as one
     /// everywhere: insisted on when named, never swapped for the local model.
     @Test("A configured openai behaves like the other cloud engine")
@@ -82,6 +91,7 @@ struct EngineSelectionTests {
     func providerFromEngineName() {
         #expect(TranscriptionCoordinator.cloudProvider(configured: "openai") == "openai")
         #expect(TranscriptionCoordinator.cloudProvider(configured: "assemblyai") == "assemblyai")
+        #expect(TranscriptionCoordinator.cloudProvider(configured: "whisperai") == "whisperai")
     }
 
     @Test("An unrecognised engine name is treated as auto")

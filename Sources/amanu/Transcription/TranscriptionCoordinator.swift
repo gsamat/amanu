@@ -338,6 +338,10 @@ actor TranscriptionCoordinator {
 
         var meta = try SessionMeta.read(from: dir)
         let engine = try await preparedEngine(for: dir)
+        // Unconditionally, including with nothing to say: the engine outlives
+        // this session, and not clearing the list would spell the last
+        // meeting's attendees into this one.
+        await engine.expect(SpokenTerms.from(attendees: meta.attendees))
 
         var audioDirectory = dir
         var cleaned: OfflineEchoAudio.Result?
@@ -693,13 +697,19 @@ actor TranscriptionCoordinator {
     }
 
     private static func cloudKey(for provider: String) -> String? {
-        provider == "openai" ? Config.openAIKey() : Config.assemblyAIKey()
+        switch provider {
+        case "openai": return Config.openAIKey()
+        case "whisperai": return Config.whisperAIKey()
+        default: return Config.assemblyAIKey()
+        }
     }
 
     private static func cloudEngine(_ provider: String) throws -> TranscriptionEngine {
-        provider == "openai"
-            ? try OpenAITranscriptionEngine()
-            : try AssemblyAIEngine()
+        switch provider {
+        case "openai": return try OpenAITranscriptionEngine()
+        case "whisperai": return try WhisperAIEngine()
+        default: return try AssemblyAIEngine()
+        }
     }
 
     private static func localEngine(named name: String) -> TranscriptionEngine {
@@ -753,9 +763,10 @@ actor TranscriptionCoordinator {
         var description: String {
             "local transcription needs Apple Silicon, and this Mac has no key "
                 + "for a cloud engine — put an AssemblyAI one in "
-                + "\(Config.assemblyAIKeyPath.path) or an OpenAI one in "
-                + "\(Config.openAIKeyPath.path) (chmod 600), or set "
-                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY"
+                + "\(Config.assemblyAIKeyPath.path), an OpenAI one in "
+                + "\(Config.openAIKeyPath.path), or a WhisperAI one in "
+                + "\(Config.whisperAIKeyPath.path) (chmod 600), or set "
+                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY / WHISPERAI_API_KEY"
         }
     }
 
@@ -779,9 +790,12 @@ actor TranscriptionCoordinator {
     /// including an unauthorized one: the question is whether the network is
     /// up, not whether the key is good.
     private static func cloudReachable(_ provider: String) async -> Bool {
-        let url = provider == "openai"
-            ? URL(string: "https://api.openai.com/v1/models")!
-            : URL(string: "https://api.assemblyai.com/v2/transcript")!
+        let url: URL
+        switch provider {
+        case "openai": url = URL(string: "https://api.openai.com/v1/models")!
+        case "whisperai": url = URL(string: "https://api.whisperai.com/v1/transcript")!
+        default: url = URL(string: "https://api.assemblyai.com/v2/transcript")!
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5

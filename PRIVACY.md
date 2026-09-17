@@ -10,8 +10,18 @@ depends on the transcription, speaker-naming, and summary backends you choose.
   transcription are captured and stored on the Mac.
 - Parakeet transcription runs locally. Ollama summaries run locally when its
   Base URL is localhost/loopback; another host receives the summary input.
-- If you enable AssemblyAI or OpenAI transcription, Amanu uploads the meeting
-  audio to that provider.
+- If you enable AssemblyAI, OpenAI, or WhisperAI transcription, Amanu uploads
+  the meeting audio to that provider.
+- WhisperAI transcription also sends the names of the calendar attendees, as
+  custom vocabulary, so that a surname the model has never seen is spelled
+  rather than guessed. Only names go: an attendee the calendar knows solely by
+  email address is left out. Nothing is sent when calendar access is off or
+  the recording has no event, and the other transcription providers receive
+  audio alone.
+- WhisperAI stores the audio you upload. Its API documentation states there is
+  no per-upload way to keep the transcript and discard the source audio;
+  deleting the transcript, or an account-level request to their support, is
+  what removes it. Amanu deletes nothing on your behalf at any provider.
 - If you select Claude Code, Codex, Anthropic, or OpenAI for summaries or
   speaker naming, Amanu gives that backend the transcript and the available
   meeting context: title, call application, and calendar participants. Those

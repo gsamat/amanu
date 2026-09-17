@@ -47,7 +47,7 @@ meeting without sending its contents anywhere:
 - Ollama can write summaries locally when its Base URL is localhost/loopback.
 
 Cloud models are available when quality or convenience matters more than
-staying entirely offline. AssemblyAI and OpenAI can transcribe; Claude Code,
+staying entirely offline. AssemblyAI, OpenAI and WhisperAI can transcribe; Claude Code,
 Codex, Anthropic, and OpenAI can write summaries. Within each model family,
 Amanu prefers an existing CLI subscription to the corresponding metered API
 key and falls through to the next configured backend when a subscription is
@@ -103,9 +103,9 @@ from an idealized recording pipeline.
   Google Meet integration.
 - **The two sides stay separate.** Amanu records the microphone and system
   audio independently, aligns them on one clock, and archives them as the left
-  and right channels of one file. AssemblyAI receives the same separation as
-  multichannel audio, so it does not have to guess which side a voice came
-  from by loudness alone.
+  and right channels of one file. AssemblyAI and WhisperAI receive the same
+  separation as multichannel audio, so they do not have to guess which side a
+  voice came from by loudness alone.
 - **Recording must not change the meeting.** Apple's duplex voice-processing
   route can attenuate or interrupt playback merely because recording started.
   Amanu therefore captures the microphone raw by default. After recording,
@@ -255,10 +255,20 @@ only values that differ from the defaults. A compact example:
   locally through Handy's `transcribe.cpp` Metal/CPU runtime. It is Russian-only;
   Amanu splits long recordings into 20-second pieces to stay inside its trained
   utterance window.
+  `cloud` is `assemblyai` by default, `openai`, or `whisperai` — note that
+  `whisperai` is the paid API and `whisper` is the local model, which are
+  unrelated. WhisperAI has no expected-languages shortlist, only a hard pin or
+  detection, so `language` reaches it as free-form context and detection stays
+  on to overrule it; it also receives the calendar attendees' names as custom
+  vocabulary, which `calendar` governs as it governs everything else from the
+  calendar.
   Provider overrides are `transcription.openai.model`,
   `transcription.assemblyai.api_key`,
-  `transcription.assemblyai.api_key_path`, and
-  `transcription.assemblyai.speech_model`. `live_transcription.enabled`
+  `transcription.assemblyai.api_key_path`,
+  `transcription.assemblyai.speech_model`,
+  `transcription.whisperai.api_key`,
+  `transcription.whisperai.api_key_path`, and
+  `transcription.whisperai.speech_model`. `live_transcription.enabled`
   controls the on-device preview.
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,

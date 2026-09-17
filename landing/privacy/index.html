@@ -25,7 +25,9 @@
         <h2>Meeting content</h2>
         <ul>
             <li>Recording, Parakeet transcription, the optional live transcript, and Ollama summaries run locally.</li>
-            <li>AssemblyAI or OpenAI transcription uploads meeting audio to the provider you choose.</li>
+            <li>AssemblyAI, OpenAI or WhisperAI transcription uploads meeting audio to the provider you choose.</li>
+            <li>WhisperAI also receives the calendar attendees&rsquo; names as custom vocabulary, so surnames are spelled rather than guessed. Email-only attendees are left out, and nothing is sent without calendar access.</li>
+            <li>WhisperAI stores uploaded audio, with no per-upload way to keep the transcript and discard the source.</li>
             <li>Claude Code, Codex, Anthropic, and OpenAI summary or speaker-naming backends receive the transcript and available meeting context: title, call application, and calendar participants. Those tools may send it to their provider under your account’s terms.</li>
             <li>API keys stay on the Mac and are sent only to the provider they authenticate.</li>
         </ul>

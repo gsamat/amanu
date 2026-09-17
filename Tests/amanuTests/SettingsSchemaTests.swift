@@ -303,6 +303,11 @@ struct SettingsSchemaTests {
                     "api_key_path": "~/.config/assemblyai/token",
                     "speech_model": "best",
                 ],
+                "whisperai": [
+                    "api_key": "secret",
+                    "api_key_path": "~/.config/whisperai/token",
+                    "speech_model": "whisperai-pro",
+                ],
             ],
             "live_transcription": ["enabled": true],
             "auto_record": [
