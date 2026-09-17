@@ -320,7 +320,11 @@ final class MenuBarController {
     /// The two start commands and the pause/stop pair share the same slots: at
     /// rest the menu offers the ways in, and while a meeting is running it
     /// offers the ways through it.
-    func update(state: State, elapsed: String?) {
+    ///
+    /// `videoActive` changes the words, not the clock: the first line says
+    /// "recording with video" while the picture is being written, which is the
+    /// question somebody opening this menu is actually asking.
+    func update(state: State, elapsed: String?, videoActive: Bool = false) {
         // Remembered whether or not there is an icon to draw it on: the menu
         // says the same things the icon does, and both are wanted the moment
         // the icon comes back.
@@ -339,7 +343,10 @@ final class MenuBarController {
             statusItem?.button?.image = Self.icon(color: nil)
             statusItem?.button?.title = ""
         case .recording:
-            stateLabel.title = localised("● recording · ", "● запись · ") + (elapsed ?? "0:00")
+            stateLabel.title = localised(
+                videoActive ? "● recording with video · " : "● recording · ",
+                videoActive ? "● запись с видео · " : "● запись · "
+            ) + (elapsed ?? "0:00")
             pauseItem.title = localised("Pause recording", "Приостановить запись")
             statusItem?.button?.image = Self.icon(color: .systemRed)
             // The elapsed time next to the icon is the difference between

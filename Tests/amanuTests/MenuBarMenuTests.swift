@@ -116,6 +116,15 @@ struct MenuBarMenuTests {
     /// The reason behind the switch belongs to the switch, directly under it —
     /// reading "why did that call not record" should not mean hunting for a
     /// line somewhere else in the menu.
+    @Test("The clock line says when the picture is being recorded too")
+    func recordingWithVideoNamesThePicture() {
+        let menuBar = Self.settled()
+        menuBar.update(state: .recording, elapsed: "1:23", videoActive: true)
+
+        #expect(menuBar.offeredItemTitles.first == "● recording with video · 1:23")
+        withExtendedLifetime(menuBar) {}
+    }
+
     @Test("The auto-record decision sits under the switch it explains")
     func autoRecordDecisionStaysWithItsSwitch() throws {
         let menuBar = Self.settled()

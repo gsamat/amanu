@@ -1165,7 +1165,8 @@ final class AppController {
     /// Reflect state everywhere it's shown at once, so the three surfaces can
     /// never disagree about whether something is being recorded.
     private func present(_ state: MenuBarController.State, elapsed: String?) {
-        menuBar.update(state: state, elapsed: elapsed)
+        menuBar.update(
+            state: state, elapsed: elapsed, videoActive: session?.videoActive ?? false)
         window.update(state: state, elapsed: elapsed)
         DockPresentation.update(state: state, elapsed: elapsed)
     }
