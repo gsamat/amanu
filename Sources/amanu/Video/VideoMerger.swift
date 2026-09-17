@@ -22,6 +22,9 @@ enum VideoMerger {
         case videoTrackMissing(URL)
         case audioTrackMissing(URL)
         case writeFailed(Error?)
+        /// A session that cannot be re-merged at all: meta.json does not
+        /// describe a finished video, or the file it names is not there.
+        case remergeImpossible(URL, String)
         /// A sample the merge had to place and could not. Counted as a
         /// failure rather than skipped: the file would still seal, and a
         /// `meeting.mp4` with a hole in it reads as complete.
@@ -33,10 +36,74 @@ enum VideoMerger {
             case .audioTrackMissing(let url): return "no audio track in \(url.lastPathComponent)"
             case .writeFailed(let error):
                 return "the merged file could not be written: \(error.map(String.init(describing:)) ?? "unknown reason")"
+            case .remergeImpossible(let dir, let why):
+                return "nothing to merge in \(dir.lastPathComponent): \(why)"
             case .frameNotWritten(let what):
                 return "\(what) would not take a frame — the merged file would have had holes in it"
+            case .remergeImpossible(let dir, let why):
+                return "nothing to merge in \(dir.lastPathComponent): \(why)"
             }
         }
+    }
+
+    /// Build `meeting.mp4` again for a session whose merge never finished —
+    /// the app died mid-merge and left `meeting.tmp.*` behind, or the merge
+    /// failed and kept the originals. Everything the first attempt needed is
+    /// still in the folder: the raw video, the two audio tracks that the
+    /// deferred cleanup deliberately spared, and meta.json's offsets.
+    ///
+    /// Reads meta.json rather than taking a caller's word for any of it, and
+    /// ends exactly as the automatic merge does — `merged` in the session state
+    /// on success, `merge_failed` and the originals on failure, then the
+    /// deferred audio cleanup the merge was holding up.
+    @discardableResult
+    static func remerge(sessionDir dir: URL) async throws -> URL {
+        guard
+            let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")),
+            let meta = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let files = meta["files"] as? [String: String],
+            let mic = files["mic"], let system = files["system"],
+            let video = meta["video"] as? String
+        else {
+            throw MergeError.remergeImpossible(
+                dir, "meta.json does not describe a recorded video")
+        }
+        let videoURL = dir.appendingPathComponent(video)
+        guard FileManager.default.fileExists(atPath: videoURL.path) else {
+            throw MergeError.remergeImpossible(dir, "\(video) is not in the folder")
+        }
+
+        let offsets = meta["start_offset_ms"] as? [String: Int] ?? [:]
+        let output = dir.appendingPathComponent("meeting.mp4")
+
+        // A previous attempt's leftovers. The merge cleans these itself when it
+        // ends, but a merge the process did not survive cannot — and clearing
+        // them is the difference between a re-merge and a re-crash.
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("meeting.tmp.m4a"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent("meeting.tmp.mp4"))
+
+        do {
+            _ = try await merge(
+                video: videoURL,
+                videoOffsetMs: meta["video_start_offset_ms"] as? Int ?? 0,
+                mic: TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent(mic),
+                    offsetMs: offsets["mic"] ?? 0),
+                system: TrackCompressor.StereoTrack(
+                    url: dir.appendingPathComponent(system),
+                    offsetMs: offsets["system"] ?? 0),
+                to: output)
+            SessionState.update(dir, with: ["merged": output.lastPathComponent])
+            appendSessionLog(
+                "merged video + audio → \(output.lastPathComponent) (re-merged)", to: dir)
+        } catch {
+            SessionState.update(dir, with: ["merge_failed": "\(error)"])
+            appendSessionLog(
+                "re-merge failed, keeping the originals: \(error)", to: dir)
+            throw error
+        }
+        TrackCompressor.settleIfTranscribed(dir)
+        return output
     }
 
     /// Build `meeting.mp4`: stereo audio (mic left, system right) on the
