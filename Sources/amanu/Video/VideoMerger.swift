@@ -40,8 +40,6 @@ enum VideoMerger {
                 return "nothing to merge in \(dir.lastPathComponent): \(why)"
             case .frameNotWritten(let what):
                 return "\(what) would not take a frame — the merged file would have had holes in it"
-            case .remergeImpossible(let dir, let why):
-                return "nothing to merge in \(dir.lastPathComponent): \(why)"
             }
         }
     }
@@ -72,8 +70,16 @@ enum VideoMerger {
         guard FileManager.default.fileExists(atPath: videoURL.path) else {
             throw MergeError.remergeImpossible(dir, "\(video) is not in the folder")
         }
-
+        // Sessions from before the deferred cleanup could have had their audio
+        // discarded or compressed away after a failed merge. Without both
+        // tracks there is nothing this can build, and opening what is not
+        // there only produces a Core Audio error nobody can read.
         let offsets = meta["start_offset_ms"] as? [String: Int] ?? [:]
+        for track in [mic, system] where !FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent(track).path) {
+            throw MergeError.remergeImpossible(
+                dir, "the audio track \(track) is no longer in the folder")
+        }
         let output = dir.appendingPathComponent("meeting.mp4")
 
         // A previous attempt's leftovers. The merge cleans these itself when it

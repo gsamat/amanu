@@ -100,18 +100,18 @@ enum TrackCompressor {
         log("audio discarded — \(mb(freed)) freed (keep_audio is off)")
     }
 
-    /// Whether a merge still has to read the two raw tracks. It runs seconds
-    /// after a stop while compressing and discarding happen whenever a
-    /// transcript lands, which a fast engine can manage first — so both of
-    /// those ask this before touching a `.caf` the merge is entitled to. The
-    /// merge task finishes the cleanup itself when it is done, through
-    /// `settleIfTranscribed`.
+    /// Whether a merge still has to read the two raw tracks. The rule is the
+    /// person's, not the pipeline's: a session with a recorded video keeps its
+    /// audio until the merged copy actually exists — a merge that failed or
+    /// was interrupted is retried from the raw tracks, so cleaning them up
+    /// after a failure would turn a recoverable merge into a lost one. Both
+    /// compressing and discarding ask this first. The merge task finishes the
+    /// cleanup itself when it is done, through `settleIfTranscribed`.
     private static func mergeStillPending(in dir: URL) -> Bool {
         let state = SessionState.read(dir)
         return (state?["video"] as? String) != nil
             && Config.videoMergesAudio()
             && state?["merged"] == nil
-            && state?["merge_failed"] == nil
             && !FileManager.default.fileExists(
                 atPath: dir.appendingPathComponent("meeting.mp4").path)
     }

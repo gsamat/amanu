@@ -149,6 +149,31 @@ import Testing
         #expect(!FileManager.default.fileExists(
             atPath: dir.appendingPathComponent("meeting.mp4").path))
     }
+
+    /// The state sessions from before the deferred cleanup could reach: the
+    /// merge failed, the audio was settled anyway, and the re-merge has nothing
+    /// to read. The point is the *sentence* — a missing track has to be named
+    /// as missing, not surface as a Core Audio error nobody can act on.
+    @Test func aMissingTrackIsNamedRatherThanOpened() async throws {
+        let dir = try unfinishedSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.removeItem(at: dir.appendingPathComponent("system.caf"))
+
+        do {
+            _ = try await VideoMerger.remerge(sessionDir: dir)
+            Issue.record("a re-merge with no system track should not have run")
+        } catch let error as VideoMerger.MergeError {
+            guard case .remergeImpossible(_, let why) = error else {
+                Issue.record("expected remergeImpossible, got \(error)")
+                return
+            }
+            #expect(why.contains("system.caf"))
+        } catch {
+            Issue.record("expected a MergeError, got \(error)")
+        }
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("meeting.mp4").path))
+    }
 }
 
 /// The recordings table's re-merge button, decided as pure data.
@@ -162,7 +187,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
 
         func writeSession(
-            name: String, videoKey: Bool, videoFile: Bool, mergedFile: Bool
+            name: String, videoKey: Bool, videoFile: Bool, mergedFile: Bool,
+            audio: Bool = true
         ) throws -> URL {
             let dir = root.appendingPathComponent(name, isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -177,6 +203,13 @@ import Testing
             if mergedFile {
                 try Data("picture".utf8).write(to: dir.appendingPathComponent("meeting.mp4"))
             }
+            // The material the re-merge reads. It is there in every session the
+            // table offers the button for, so its absence is its own case below.
+            if audio {
+                for track in ["mic.caf", "system.caf"] {
+                    try Data("pcm".utf8).write(to: dir.appendingPathComponent(track))
+                }
+            }
             try JSONSerialization.data(withJSONObject: meta)
                 .write(to: dir.appendingPathComponent("meta.json"))
             return dir
@@ -188,6 +221,8 @@ import Testing
             name: "b-merged", videoKey: true, videoFile: false, mergedFile: true)
         let noVideo = try writeSession(
             name: "c-none", videoKey: false, videoFile: false, mergedFile: false)
+        let noAudio = try writeSession(
+            name: "d-gone", videoKey: true, videoFile: true, mergedFile: false, audio: false)
 
         let rawItem = try #require(SessionInventory.item(for: raw))
         #expect(RecordingsWindow.inlineRemergeVideoTitle(for: rawItem)
@@ -200,5 +235,9 @@ import Testing
         // And a recording with no video never grows a merge button.
         let noVideoItem = try #require(SessionInventory.item(for: noVideo))
         #expect(RecordingsWindow.inlineRemergeVideoTitle(for: noVideoItem) == nil)
+
+        // A session whose audio was settled away has nothing to merge from.
+        let noAudioItem = try #require(SessionInventory.item(for: noAudio))
+        #expect(RecordingsWindow.inlineRemergeVideoTitle(for: noAudioItem) == nil)
     }
 }

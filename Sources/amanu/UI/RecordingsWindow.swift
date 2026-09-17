@@ -343,9 +343,11 @@ final class RecordingsWindow: NSObject {
     /// And the same idea for the video column: the raw recording is in the
     /// folder while the merged copy is not, which is what a merge that failed
     /// or was interrupted looks like afterwards. The raw file is the one thing
-    /// a re-merge needs, so this is both the reason and the material.
+    /// a re-merge needs, so this is both the reason and the material — and the
+    /// session keeps its audio until the merge is done, so the material is
+    /// always there.
     static func inlineRemergeVideoTitle(for item: SessionInventory.Item) -> String? {
-        guard item.video == .recorded else { return nil }
+        guard item.video == .recorded, item.hasAudio else { return nil }
         return localised("Re-merge video", "Собрать видео заново")
     }
 

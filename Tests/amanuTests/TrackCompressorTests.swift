@@ -272,6 +272,52 @@ struct TrackCompressorTests {
         #expect(SessionInventory.item(for: dir)?.hasAudio == false)
     }
 
+    /// A session that recorded a video keeps its audio until `meeting.mp4` is
+    /// there, whether or not an earlier merge went badly. The re-merge reads
+    /// exactly these raw tracks, so settling them away after a failure is what
+    /// turns a retry into an unrecoverable one — the failure the person sees as
+    /// `ExtAudioFileOpenURL` on a file that is no longer in the folder.
+    @Test("A video session keeps its audio when a merge failed")
+    func failedMergeKeepsAudio() throws {
+        let dir = try makeSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try videoSession(in: dir, state: ["merge_failed": "the disk filled up"])
+
+        TrackCompressor.discard(sessionDir: dir)
+        TrackCompressor.compress(sessionDir: dir)
+
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+        #expect(SessionInventory.item(for: dir)?.hasAudio == true)
+        #expect(try meta(in: dir)["audio_discarded"] == nil)
+    }
+
+    /// And the deferral ends the moment the merged copy exists: the merge task
+    /// settles the session itself, so a session that did merge is cleaned up
+    /// like any other.
+    @Test("Audio settles once the merged copy exists")
+    func mergedVideoReleasesTheAudio() throws {
+        let dir = try makeSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try videoSession(in: dir, state: ["merged": "meeting.mp4"])
+        try Data("merged".utf8).write(to: dir.appendingPathComponent("meeting.mp4"))
+
+        TrackCompressor.discard(sessionDir: dir)
+
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+        #expect(try meta(in: dir)["audio_discarded"] as? Bool == true)
+    }
+
+    /// `makeSession` as a session that recorded a video, with `state` written
+    /// into meta.json — `merge_failed`, `merged`, or neither.
+    private func videoSession(in dir: URL, state: [String: Any]) throws {
+        try Data("picture".utf8).write(to: dir.appendingPathComponent("video.mp4"))
+        var meta = try meta(in: dir)
+        meta["video"] = "video.mp4"
+        for (key, value) in state { meta[key] = value }
+        try JSONSerialization.data(withJSONObject: meta)
+            .write(to: dir.appendingPathComponent("meta.json"))
+    }
+
     @Test("A session with no meta.json is left untouched")
     func missingMetaIsSafe() throws {
         let dir = try makeSession()
