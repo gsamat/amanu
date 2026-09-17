@@ -452,6 +452,12 @@ final class RecordingSession {
                         }
                     }
                     TrackCompressor.settleIfTranscribed(sessionDir)
+                } catch let busy as SessionClaim.Busy {
+                    // Another amanu has this folder and is merging it. Nothing
+                    // failed and nothing here is ours to settle: the merge that
+                    // holds the folder records the outcome and releases the
+                    // audio itself.
+                    appendSessionLog("merge skipped — \(busy)", to: sessionDir)
                 } catch {
                     SessionState.update(sessionDir, with: ["merge_failed": "\(error)"])
                     appendSessionLog("merge failed, keeping the originals: \(error)", to: sessionDir)

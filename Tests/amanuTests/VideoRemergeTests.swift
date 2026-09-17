@@ -139,6 +139,46 @@ import Testing
         #expect(meta?["merged"] as? String == "meeting.mp4")
     }
 
+    /// Two merges in one folder delete each other's half-written work — the
+    /// names in the middle (`meeting.tmp.m4a`, `meeting.tmp.mp4`) are the same
+    /// every time — and the first reports it as a Core Audio error about a file
+    /// that was there a moment ago. The claim is what keeps the second one out.
+    @Test func aHeldClaimKeepsASecondMergeOut() async throws {
+        let dir = try unfinishedSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try SessionClaim.acquireMerge(dir)
+        defer { SessionClaim.releaseMerge(dir) }
+
+        await #expect(throws: SessionClaim.Busy.self) {
+            _ = try await VideoMerger.remerge(sessionDir: dir)
+        }
+
+        // The one that backed off leaves the folder exactly as it found it: the
+        // winner's claim is still there, nothing was written, and the session is
+        // not marked failed — it is being merged, not broken.
+        #expect(FileManager.default.fileExists(
+            atPath: SessionClaim.url(dir, SessionClaim.mergeFile).path))
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("meeting.mp4").path))
+        let meta = try JSONSerialization.jsonObject(
+            with: Data(contentsOf: dir.appendingPathComponent("meta.json"))
+        ) as? [String: Any]
+        #expect(meta?["merge_failed"] == nil)
+    }
+
+    /// And the claim is given back, or one merge would keep the next one out of
+    /// the folder for ever.
+    @Test func aFinishedMergeGivesTheFolderBack() async throws {
+        let dir = try unfinishedSession()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        _ = try await VideoMerger.remerge(sessionDir: dir)
+
+        #expect(!SessionClaim.isMergeHeld(dir))
+        #expect(!FileManager.default.fileExists(
+            atPath: SessionClaim.url(dir, SessionClaim.mergeFile).path))
+    }
+
     @Test func aSessionWithNoRecordedVideoCannotBeRemerged() async throws {
         let dir = try unfinishedSession(withVideo: false)
         defer { try? FileManager.default.removeItem(at: dir) }

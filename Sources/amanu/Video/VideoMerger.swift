@@ -53,7 +53,10 @@ enum VideoMerger {
     /// Reads meta.json rather than taking a caller's word for any of it, and
     /// ends exactly as the automatic merge does — `merged` in the session state
     /// on success, `merge_failed` and the originals on failure, then the
-    /// deferred audio cleanup the merge was holding up.
+    /// deferred audio cleanup the merge was holding up. A merge already in
+    /// flight for this folder is refused rather than joined: two of them would
+    /// delete each other's temp files, which is the failure this can be pressed
+    /// to fix rather than to cause.
     @discardableResult
     static func remerge(sessionDir dir: URL) async throws -> URL {
         guard
@@ -102,6 +105,12 @@ enum VideoMerger {
             SessionState.update(dir, with: ["merged": output.lastPathComponent])
             appendSessionLog(
                 "merged video + audio → \(output.lastPathComponent) (re-merged)", to: dir)
+        } catch let busy as SessionClaim.Busy {
+            // Not this attempt's failure: another amanu has the folder and is
+            // merging it now, and that one records how it went. Writing
+            // `merge_failed` here would be a lie about a merge that is running.
+            appendSessionLog("re-merge skipped — \(busy)", to: dir)
+            throw busy
         } catch {
             SessionState.update(dir, with: ["merge_failed": "\(error)"])
             appendSessionLog(
@@ -117,6 +126,13 @@ enum VideoMerger {
     /// `videoOffsetMs` later — the same clock meta.json records for every
     /// track. Runs off the cooperative pool at utility priority: this is
     /// disk-bound work over a gigabyte, and a recording may be starting.
+    ///
+    /// Takes the session's merge claim for the whole of it. The two temp files
+    /// in the middle of this are named the same in every attempt —
+    /// `meeting.tmp.m4a` and `meeting.tmp.mp4` — so a second merge in one folder
+    /// clears and rewrites what the first is still reading, which arrives as a
+    /// Core Audio error about a file that was there a moment ago. Both entry
+    /// points come through here, so both are covered.
     @discardableResult
     static func merge(
         video: URL,
@@ -125,7 +141,13 @@ enum VideoMerger {
         system: TrackCompressor.StereoTrack?,
         to output: URL
     ) async throws -> URL {
-        try await Task.detached(priority: .utility) { () -> URL in
+        // The merge's own marker rather than the transcription one: those two
+        // are meant to overlap, and this claim is only about the temp names.
+        let dir = output.deletingLastPathComponent()
+        try SessionClaim.acquireMerge(dir)
+        defer { SessionClaim.releaseMerge(dir) }
+
+        return try await Task.detached(priority: .utility) { () -> URL in
             let mix = output.deletingLastPathComponent()
                 .appendingPathComponent("meeting.tmp.m4a")
             let partial = output.deletingLastPathComponent()

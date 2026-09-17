@@ -506,7 +506,10 @@ final class RecordingsWindow: NSObject {
     /// row is reloaded from disk afterwards, and a failure is said out loud
     /// with the originals kept exactly where they were.
     @objc private func remergeVideoClicked(_ sender: NSButton) {
-        guard sender.tag >= 0, sender.tag < items.count else { return }
+        // A second press while the first is still merging would be refused by
+        // the session's own claim and then reported as a failure, which is a
+        // worse answer than not starting it.
+        guard !working, sender.tag >= 0, sender.tag < items.count else { return }
         table.selectRowIndexes(IndexSet(integer: sender.tag), byExtendingSelection: false)
         showDetail()
         guard let item = selected else { return }
