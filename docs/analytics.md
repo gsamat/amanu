@@ -68,9 +68,9 @@ The argument for all of this, including what was rejected, is in
 | `mic_denied` | microphone refused, when amanu asked | — |
 | `system_audio_heard` | the system-audio test made a round trip | — |
 | `system_audio_silent` | it did not | `reason` when the tap was refused |
-| `recording_started` | a recording began | `trigger` |
+| `recording_started` | a recording began | `trigger`, `video` |
 | `recording_start_failed` | capture could not begin | `trigger`, `component`, `reason` |
-| `recording_finished` | it ended and `meta.json` was written | `trigger`, `duration_bucket`, `live_used`, `system_audio` |
+| `recording_finished` | it ended and `meta.json` was written | `trigger`, `duration_bucket`, `live_used`, `system_audio`, `video` |
 | `recording_discarded` | too short to have been a meeting | `trigger`, `duration_bucket` |
 | `transcript_finished` | a transcript was written | `engine`, `model`, `fallback_used` |
 | `transcript_failed` | transcription gave up or deferred | `engine`, `model`, `reason`, `outcome` |
@@ -99,6 +99,7 @@ Every event also carries `surface`, which is `app` or `cli`.
 | `duration_bucket` | `under_5m`, `5_15m`, `15_30m`, `30_60m`, `1_2h`, `over_2h` |
 | `live_used` | true or false |
 | `system_audio` | true or false — whether the far end was ever heard |
+| `video` | true or false — whether a video track was recorded; never which window or display |
 | `engine` | the transcription engine's name |
 | `backend` | the summary backend's name |
 | `model` | a known public model name, or `default`, `custom`, `custom-local`, `unknown` |

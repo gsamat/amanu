@@ -263,6 +263,55 @@ enum SettingsSchema {
                   .text, default: "~/Recordings", needsRestart: true, askedInSetup: true),
         ]),
 
+        Section(title: localised("Video", "Видео"), entries: [
+            Entry(["video", "start_automatically"],
+                  localised("Start video with the recording", "Начинать видео вместе с записью"),
+                  localised(
+                      "On: every recording also writes video.mp4 from the first second. Off: "
+                          + "start and stop it mid-meeting from the feather menu. About a "
+                          + "gigabyte an hour, and it needs the Screen Recording permission; "
+                          + "a video lost to a crash or a missing permission never takes the "
+                          + "audio with it.",
+                      "Включено — каждая запись сразу пишет и video.mp4. Выключено — видео "
+                          + "запускается и останавливается во время встречи из меню пера. Около "
+                          + "гигабайта в час, и нужно разрешение на запись экрана; потеря видео "
+                          + "не оборачивается потерей звука."),
+                  .toggle, default: false),
+            Entry(["video", "capture"],
+                  localised("Capture", "Что снимать"),
+                  localised(
+                      "window: the call app's own window. display: the whole main display.",
+                      "window — окно приложения звонка. display — весь основной экран."),
+                  .choice(["window", "display"]), default: "window"),
+            Entry(["video", "height"],
+                  localised("Height ceiling", "Предел высоты"),
+                  localised(
+                      "Pixels. The picture is scaled down to fit and never scaled up.",
+                      "В пикселях. Картинка уменьшается, чтобы влезть, и никогда не "
+                          + "увеличивается."),
+                  .number(unit: localised("px", "px")), default: 1080),
+            Entry(["video", "merge_audio"],
+                  localised("Merge video and audio into one file", "Склеивать видео со звуком"),
+                  localised(
+                      "After recording, writes meeting.mp4 — the picture with both sides on one "
+                          + "track (you left, them right). The video.mp4 and the audio files stay.",
+                      "После записи пишет meeting.mp4 — картинку и обе стороны на одной дорожке. "
+                          + "video.mp4 и аудиофайлы остаются."),
+                  .toggle, default: true),
+            Entry(["video", "remove_raw"],
+                  localised("Remove the raw video after merging", "Удалять исходное видео после склейки"),
+                  localised(
+                      "Deletes the silent video.mp4 once meeting.mp4 exists — about a gigabyte "
+                          + "an hour back, at the cost of the only thing a re-merge could be "
+                          + "made from. Never runs after a merge that failed, and does nothing "
+                          + "with merging off.",
+                      "Удаляет немое video.mp4, когда meeting.mp4 уже есть — возвращает около "
+                          + "гигабайта в час, но уходит то единственное, из чего можно было бы "
+                          + "склеить заново. Не срабатывает после неудачной склейки и бесполезно "
+                          + "с выключенной склейкой."),
+                  .toggle, default: false),
+        ]),
+
         Section(title: localised("Transcription", "Расшифровка"), entries: [
             Entry(["transcription", "enabled"],
                   localised("Transcribe recordings", "Расшифровывать записи"),

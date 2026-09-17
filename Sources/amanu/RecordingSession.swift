@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import ScreenCaptureKit
 
 /// A session that is being recorded, as far as the filesystem can tell: the
 /// folder, the process that claimed it, and when it started. `ownerIsAlive`
@@ -58,6 +59,18 @@ final class RecordingSession {
 
     private let mic = MicRecorder()
     private let system = SystemAudioRecorder()
+    /// The video track — present but inert until it is started, with the
+    /// recording (`video.start_automatically`) or by hand from the feather's
+    /// menu. It owns its own permission, its own stream and its own file,
+    /// and shares nothing with the audio pipeline but the folder and the
+    /// clock.
+    private let video = VideoRecorder()
+    /// How the video stream was pointed, recorded in meta.json alongside the
+    /// file. Set only when video actually started.
+    private var videoMode: VideoCaptureMode?
+    /// Set once the session has reported the video stream dying mid-meeting,
+    /// so the tick says it once rather than every fifteen seconds.
+    private var videoDeathReported = false
 
     typealias LiveAudioSink = LiveAudioBufferRelay.Sink
 
@@ -145,9 +158,25 @@ final class RecordingSession {
         // The marker must precede capture. A kill after either recorder starts
         // must leave enough information for crash recovery to adopt the audio.
         writeManifest()
+        // Video first, when it is wanted with the recording: it is the track
+        // that can fail on a permission the audio never needs, and a failure
+        // is announced rather than fatal — auto-record exists so a meeting
+        // survives without anyone pressing anything, and losing the audio to
+        // a missing *video* permission would be the wrong that loses the
+        // meeting. The same resolution as a tap that finds no call app and
+        // falls back to everything: record what can be recorded, say plainly
+        // what will not be.
+        if Config.videoStartsAutomatically() {
+            startVideo()
+        }
         do {
             try system.start(writingTo: dir.appendingPathComponent("system.caf"), scope: scope)
         } catch {
+            if video.isRecording {
+                stopVideo(line: localised(
+                    "video stopped with the failed start",
+                    "видео остановлено вместе с неудачным стартом"))
+            }
             try? FileManager.default.removeItem(
                 at: dir.appendingPathComponent(Self.manifestFile))
             throw StartFailure.systemAudio(error)
@@ -159,11 +188,19 @@ final class RecordingSession {
             try mic.start(writingTo: dir.appendingPathComponent("mic.caf"), callApps: tapFamilies)
         } catch {
             system.stop()
+            if video.isRecording {
+                stopVideo(line: localised(
+                    "video stopped with the failed start",
+                    "видео остановлено вместе с неудачным стартом"))
+            }
             try? FileManager.default.removeItem(
                 at: dir.appendingPathComponent(Self.manifestFile))
             throw StartFailure.microphone(error)
         }
-        Analytics.track(.recordingStarted, [.trigger: .text(trigger.rawValue)])
+        Analytics.track(.recordingStarted, [
+            .trigger: .text(trigger.rawValue),
+            .video: .flag(videoMode != nil),
+        ])
         watchdog = Timer.scheduledTimer(
             withTimeInterval: Self.watchdogInterval, repeats: true
         ) { [weak self] _ in
@@ -174,13 +211,132 @@ final class RecordingSession {
         }
     }
 
-    /// Stop both tracks, write meta.json, and drop the in-progress manifest.
+    // MARK: - video, started and stopped on demand
+
+    /// What the video track produced, kept when it was stopped before the
+    /// session was — the menu's "Stop recording video" — so meta.json still
+    /// describes the file that exists.
+    private var earlyVideoSummary: VideoRecorder.Summary?
+
+    /// Whether the video track is writing right now — the menu item's title
+    /// reads this.
+    var videoActive: Bool { video.isRecording }
+
+    /// Whether "Record video" still has anything to do. False once video was
+    /// stopped by hand: a session has one video.mp4, and starting again would
+    /// have to overwrite the file that is already in the folder.
+    var videoCanStart: Bool { !video.isRecording && earlyVideoSummary == nil }
+
+    /// Start the video track — the menu bar's "Record video" or "Start
+    /// recording with video", or the automatic start when
+    /// `video.start_automatically` is on. The fallback contract is the same
+    /// either way: a failure is announced plainly and the audio carries on
+    /// untouched.
+    func startVideo(with filter: SCContentFilter? = nil) {
+        guard videoCanStart else { return }
+        do {
+            let mode = VideoCaptureMode.from(Config.videoCapture())
+            try video.start(.init(
+                outputURL: dir.appendingPathComponent("video.mp4"),
+                height: Config.videoHeight(),
+                mode: mode,
+                families: tapFamilies
+            ), prebuiltFilter: filter)
+            videoMode = mode
+            appendSessionLog(
+                localised(
+                    filter == nil
+                        ? "video started → \(mode.label)"
+                        : "video started → chosen in the picker",
+                    filter == nil
+                        ? "видео запущено → \(mode.label)"
+                        : "видео запущено → выбрано в панели"),
+                to: dir)
+        } catch {
+            reportVideoUnavailable(error)
+            return
+        }
+
+        // A stream macOS is not letting us read looks perfectly healthy: it
+        // starts, it reports no error, and it delivers nothing. Frames are the
+        // evidence a permission check is not — the check has been seen to say
+        // "not granted" on a Mac whose System Settings pane says otherwise.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, video.isRecording, video.framesWritten == 0 else { return }
+            _ = video.stop()
+            videoMode = nil
+            reportVideoUnavailable(VideoRecorder.VideoError.nothingDelivered)
+        }
+    }
+
+    /// Say plainly that there will be no video, point at the pane that
+    /// decides it, and leave the audio alone. A banner is not enough on its
+    /// own — notification permission is its own per-app grant, and on a
+    /// signed-locally build it is per-build too, so the failure that most
+    /// needs saying is the one that would say nothing.
+    ///
+    /// Nothing is raised in front of the meeting: no system prompt, no
+    /// System Settings. `askVideo()` in the setup form is where the grant is
+    /// asked for, by a button that says what it does — a TCC alert arriving
+    /// mid-sentence steals focus from the call, and the grant would not take
+    /// effect until the next launch anyway, so it could not rescue this
+    /// meeting either way. The notification says which pane to visit.
+    private func reportVideoUnavailable(_ error: Error) {
+        videoMode = nil
+        appendSessionLog(
+            localised(
+                "video not recorded: \(error)",
+                "видео не записано: \(error)"),
+            to: dir)
+        notifyUser(
+            title: localised(
+                "amanu: recording without video",
+                "amanu: запись без видео"),
+            body: localised(
+                "The screen could not be recorded — this meeting records audio-only. "
+                    + "Grant Screen Recording in System Settings → Screen & System Audio "
+                    + "Recording, then quit and reopen amanu.",
+                "Экран записать не удалось — эта встреча запишется только звуком. "
+                    + "Выдайте разрешение на запись экрана в Системных настройках → "
+                    + "Screen & System Audio Recording и перезапустите amanu."),
+            opening: dir
+        )
+    }
+
+    /// Stop the video track while the meeting keeps recording. The audio
+    /// tracks and the session itself are not touched. `videoMode` is
+    /// deliberately left as it is: meta.json's `video_capture` and the
+    /// finished-event's flag still have to describe the video that did
+    /// exist, stopped early or not.
+    ///
+    /// The line it leaves in the session log is a parameter because the start
+    /// of a session calls this too, when the audio could not begin — and "by
+    /// hand" would be a lie in a folder nobody watched anybody touch.
+    func stopVideo(
+        line: String = localised("video stopped by hand", "видео остановлено вручную")
+    ) {
+        guard video.isRecording else { return }
+        earlyVideoSummary = video.stop()
+        VideoContentPicker.setActive(false)
+        appendSessionLog(line, to: dir)
+    }
+
+    /// Stop all tracks, write meta.json, and drop the in-progress manifest.
     func stop(reason: String = "manual") {
         watchdog?.invalidate()
         watchdog = nil
         if pausedSince != nil { resume() }
         mic.stop()
         system.stop()
+
+        let videoStart = video.firstBufferAt
+        let videoSummary = earlyVideoSummary ?? video.stop()
+        // A stopped stream must stop looking like a recording: the system's
+        // capture indicator reads the picker's active flag too, and leaving
+        // it on made macOS show amanu as recording long after the file
+        // stopped growing.
+        VideoContentPicker.setActive(false)
 
         let ended = Date()
         let iso = ISO8601DateFormatter()
@@ -189,7 +345,7 @@ final class RecordingSession {
         // lags the earliest so transcript timestamps share one clock.
         let micStart = mic.firstBufferAt ?? startedAt
         let systemStart = system.firstBufferAt ?? startedAt
-        let earliest = min(micStart, systemStart)
+        let earliest = min(micStart, systemStart, videoStart ?? .distantFuture)
 
         var meta: [String: Any] = [
             "started": iso.string(from: startedAt),
@@ -209,6 +365,20 @@ final class RecordingSession {
                 return "all"
             }(),
         ]
+        // The video joins the same clock as the audio tracks, but it is
+        // deliberately kept out of `files`: that dict is the transcription
+        // contract, and a video is not a transcript input. Only a finished
+        // outcome is named — a file that was deleted for having no frames, or
+        // lost to a writer that never sealed, must not be promised here.
+        if let videoStart, let videoSummary,
+           case .finished = videoSummary.outcome {
+            meta["video"] = "video.mp4"
+            meta["video_capture"] = (videoMode ?? .window).label
+            meta["video_start_offset_ms"] = Int(videoStart.timeIntervalSince(earliest) * 1000)
+            if videoSummary.framesDropped > 0 {
+                meta["video_frames_dropped"] = videoSummary.framesDropped
+            }
+        }
         if let title { meta["title"] = title }
         meta.merge(context.metaFields) { current, _ in current }
         if pausedFor > 0 { meta["paused_seconds"] = Int(pausedFor) }
@@ -223,8 +393,72 @@ final class RecordingSession {
             meta["mic_restarts"] = restarts.map { $0.meta(iso: iso) }
         }
 
+        // A video that existed and did not survive its own finalize is the
+        // worst case to explain later: the file is gone, nothing in the folder
+        // mentions it, and the person watched it disappear. Say why, in the
+        // session log, the way every other capture failure here does.
+        if let videoSummary, !videoSummary.isFinished {
+            appendSessionLog(
+                localised(
+                    "video was discarded at stop: \(videoSummary.failureNote ?? "nothing was written")",
+                    "видео выброшено при остановке: \(videoSummary.failureNote ?? "ничего не записалось")"),
+                to: dir)
+        }
+
         Self.write(meta: meta, to: dir)
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(Self.manifestFile))
+
+        // The merged copy is built in the background, after the session is
+        // safely on disk and without holding anything up: not the stop, not
+        // the transcript, not the person closing the window. The sources are
+        // deliberately untouched — the audio stays the durable artifact and
+        // video.mp4 stays the silent original.
+        if let videoStart, let videoSummary,
+           videoSummary.isFinished,
+           Config.videoMergesAudio() {
+            // Bound locally so the detached task holds a URL, not the session:
+            // a recording that outlives its own folder's merge is not a thing,
+            // but a task that outlives the session object must be.
+            let sessionDir = dir
+            let output = sessionDir.appendingPathComponent("meeting.mp4")
+            let micOffset = Int(micStart.timeIntervalSince(earliest) * 1000)
+            let systemOffset = Int(systemStart.timeIntervalSince(earliest) * 1000)
+            let videoOffset = Int(videoStart.timeIntervalSince(earliest) * 1000)
+            Task.detached(priority: .utility) {
+                do {
+                    _ = try await VideoMerger.merge(
+                        video: sessionDir.appendingPathComponent("video.mp4"),
+                        videoOffsetMs: videoOffset,
+                        mic: TrackCompressor.StereoTrack(
+                            url: sessionDir.appendingPathComponent("mic.caf"), offsetMs: micOffset),
+                        system: TrackCompressor.StereoTrack(
+                            url: sessionDir.appendingPathComponent("system.caf"), offsetMs: systemOffset),
+                        to: output)
+                    SessionState.update(sessionDir, with: ["merged": output.lastPathComponent])
+                    appendSessionLog(
+                        "merged video + audio → \(output.lastPathComponent)", to: sessionDir)
+                    // The silent original goes only now — after the merge threw
+                    // nothing and meeting.mp4 is in place — so a failed merge
+                    // never costs the picture. meta.json keeps saying what was
+                    // recorded (the same way it keeps naming mic.caf after the
+                    // audio is discarded) and gains the note that it is gone.
+                    if Config.videoRemovesRaw() {
+                        let raw = sessionDir.appendingPathComponent("video.mp4")
+                        if FileManager.default.fileExists(atPath: raw.path) {
+                            try? FileManager.default.removeItem(at: raw)
+                            SessionState.update(sessionDir, with: ["raw_video_removed": true])
+                            appendSessionLog(
+                                "raw video removed (video.remove_raw is on)", to: sessionDir)
+                        }
+                    }
+                    TrackCompressor.settleIfTranscribed(sessionDir)
+                } catch {
+                    SessionState.update(sessionDir, with: ["merge_failed": "\(error)"])
+                    appendSessionLog("merge failed, keeping the originals: \(error)", to: sessionDir)
+                    TrackCompressor.settleIfTranscribed(sessionDir)
+                }
+            }
+        }
 
         let length = ended.timeIntervalSince(startedAt)
         let systemHeardSomething = system.lastSoundAt != nil
@@ -233,6 +467,7 @@ final class RecordingSession {
             .durationBucket: Analytics.durationBucket(seconds: length),
             .liveUsed: .flag(liveAudioEverInstalled),
             .systemAudio: .flag(systemHeardSomething),
+            .video: .flag(videoMode != nil),
         ])
         if !systemHeardSomething, length > 60 {
             Analytics.track(.systemTrackSilent, [
@@ -252,6 +487,30 @@ final class RecordingSession {
 
     private var liveAudioEverInstalled = false
 
+    /// The person changed their selection in the system picker mid-meeting —
+    /// the stream follows without a restart, and the session log records it.
+    func applyVideoFilter(_ filter: SCContentFilter) {
+        guard video.isRecording else { return }
+        let sessionDir = dir
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await video.apply(filter: filter)
+                appendSessionLog(
+                    localised(
+                        "video content changed in the picker",
+                        "содержимое видео изменено в панели выбора"),
+                    to: sessionDir)
+            } catch {
+                appendSessionLog(
+                    localised(
+                        "video change failed: \(error)",
+                        "не удалось переключить видео: \(error)"),
+                    to: sessionDir)
+            }
+        }
+    }
+
     // MARK: - pause
 
     private(set) var isPaused = false
@@ -270,6 +529,10 @@ final class RecordingSession {
         system.setLiveAudioPaused(true)
         mic.isMuted = true
         system.isMuted = true
+        // The video keeps its stream and drops its frames: the picture gets a
+        // jump cut, its timestamps keep advancing, and the file stays true to
+        // the wall clock the audio's silence pads are written against.
+        video.isMuted = true
     }
 
     func resume() {
@@ -279,6 +542,7 @@ final class RecordingSession {
         pausedSince = nil
         mic.isMuted = false
         system.isMuted = false
+        video.isMuted = false
         mic.setLiveAudioPaused(false)
         system.setLiveAudioPaused(false)
     }
@@ -542,6 +806,43 @@ final class RecordingSession {
                         + " — the recording may be incomplete.",
                     opening: dir
                 )
+            }
+        }
+
+        // The video's file is deliberately outside the growth check above. A
+        // static window or a locked screen freezes it with nothing wrong —
+        // ScreenCaptureKit sends frames when the picture changes — so a stall
+        // alert on size alone would cry wolf. The stream reports its own
+        // death instead, which is deterministic and cannot false-positive.
+        if video.isRecording, video.stoppedWithError, !videoDeathReported {
+            videoDeathReported = true
+            notifyUser(
+                title: localised(
+                    "amanu: video track died", "amanu: видеодорожка оборвалась"),
+                body: localised(
+                    "The video stream stopped mid-meeting; the audio kept recording.",
+                    "Видеопоток оборвался посреди встречи; звук продолжал записываться."),
+                opening: dir
+            )
+        }
+
+        // The video's window choice is not settled once either. Auto-record
+        // starts while the call app is still on its launcher, and the
+        // meeting window opens afterwards — so every tick re-runs the pick
+        // and the stream's filter is swapped in place when a better window
+        // (the app's active one) has appeared. The session log records each
+        // hop, so a recording that jumps is explained rather than mysterious.
+        if video.isRecording, video.followingWindow {
+            let families = tapFamilies
+            let sessionDir = dir
+            Task {
+                if let retargeted = await video.follow(families: families) {
+                    appendSessionLog(
+                        localised(
+                            "video followed the meeting → \(retargeted)",
+                            "видео переключилось на встречу → \(retargeted)"),
+                        to: sessionDir)
+                }
             }
         }
 

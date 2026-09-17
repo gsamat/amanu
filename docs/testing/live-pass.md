@@ -212,6 +212,95 @@ morning — a quit during a call, and three minutes of it gone (`.issues/005`).
 
 ---
 
+## C2. Video, end to end
+
+Everything above records audio only. Video is off by default and started one
+of three ways — `video.start_automatically` for every recording,
+**Start recording with video** in the feather's menu before a meeting, or
+**Record video** during one. Both of the menu ways put macOS's own content
+picker on screen, because a call app has a launcher, a meeting window, a
+toolbar and a chat panel in one family and only the person knows which one
+they mean. It carries its own permission, its own failure modes, and a file
+big enough to notice. Run this block every way: automatic, before, and by hand.
+
+**V1 — The grant is asked for honestly.** With video started and no Screen
+Recording grant, `amanu doctor` says so — the warning names the pane and the
+relaunch — and the setup window's Video row says the same thing. Start a
+recording anyway: it must proceed audio-only, a notification must say so,
+the session log must carry the reason, and meta.json must have no `video`
+key. The meeting is never lost to a missing video permission.
+
+**V2 — The window is the right one.** Grant Screen Recording, quit and reopen
+amanu (macOS applies the grant only to a fresh launch), record a real call in
+the call app. `video.mp4` must show the call app's window, not the desktop,
+not the wrong app; meta.json records which (`video_capture`), and
+`video_start_offset_ms` puts the picture on the same clock as the audio.
+Play the file: the audio in the folder and the picture must belong to the
+same meeting.
+
+**V2a — It follows the meeting window.** Start the recording from the call
+app's launcher (or let auto-record do it) so the first seconds capture the
+launcher, then open the actual meeting. Within a tick or so the recording
+must switch to the meeting window — the app's active one — and the session
+log must carry the line saying it followed. It must not switch away again
+while the meeting window stays active.
+
+**V2b — Started by hand, mid-meeting.** With `start_automatically` off, start
+a recording, wait, then use **Record video** in the feather's menu. macOS's
+content picker must appear; choosing a window must start `video.mp4` with
+`video_start_offset_ms` roughly the wait, and the item must flip to **Stop
+recording video**. **Stop recording video** must leave the audio recording
+running and the file playable, and the item must then be gone rather than
+inviting a second video file into a session that has one.
+
+**V2b′ — The picker stays useful while the picture runs.** With video being
+recorded, change the selection in the system's own screen-sharing UI to another
+window. The picture must follow without a restart — one file, one timeline — and
+the session log must carry `video content changed in the picker`. Cancelling
+the picker instead (from **Record video** on a fresh recording, with no answer)
+must leave the meeting recording audio-only, must leave the menu item offering
+**Record video** again, and must not leave macOS showing amanu as recording a
+screen it is not.
+
+**V2c — Started with the recording.** With `start_automatically` off, use
+**Start recording with video**. The audio must be recording before the picker
+is answered — the clock in the menu bar starts, and stopping inside the first
+few seconds still leaves a session. Then: cancelling the picker must leave the
+meeting recording audio-only with the video item offering **Record video**
+again, and answering it must leave `video_start_offset_ms` where the choice
+landed rather than at zero.
+
+**V3 — Pause is a jump cut, not a lie.** Pause mid-meeting for half a minute,
+resume, stop. The video must show a clean jump across the pause — no frozen
+stretch, no shifted timeline — and stay aligned with the audio, which writes
+silence through the pause.
+
+**V4 — No meeting window means the display.** Record with the call app's
+window fully hidden (or with no call app at all). The display fallback must
+keep recording, and meta.json must say `"video_capture": "display"`.
+
+**V5 — A crash takes the video and spares the audio.** Kill amanu
+mid-recording (not politely — `kill -9`). The next launch adopts the audio
+and transcribes it; `video.mp4` is left unplayable and unreferenced. That is
+the documented trade, and this is the check that it is what happens.
+
+**V6 — The merged file.** After a session with video (and `merge_audio` on,
+the default), `meeting.mp4` appears in the folder within a couple of minutes
+of stopping. Play it: the picture and BOTH voices are in one file, mic left
+and far end right, in sync with each other and with the video. `video.mp4`,
+`mic.caf` and `system.caf` must all still be there — the merge deletes
+nothing — and meta.json gains `"merged": "meeting.mp4"`. Turn `merge_audio`
+off and record again: no meeting.mp4. Turn `remove_raw` on instead and record
+a third time: `meeting.mp4` appears, `video.mp4` does not, and meta.json says
+`"raw_video_removed": true`.
+
+**V7 — Disk.** An hour of meeting at the default settings is about a gigabyte
+of video — and with merging on, about the same again for `meeting.mp4`.
+Check the sizes of what V2/V6 produced and decide whether the settings help
+text still tells the truth.
+
+---
+
 ## D. The first run, and the command line
 
 **D1 — `amanu setup` on a Mac with nothing running.** Quit the application

@@ -242,6 +242,13 @@ only values that differ from the defaults. A compact example:
     "backend": "auto",
     "language": "ru"
   },
+  "video": {
+    "start_automatically": false,
+    "capture": "window",
+    "height": 1080,
+    "merge_audio": true,
+    "remove_raw": false
+  },
   "on_stop": "my-hook"
 }
 ```
@@ -263,6 +270,23 @@ only values that differ from the defaults. A compact example:
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.
+- `video.*` covers `start_automatically`, `capture`, `height`, `merge_audio`,
+  and `remove_raw`. With `start_automatically` on, every recording also writes
+  `video.mp4` — the call app's window (`capture: window`) or the whole main
+  display (`capture: display`), scaled down to at most `height` pixels and
+  never scaled up. Off (the default), the same video starts and stops
+  mid-meeting from the feather's menu — **Record video** while a meeting is
+  running, **Start recording with video** to begin both together, which asks
+  macOS which window or display to record — and the audio keeps running either
+  way. About a gigabyte an hour, and it needs the
+  Screen Recording permission the audio never asked for. The video is written
+  progressively but only becomes playable at a clean stop: a crash takes the
+  video and leaves the audio, which stays the durable artifact. With
+  `merge_audio` on (the default), a background pass also writes `meeting.mp4`
+  — the picture with both audio sides on one stereo track, you left and them
+  right — without re-encoding the video; `video.mp4` and the audio files are
+  kept either way, unless `remove_raw` is on, in which case the silent
+  `video.mp4` is deleted once `meeting.mp4` exists.
 - `speaker_names.*` covers `enabled`, `backend`, and `model`.
 - `summary.*` covers `enabled`, `backend`, `language`, `model`,
   `openai_model`, `openai_base_url`, `ollama_model`, `ollama_base_url`,

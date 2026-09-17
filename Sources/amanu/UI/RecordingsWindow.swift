@@ -107,6 +107,7 @@ final class RecordingsWindow: NSObject {
         let columns: [(String, String, CGFloat)] = [
             ("when", localised("When", "Когда"), 130),
             ("meeting", localised("Meeting", "Встреча"), 250),
+            ("video", localised("Video", "Видео"), 90),
             ("transcript", localised("Transcript", "Расшифровка"), 150),
             ("names", localised("Names", "Имена"), 110),
             ("summary", localised("Summary", "Саммари"), 90),
@@ -593,6 +594,8 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
                 localised(" · \(Int($0 / 60))m", " · \(Int($0 / 60)) мин")
             } ?? ""
             return (item.title ?? item.name) + length
+        case "video":
+            return item.video.label
         case "transcript":
             return item.transcript.described + (item.engine.map { " (\($0))" } ?? "")
         case "names":
