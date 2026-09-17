@@ -567,9 +567,17 @@ final class AppController {
         // Runs for the life of the daemon, not just while recording: the menu
         // also shows what the auto-record loop is thinking, and a status line
         // that only updates during a recording is worse than none.
-        ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        //
+        // On .common rather than the default mode: while one of amanu's menus
+        // is open the main run loop runs in event-tracking mode, and a timer
+        // scheduled for the default mode does not fire there — which froze the
+        // elapsed clock the moment the feather was clicked. The auto-record
+        // loop's tick is on .common for the same reason.
+        let ticker = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        RunLoop.main.add(ticker, forMode: .common)
+        self.ticker = ticker
 
         Notifications.install { [weak self] folder in
             if let folder {
