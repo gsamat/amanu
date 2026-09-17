@@ -9,6 +9,15 @@ import AppKit
 /// putting the icon back is handing the same menu to a new status item rather
 /// than rebuilding a second one that would have to be kept in step with the
 /// first.
+///
+/// The menu is read top to bottom as one story: what is happening (the status
+/// lines), what to do about it (the recording controls), the switch that
+/// decides whether it happens without being asked, the places amanu can be
+/// opened from, about and settings, and the way out. The two start commands at
+/// rest and the pause/stop pair during a meeting occupy those slots in place of
+/// each other — only one state's worth of them is ever visible — which is what
+/// keeps the meeting controls within one glance of the clock that describes
+/// them.
 @MainActor
 final class MenuBarController {
     enum State: Equatable {
@@ -26,8 +35,11 @@ final class MenuBarController {
     private var elapsed: String?
     private let stateLabel: NSMenuItem
     private let transcriptionLabel: NSMenuItem
-    private let toggleItem: NSMenuItem
+    private let startItem: NSMenuItem
+    private let startWithVideoItem: NSMenuItem
     private let pauseItem: NSMenuItem
+    private let videoItem: NSMenuItem
+    private let stopItem: NSMenuItem
     private let autoRecordItem: NSMenuItem
     private let autoRecordStatus: NSMenuItem
     private let updatesItem: NSMenuItem
@@ -35,10 +47,11 @@ final class MenuBarController {
 
     var onToggle: (() -> Void)?
     var onTogglePause: (() -> Void)?
+    var onStartWithVideo: (() -> Void)?
+    var onToggleVideo: (() -> Void)?
     var onToggleAutoRecord: (() -> Void)?
     var onOpenFolder: (() -> Void)?
     var onShowRecordings: (() -> Void)?
-    var onImport: (() -> Void)?
     var onShowWindow: (() -> Void)?
     var onShowSettings: (() -> Void)?
     var onShowSetup: (() -> Void)?
@@ -68,20 +81,57 @@ final class MenuBarController {
 
         menu.addItem(.separator())
 
-        toggleItem = NSMenuItem(
+        // Two ways in, side by side, because which one is wanted is decided at
+        // the moment somebody is about to be in a call rather than in a
+        // settings window an hour before it.
+        startItem = NSMenuItem(
             title: localised("Start recording", "Начать запись"),
             action: #selector(toggleClicked),
             keyEquivalent: "r"
         )
-        menu.addItem(toggleItem)
+        menu.addItem(startItem)
+
+        // Command-R belongs to the start/stop pair below and nowhere else: two
+        // start commands competing for one shortcut would make the shortcut
+        // mean whichever the system reached first.
+        startWithVideoItem = NSMenuItem(
+            title: localised("Start recording with video", "Начать запись с видео"),
+            action: #selector(startWithVideoClicked),
+            keyEquivalent: ""
+        )
+        menu.addItem(startWithVideoItem)
 
         pauseItem = NSMenuItem(
-            title: localised("Pause", "Пауза"),
+            title: localised("Pause recording", "Приостановить запись"),
             action: #selector(pauseClicked),
             keyEquivalent: "p"
         )
-        pauseItem.isEnabled = false
+        pauseItem.isHidden = true
         menu.addItem(pauseItem)
+
+        // Video is off unless asked for, so the way to ask is here, during a
+        // meeting, where the decision actually gets made. Hidden while nothing
+        // is recording — a way to start video with no recording to attach it
+        // to is a button that can only do nothing — and hidden again once this
+        // session has had its one video file.
+        videoItem = NSMenuItem(
+            title: localised("Record video", "Записать видео"),
+            action: #selector(videoClicked),
+            keyEquivalent: ""
+        )
+        videoItem.isHidden = true
+        menu.addItem(videoItem)
+
+        // The same Command-R as Start recording, which is deliberate: only one
+        // of the two is ever visible, and both drive `onToggle`, so the
+        // shortcut cannot do the wrong thing whichever one answers it.
+        stopItem = NSMenuItem(
+            title: localised("Stop recording", "Остановить запись"),
+            action: #selector(toggleClicked),
+            keyEquivalent: "r"
+        )
+        stopItem.isHidden = true
+        menu.addItem(stopItem)
 
         menu.addItem(.separator())
 
@@ -117,9 +167,6 @@ final class MenuBarController {
         )
         menu.addItem(openFolder)
 
-        // Not "r" — that starts a recording, and a shortcut that either starts
-        // recording or opens a list depending on which item claimed it first
-        // is worse than no shortcut.
         let recordings = NSMenuItem(
             title: localised("Manage recordings…", "Управление записями…"),
             action: #selector(showRecordingsClicked),
@@ -127,12 +174,18 @@ final class MenuBarController {
         )
         menu.addItem(recordings)
 
-        let importItem = NSMenuItem(
-            title: localised("Import…", "Импортировать…"),
-            action: #selector(importClicked),
-            keyEquivalent: "i"
+        menu.addItem(.separator())
+
+        // About first, where every Mac puts it, then the two things that change
+        // how amanu behaves. Import is not here: it is in the File menu of the
+        // application menu, and in the window it belongs to, and a third copy
+        // in a menu about recording was one door too many.
+        let about = NSMenuItem(
+            title: localised("About Amanu", "О программе amanu"),
+            action: #selector(showAboutClicked),
+            keyEquivalent: ""
         )
-        menu.addItem(importItem)
+        menu.addItem(about)
 
         let settings = NSMenuItem(
             title: localised("Settings…", "Настройки…"),
@@ -160,17 +213,6 @@ final class MenuBarController {
         updatesItem.isHidden = true
         menu.addItem(updatesItem)
 
-        // Where every Mac keeps it, near the bottom rather than at the top:
-        // the application menu is the one place About is expected to be
-        // first, and an `.accessory` app's application menu is only on
-        // screen while one of its windows is in front.
-        let about = NSMenuItem(
-            title: localised("About Amanu", "О программе amanu"),
-            action: #selector(showAboutClicked),
-            keyEquivalent: ""
-        )
-        menu.addItem(about)
-
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -181,8 +223,9 @@ final class MenuBarController {
         menu.addItem(quit)
 
         for item in [
-            toggleItem, pauseItem, autoRecordItem, showWindow, openFolder,
-            recordings, importItem, settings, setupItem, updatesItem, about, quit,
+            startItem, startWithVideoItem, pauseItem, videoItem, stopItem,
+            autoRecordItem, showWindow, openFolder,
+            recordings, about, settings, setupItem, updatesItem, quit,
         ] {
             item.target = self
         }
@@ -273,34 +316,38 @@ final class MenuBarController {
     /// icon effectively vanishes while recording, which is the one state that
     /// must never be invisible (upstream issue #15). Drawing the colour into a
     /// non-template image takes the system out of the decision.
+    ///
+    /// The two start commands and the pause/stop pair share the same slots: at
+    /// rest the menu offers the ways in, and while a meeting is running it
+    /// offers the ways through it.
     func update(state: State, elapsed: String?) {
         // Remembered whether or not there is an icon to draw it on: the menu
         // says the same things the icon does, and both are wanted the moment
         // the icon comes back.
         self.state = state
         self.elapsed = elapsed
+        let running = state != .idle
+        startItem.isHidden = running
+        startWithVideoItem.isHidden = running
+        pauseItem.isHidden = !running
+        stopItem.isHidden = !running
+        pauseItem.isEnabled = running
         switch state {
         case .idle:
             stateLabel.title = localised("idle", "не записывает")
-            toggleItem.title = localised("Start recording", "Начать запись")
-            pauseItem.title = localised("Pause", "Пауза")
-            pauseItem.isEnabled = false
+            pauseItem.title = localised("Pause recording", "Приостановить запись")
             statusItem?.button?.image = Self.icon(color: nil)
             statusItem?.button?.title = ""
         case .recording:
             stateLabel.title = localised("● recording · ", "● запись · ") + (elapsed ?? "0:00")
-            toggleItem.title = localised("Stop recording", "Остановить запись")
-            pauseItem.title = localised("Pause", "Пауза")
-            pauseItem.isEnabled = true
+            pauseItem.title = localised("Pause recording", "Приостановить запись")
             statusItem?.button?.image = Self.icon(color: .systemRed)
             // The elapsed time next to the icon is the difference between
             // "something is recording" and "I know it's recording" at a glance.
             statusItem?.button?.title = " \(elapsed ?? "0:00")"
         case .paused:
             stateLabel.title = localised("❙❙ paused · ", "❙❙ пауза · ") + (elapsed ?? "0:00")
-            toggleItem.title = localised("Stop recording", "Остановить запись")
-            pauseItem.title = localised("Resume", "Продолжить")
-            pauseItem.isEnabled = true
+            pauseItem.title = localised("Resume recording", "Продолжить запись")
             statusItem?.button?.image = Self.icon(color: .systemOrange)
             statusItem?.button?.title =
                 " " + (elapsed ?? "0:00") + localised(" paused", " пауза")
@@ -323,6 +370,15 @@ final class MenuBarController {
         autoRecordStatus.isHidden = !enabled || decision == nil
     }
 
+    /// Show the video item only while a recording can still gain or lose a
+    /// video track, and say which way the next click goes.
+    func updateVideo(visible: Bool, active: Bool) {
+        videoItem.isHidden = !visible
+        videoItem.title = active
+            ? localised("Stop recording video", "Остановить запись видео")
+            : localised("Record video", "Записать видео")
+    }
+
     /// Menu-bar status icons are nominally 18pt tall; 16 leaves a little air.
     private static func icon(color: NSColor?) -> NSImage? {
         FeatherIcon.image(size: 16, color: color)
@@ -330,13 +386,14 @@ final class MenuBarController {
 
     @objc private func toggleClicked() { onToggle?() }
     @objc private func pauseClicked() { onTogglePause?() }
+    @objc private func startWithVideoClicked() { onStartWithVideo?() }
+    @objc private func videoClicked() { onToggleVideo?() }
     @objc private func autoRecordClicked() { onToggleAutoRecord?() }
     @objc private func showWindowClicked() { onShowWindow?() }
     @objc private func showSettingsClicked() { onShowSettings?() }
     @objc private func showSetupClicked() { onShowSetup?() }
     @objc private func openFolderClicked() { onOpenFolder?() }
     @objc private func showRecordingsClicked() { onShowRecordings?() }
-    @objc private func importClicked() { onImport?() }
     @objc private func checkForUpdatesClicked() { onCheckForUpdates?() }
     @objc private func showAboutClicked() { onShowAbout?() }
     @objc private func quitClicked() { onQuit?() }
