@@ -254,6 +254,27 @@ struct SpeakerAttributionTests {
         #expect(duration > 10.3 && duration < 11.0, "expected ~10.5s, got \(duration)")
     }
 
+    @Test("A 16 kHz echo-cancelled mix uses a supported AAC bitrate")
+    func mixAcceptsEchoCancelledTracks() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-aec-mix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let mic = dir.appendingPathComponent("mic.caf")
+        let system = dir.appendingPathComponent("system.caf")
+        try Self.writeTrack(to: mic, seconds: 1, bursts: [(0, 1)], gain: 0.1, rate: 16_000)
+        try Self.writeTrack(to: system, seconds: 1, bursts: [(0, 1)], gain: 0.1, rate: 16_000)
+
+        let mixed = dir.appendingPathComponent("mixed.m4a")
+        try await AudioMixer.mix(
+            [AudioMixer.Track(url: mic, offset: 0), AudioMixer.Track(url: system, offset: 0)],
+            to: mixed)
+
+        let file = try AVAudioFile(forReading: mixed)
+        #expect(file.fileFormat.sampleRate == 16_000)
+    }
+
     /// A leftover mix from a failed run used to wedge every retry, since
     /// export refuses to overwrite.
     @Test("Mixing over an existing file replaces it")

@@ -97,9 +97,6 @@ enum AudioMixer {
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
                     AVSampleRateKey: rate,
                     AVNumberOfChannelsKey: 1,
-                    // Same reasoning as TrackCompressor: 64k mono is
-                    // transparent for speech at a twentieth of the size.
-                    AVEncoderBitRateKey: 64_000,
                 ],
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false)
