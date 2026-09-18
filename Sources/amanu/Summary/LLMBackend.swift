@@ -41,6 +41,7 @@ struct LLMBackend {
         let settings = Config.summary()
         let anthropicModelID = anthropicModel ?? settings.model
         let openAIModelID = overriddenOpenAIModel ?? settings.openAIModel
+        let codexModelID = overriddenOpenAIModel ?? settings.codexModel
         let claude = cliPath("claude")
         let codex = cliPath("codex")
         let anthropicKey = Config.anthropicKey()
@@ -52,7 +53,7 @@ struct LLMBackend {
         case "anthropic-api":
             return anthropicKey.map { [anthropic(key: $0, model: anthropicModelID)] } ?? []
         case "codex-cli":
-            return codex.map { [codexCLI(path: $0, model: openAIModelID)] } ?? []
+            return codex.map { [codexCLI(path: $0, model: codexModelID)] } ?? []
         case "openai-api":
             return openAIKey.map { [openAI(
                 key: $0, model: openAIModelID, baseURL: settings.openAIBaseURL)] } ?? []
@@ -64,7 +65,7 @@ struct LLMBackend {
             if let anthropicKey {
                 backends.append(anthropic(key: anthropicKey, model: anthropicModelID))
             }
-            if let codex { backends.append(codexCLI(path: codex, model: openAIModelID)) }
+            if let codex { backends.append(codexCLI(path: codex, model: codexModelID)) }
             if let openAIKey { backends.append(openAI(
                 key: openAIKey, model: openAIModelID, baseURL: settings.openAIBaseURL)) }
             backends.append(ollama(model: settings.ollamaModel, baseURL: settings.ollamaBaseURL))
@@ -128,22 +129,23 @@ struct LLMBackend {
     /// `codex exec` prints a running trace to stdout, so the answer is read
     /// from the file it writes with `--output-last-message` rather than
     /// scraped out of the log.
-    private static func codexCLI(path: String, model: String) -> LLMBackend {
+    static func codexCLI(path: String, model: String?) -> LLMBackend {
         LLMBackend(name: "codex-cli", model: model) { system, prompt in
             let output = FileManager.default.temporaryDirectory
                 .appendingPathComponent("amanu-codex-\(UUID().uuidString).txt")
             defer { try? FileManager.default.removeItem(at: output) }
 
+            var arguments = [
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox", "read-only",
+            ]
+            if let model { arguments += ["--model", model] }
+            arguments += ["--output-last-message", output.path, "-"]
+
             _ = try await run(
                 executable: path,
-                arguments: [
-                    "exec",
-                    "--skip-git-repo-check",
-                    "--sandbox", "read-only",
-                    "--model", model,
-                    "--output-last-message", output.path,
-                    "-",
-                ],
+                arguments: arguments,
                 input: "\(system)\n\n\(prompt)",
                 timeout: 1800
             )

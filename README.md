@@ -270,6 +270,9 @@ only values that differ from the defaults. A compact example:
   allow OpenAI-compatible servers and a non-default Ollama host; only a
   loopback Ollama URL keeps the transcript on this Mac. `template` contains
   the complete summary instructions and starts with Amanu's built-in default.
+  When `openai_model` is unset or empty, Codex uses its own configured model
+  or CLI default, while the OpenAI API defaults to `gpt-5`. An explicit
+  `openai_model` continues to override both backends.
 - `mic_voice_processing` enables Apple's capture-time voice processing;
   `offline_echo_cancellation` (on by default) instead cleans a copy of the mic
   after recording, using system audio as the playback reference. It never

@@ -323,9 +323,9 @@ enum SettingsSchema {
             Entry(["summary", "openai_model"],
                   localised("OpenAI model", "Модель OpenAI"),
                   localised(
-                      "Used by the codex CLI and the OpenAI API.",
-                      "Для codex CLI и для OpenAI API."),
-                  .text, default: "gpt-5"),
+                      "An explicit value overrides both Codex and the OpenAI API. Leave unset to use Codex's own model; the API defaults to gpt-5.",
+                      "Явное значение задаёт модель для Codex и OpenAI API. Без него Codex выбирает сам, а API использует gpt-5."),
+                  .text, default: localised("Codex default; API: gpt-5", "По умолчанию в Codex; API: gpt-5")),
             Entry(["summary", "openai_base_url"],
                   localised("OpenAI-compatible Base URL", "Base URL OpenAI-compatible API"),
                   localised(

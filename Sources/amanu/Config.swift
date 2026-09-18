@@ -459,6 +459,9 @@ enum Config {
         /// difference between tiers is a few cents per meeting, so the default
         /// is the strong one.
         var openAIModel = "gpt-5"
+        /// The API needs a model, but that default may not be supported by a
+        /// Codex subscription. Only an explicit override should pin the CLI.
+        var codexModel: String?
         var openAIBaseURL = "https://api.openai.com/v1"
         /// Language for the summary itself; the transcript's own language is
         /// whatever was spoken. nil means "same language as the meeting".
@@ -486,7 +489,13 @@ enum Config {
         if let v = json["language"] as? String, !v.isEmpty { settings.language = v }
         if let v = json["model"] as? String, !v.isEmpty { settings.model = v }
         if let v = json["ollama_model"] as? String, !v.isEmpty { settings.ollamaModel = v }
-        if let v = json["openai_model"] as? String, !v.isEmpty { settings.openAIModel = v }
+        if let v = json["openai_model"] as? String {
+            let model = v.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !model.isEmpty {
+                settings.openAIModel = model
+                settings.codexModel = model
+            }
+        }
         if let v = json["openai_base_url"] as? String, !v.trimmed.isEmpty {
             settings.openAIBaseURL = v.trimmed
         }
