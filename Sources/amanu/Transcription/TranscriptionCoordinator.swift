@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Post-recording pipeline: a serial queue of session folders to transcribe.
@@ -8,7 +9,7 @@ import Foundation
 /// speaker labels. Mixed engines still get one mixed.m4a and map anonymous
 /// labels back onto me/them from the source tracks' energy.
 ///
-/// Either way the result is transcript.json (canonical) plus transcript.md
+/// Either way the result is transcript.json (canonical) plus a session-named Markdown file
 /// (readable). The filesystem is the queue —
 /// `resumePending()` rescans at launch, so a crash or quit mid-transcription
 /// just retries on next run. Failures append to the session's transcribe.log
@@ -915,7 +916,7 @@ struct Transcript: Codable {
     let created_at: String
     let segments: [Segment]
 
-    /// Render transcript.md, then write transcript.json as the completion
+    /// Render the Markdown file, then write transcript.json as the completion
     /// marker. Both writes are atomic (temp file + rename), and writing the
     /// JSON last is what makes the ordering matter: resumePending treats its
     /// presence as "done", so writing it first meant a failed markdown write
@@ -930,13 +931,38 @@ struct Transcript: Codable {
             .write(to: dir.appendingPathComponent("transcript.json"), options: .atomic)
     }
 
-    /// Render transcript.md against whatever names are known, which is what
+    /// The folder already carries the recording time, title and collision
+    /// suffix. Reusing it keeps copied-out transcripts distinct and retries
+    /// stable, without substituting the time transcription finished.
+    static func markdownURL(in dir: URL) -> URL {
+        let name = dir.lastPathComponent.decomposedStringWithCanonicalMapping
+        if name.utf8.count <= 241 {
+            return dir.appendingPathComponent("transcript_\(name).md")
+        }
+        // Leave room within 255 bytes for the prefix, extension and a stable
+        // suffix, so long titles remain writable without sharing a filename.
+        let digest = SHA256.hash(data: Data(name.utf8)).prefix(8)
+            .map { String(format: "%02x", $0) }.joined()
+        var shortened = ""
+        for character in name {
+            guard shortened.utf8.count + String(character).utf8.count <= 224 else { break }
+            shortened.append(character)
+        }
+        return dir.appendingPathComponent("transcript_\(shortened)-\(digest).md")
+    }
+
+    /// Render the Markdown file against whatever names are known, which is what
     /// makes naming re-runnable: the JSON keeps the recognizer's own labels
     /// for ever, and the readable file is regenerated from it whenever a name
     /// is learned or corrected.
     func writeMarkdown(to dir: URL, names: SpeakerNames?) throws {
+        // Keep existing sessions at their old path when correcting names, so
+        // links and scripts pointing at an older transcript keep working.
+        let legacy = dir.appendingPathComponent("transcript.md")
+        let destination = FileManager.default.fileExists(atPath: legacy.path)
+            ? legacy : Self.markdownURL(in: dir)
         try Data(rendered(title: dir.lastPathComponent, names: names).utf8)
-            .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
+            .write(to: destination, options: .atomic)
     }
 
     /// A copy with each label replaced by its known name, for readers that

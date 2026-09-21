@@ -251,7 +251,7 @@ struct RetranscriptionTests {
         #expect(transcript.engine == "fake")
         #expect(transcript.segments.map(\.speaker) == ["me", "them"])
         let markdown = try String(
-            contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8)
+            contentsOf: Transcript.markdownURL(in: dir), encoding: .utf8)
         #expect(markdown.contains("the microphone side of the conversation"))
     }
 
