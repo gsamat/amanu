@@ -330,7 +330,8 @@ enum PostProcessor {
         }
 
         let fm = FileManager.default
-        for file in ["transcript.json", "transcript.md", SpeakerNames.file] {
+        for file in ["transcript.json", "transcript.md",
+                     Transcript.markdownURL(in: dir).lastPathComponent, SpeakerNames.file] {
             try? fm.removeItem(at: dir.appendingPathComponent(file))
         }
         SessionState.update(dir, with: [

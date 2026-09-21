@@ -75,13 +75,20 @@ A typical retained session looks like this:
 ```text
 ~/Recordings/2026.09.02-1400 Weekly sync/
 ├── audio.m4a          # optional: microphone left, call audio right
-├── transcript.md      # readable transcript with speaker names
+├── transcript_2026.09.02-1400 Weekly sync.md  # readable transcript with speaker names
 ├── transcript.json    # timed segments and engine provenance
 ├── speakers.json      # names, confidence, and supporting evidence
 ├── summary.md
 ├── meta.json          # timing, devices, trigger, and processing state
 └── transcribe.log
 ```
+
+New Markdown transcripts include the session folder's name: the recording's date
+and time, its title when known, and any collision suffix. Very long names are
+shortened with a stable hash suffix to fit the filesystem limit. They stay
+distinguishable when copied out of their folders. Correcting speaker names updates the same file.
+Older sessions keep their existing `transcript.md` until they are re-transcribed;
+`transcript.json` keeps its fixed name for tools that read timed segments.
 
 Audio can be discarded automatically after a successful transcript. If
 transcription fails, Amanu keeps the source recording so it can be tried again.

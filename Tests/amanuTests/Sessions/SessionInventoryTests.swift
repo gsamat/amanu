@@ -167,7 +167,7 @@ struct SessionInventoryTests {
         #expect(before == after)
 
         let markdown = try String(
-            contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8
+            contentsOf: Transcript.markdownURL(in: dir), encoding: .utf8
         )
         #expect(markdown.contains("Фёдор:"))
         #expect(markdown.contains("them A → Фёдор"))
@@ -185,7 +185,7 @@ struct SessionInventoryTests {
 
         #expect(SpeakerNames.read(from: dir)?.speakers["them A"]?.name == nil)
         let markdown = try String(
-            contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8
+            contentsOf: Transcript.markdownURL(in: dir), encoding: .utf8
         )
         #expect(markdown.contains("them A:"))
         #expect(!markdown.contains("Фёдор"))
