@@ -108,14 +108,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let providerCards = ChoiceGroup()
     private let cloudKey = NSSecureTextField()
     private let cloudKeyStatus = NSTextField(labelWithString: "")
-    /// Shown only when there is a key to paste: an empty field under a
-    /// working provider is an invitation to overwrite something that works.
+    /// Hidden once a key works. An empty field under a working provider is an
+    /// invitation to overwrite something that works, so it stays closed until
+    /// someone asks to replace that key, or a provider is still waiting for
+    /// its first one.
     private let keyLine = NSStackView()
     /// The provider whose key field is open. Set when a card or the switch is
     /// clicked for a service with no key yet — and while it is set, the
     /// provider actually in force is unchanged, so a curious click cannot cost
     /// the next meeting its transcript.
     private var pendingProvider: String?
+    /// The provider whose saved key someone asked to replace. Unlike
+    /// `pendingProvider`, a key already exists, and accepting the new one
+    /// must not also switch who transcribes the next meeting.
+    private var replacingProvider: String?
     /// The provider in force, read back from the config on every refresh.
     private var provider = "assemblyai"
     private let localSwitch = NSSwitch()
@@ -389,18 +395,24 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             detail: localised(
                 "$0.23 an hour. No limit on meeting length.",
                 "$0,23 за час. Без ограничения на длину встречи."),
-            accessories: [link(
-                localised("Get a key", "Получить ключ"),
-                "https://www.assemblyai.com/dashboard/signup")])
+            accessories: [
+                link(
+                    localised("Get a key", "Получить ключ"),
+                    "https://www.assemblyai.com/dashboard/signup"),
+                changeKeyButton("assemblyai"),
+            ])
         let openai = ChoiceCard(
             id: "openai",
             title: "OpenAI",
             detail: localised(
                 "$0.36 an hour. Same key as summaries.",
                 "$0,36 за час. Тот же ключ, что и для саммари."),
-            accessories: [link(
-                localised("Get a key", "Получить ключ"),
-                "https://platform.openai.com/api-keys")])
+            accessories: [
+                link(
+                    localised("Get a key", "Получить ключ"),
+                    "https://platform.openai.com/api-keys"),
+                changeKeyButton("openai"),
+            ])
         providerCards.adopt([assembly, openai])
         providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
@@ -732,6 +744,24 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         SetupLayout.link(title, url, target: self, action: #selector(linkClicked(_:)))
     }
 
+    /// Drawn like a link, without the arrow. The arrow means a website;
+    /// this one opens the key field for a secret that is already saved.
+    private func changeKeyButton(_ provider: String) -> NSButton {
+        let title = localised("Change key", "Сменить ключ")
+        let button = NSButton(title: title, target: self, action: #selector(changeKeyClicked(_:)))
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.controlSize = .small
+        button.attributedTitle = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: SetupLayout.statusFont,
+                .foregroundColor: NSColor.linkColor,
+            ])
+        button.identifier = NSUserInterfaceItemIdentifier("change-key.\(provider)")
+        return button
+    }
+
     /// What is left when neither icon is on, and nothing at all while either
     /// is. Static and free of AppKit so the sentence can be checked without a
     /// window: it is the only instruction amanu gives for reaching itself,
@@ -805,6 +835,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// it was, because a switch that says "on" while every transcript fails
     /// with HTTP 401 is a lie the person only finds out about after a meeting.
     @objc private func cloudToggled() {
+        replacingProvider = nil
         if cloudSwitch.state == .on, !hasKey(for: provider) {
             pendingProvider = provider
             cloudSwitch.state = .off
@@ -819,7 +850,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// Picking a card is how you say "use this one", so a card with a working
     /// key also switches the cloud on. A card without one only opens the key
     /// field: what is in force stays in force until the new key is accepted.
+    /// Either way the click is done with a replacement that was in progress.
     private func providerPicked(_ id: String) {
+        replacingProvider = nil
         guard hasKey(for: id) else {
             pendingProvider = id
             refresh()
@@ -895,6 +928,19 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// settings tab. The form does not own a window and must not assume one.
     private func focusKeyField() {
         view.window?.makeFirstResponder(cloudKey)
+    }
+
+    /// Open the shared field for a provider that already has a key. The
+    /// provider in force stays put until a different card is chosen.
+    @objc private func changeKeyClicked(_ sender: NSButton) {
+        let prefix = "change-key."
+        guard let raw = sender.identifier?.rawValue, raw.hasPrefix(prefix) else { return }
+        let id = String(raw.dropFirst(prefix.count))
+        guard id == "openai" || id == "assemblyai" else { return }
+        pendingProvider = nil
+        replacingProvider = id
+        refresh()
+        focusKeyField()
     }
 
     @objc private func liveTranscriptionToggled() {
@@ -1350,7 +1396,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// only sign was every later meeting failing to transcribe with HTTP 401.
     /// A key that isn't accepted never reaches the file.
     private func saveCloudKey() async {
-        let target = pendingProvider ?? provider
+        let replacementOnly = TranscriptionChoice.keyReplacementOnly(
+            replacing: replacingProvider, pending: pendingProvider)
+        let target = pendingProvider ?? replacingProvider ?? provider
         let key = cloudKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return }
         cloudKeyStatus.stringValue = Self.checkingKey
@@ -1376,8 +1424,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         }
         cloudKey.stringValue = ""
         cloudKeyStatus.stringValue = localised("key works", "ключ работает")
-        // A key that works is the answer to the question the switch asked, so
-        // it turns the cloud on rather than making the person click twice.
+        replacingProvider = nil
+        // A first key is the answer to the question the switch asked, so it
+        // turns the cloud on rather than making the person click twice. A
+        // replacement only rewrites the secret the card already had.
+        if replacementOnly {
+            refresh()
+            return
+        }
         provider = target
         pendingProvider = nil
         cloudSwitch.state = .on
@@ -1682,13 +1736,17 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                     : localised("no key yet", "ключа ещё нет"),
                 good: known)
             card.showLink(!known)
+            card.showChangeKey(known)
         }
-        cloudKey.placeholderString = (pendingProvider ?? provider) == "openai"
+        cloudKey.placeholderString = (pendingProvider ?? replacingProvider ?? provider) == "openai"
             ? "sk-…" : localised("paste key", "вставьте ключ")
         // Written on every pass rather than only into an empty label: a line
         // left over from the last question describes the wrong one.
         if let prompt = TranscriptionChoice.keyPrompt(
-            pending: pendingProvider, inForce: provider, cloudOn: choice.cloud) {
+            pending: pendingProvider,
+            replacing: replacingProvider,
+            inForce: provider,
+            cloudOn: choice.cloud) {
             cloudKeyStatus.stringValue = prompt
         } else if cloudKeyStatus.stringValue == Self.checkingKey {
             cloudKeyStatus.stringValue = ""
@@ -1698,7 +1756,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         cloudStatus.stringValue = TranscriptionChoice.rowNeedsKey(
             pending: pendingProvider, cloudOn: choice.cloud)
             ? localised("needs a key", "нужен ключ") : ""
-        keyLine.isHidden = pendingProvider == nil && hasKey(for: provider)
+        keyLine.isHidden = !TranscriptionChoice.showsKeyField(
+            pending: pendingProvider,
+            replacing: replacingProvider,
+            inForceHasKey: hasKey(for: provider))
 
         localSwitch.isEnabled = Platform.supportsLocalModels
         localSwitch.state = choice.local ? .on : .off
@@ -2139,6 +2200,7 @@ final class ChoiceCard: NSView, LayerTinted {
     private let titleLabel: NSTextField
     private let statusLabel = NSTextField(labelWithString: "")
     private var linkButton: NSButton?
+    private var changeKeyButton: NSButton?
     private var selected = false
 
     /// What the machine last said about this card. Set through `report`,
@@ -2226,7 +2288,11 @@ final class ChoiceCard: NSView, LayerTinted {
         statusLabel.lineBreakMode = .byTruncatingMiddle
         statusLabel.isHidden = true
 
-        linkButton = accessories.compactMap { $0 as? NSButton }.last { $0.bezelStyle == .inline }
+        linkButton = accessories.compactMap { $0 as? NSButton }.last { button in
+            button.bezelStyle == .inline && !Self.isChangeKey(button)
+        }
+        changeKeyButton = accessories.compactMap { $0 as? NSButton }.first { Self.isChangeKey($0) }
+        changeKeyButton?.isHidden = true
 
         wantsLayer = true
         layer?.cornerRadius = SetupLayout.corner
@@ -2277,6 +2343,14 @@ final class ChoiceCard: NSView, LayerTinted {
 
     /// The install link only belongs on a card for something that isn't here.
     func showLink(_ show: Bool) { linkButton?.isHidden = !show }
+
+    /// The opposite of the signup link: a saved key is what makes replacement
+    /// possible, and hiding the link must not hide this control with it.
+    func showChangeKey(_ show: Bool) { changeKeyButton?.isHidden = !show }
+
+    private static func isChangeKey(_ button: NSButton) -> Bool {
+        button.identifier?.rawValue.hasPrefix("change-key.") == true
+    }
 
     /// `hitTest` is asked in the *superview's* coordinates, so the test has to
     /// be against `frame`. Against `bounds` it silently answers "not mine" for

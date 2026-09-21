@@ -1142,6 +1142,32 @@ struct SetupTests {
         #expect(!link.isHidden)
     }
 
+    /// "Get a key" opens a website. "Change key" stays on this card and must
+    /// not be hidden by the same call, or a saved key would have no way back
+    /// to the field.
+    @Test("Change key is separate from the signup link")
+    @MainActor
+    func choiceCardChangeKeyIsIndependentOfTheLink() {
+        let link = NSButton(title: "Get a key", target: nil, action: nil)
+        link.bezelStyle = .inline
+        let change = NSButton(title: "Change key", target: nil, action: nil)
+        change.bezelStyle = .inline
+        change.identifier = NSUserInterfaceItemIdentifier("change-key.openai")
+        let card = ChoiceCard(
+            id: "openai", title: "OpenAI", detail: "API",
+            accessories: [link, change])
+
+        #expect(!link.isHidden)
+        #expect(change.isHidden)
+        card.showChangeKey(true)
+        card.showLink(false)
+        #expect(link.isHidden)
+        #expect(!change.isHidden)
+        card.showChangeKey(false)
+        #expect(change.isHidden)
+        #expect(link.isHidden)
+    }
+
     @Test("A card's border is re-read when the Mac changes appearance")
     @MainActor
     func cardBorderFollowsAppearance() throws {

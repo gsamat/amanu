@@ -106,10 +106,36 @@ struct TranscriptionChoice: Equatable {
         return pending
     }
 
+    /// The paste field stays hidden once the provider in force already has a
+    /// key. It comes back for a provider that is still waiting for its first
+    /// key, or when someone asked to replace a saved one.
+    static func showsKeyField(pending: String?, replacing: String?, inForceHasKey: Bool) -> Bool {
+        if pending != nil || replacing != nil { return true }
+        return !inForceHasKey
+    }
+
+    /// Replacing a secret is not the same as choosing a provider. A first key
+    /// is what turns the cloud on; a replacement only rewrites the file.
+    static func keyReplacementOnly(replacing: String?, pending: String?) -> Bool {
+        replacing != nil && pending == nil
+    }
+
     /// What the line beside the key field says, or nil when nothing is being
     /// asked for. The sentence depends on what the key would *do*: start the
-    /// cloud, or move it from the provider already running.
-    static func keyPrompt(pending: String?, inForce: String, cloudOn: Bool) -> String? {
+    /// cloud, move it from the provider already running, or replace a secret
+    /// that already works. A first key wins over a leftover replacement, and
+    /// the replacement names its provider because both cards share one field.
+    static func keyPrompt(
+        pending: String?,
+        replacing: String? = nil,
+        inForce: String,
+        cloudOn: Bool
+    ) -> String? {
+        if pending == nil, let replacing {
+            return localised(
+                "paste a new \(displayName(replacing)) key to replace the saved one",
+                "вставьте новый ключ \(displayName(replacing)), чтобы заменить сохранённый")
+        }
         guard let pending else { return nil }
         if pending == inForce || !cloudOn {
             return localised("paste a key to switch this on", "вставьте ключ, чтобы включить")
