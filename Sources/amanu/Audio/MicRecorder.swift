@@ -653,7 +653,12 @@ final class MicRecorder: @unchecked Sendable {
             mElement: kAudioObjectPropertyElementMain
         )
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            DispatchQueue.main.async { self?.checkRoute() }
+            // The block is already queued on the main queue, but the route
+            // check still waits a turn: doing it inside the HAL callback is
+            // how a device change re-enters itself. The hop lives in a method
+            // because this closure is @Sendable, and Swift 6.2 rejects
+            // capturing the recorder in the main-actor closure directly.
+            self?.deferRouteCheck()
         }
         let status = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
@@ -664,6 +669,14 @@ final class MicRecorder: @unchecked Sendable {
             let warning = "warning: cannot watch the default microphone (\(status)) — "
                 + "a mid-meeting change will not be followed\n"
             FileHandle.standardError.write(Data(warning.utf8))
+        }
+    }
+
+    /// One main-queue turn later, so `checkRoute` is not running inside the
+    /// property-listener callback that asked for it.
+    private func deferRouteCheck() {
+        DispatchQueue.main.async { [weak self] in
+            self?.checkRoute()
         }
     }
 
