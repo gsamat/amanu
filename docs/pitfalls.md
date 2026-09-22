@@ -109,22 +109,32 @@ failed with HTTP 401. If a feature needs to store a key, it goes in
 ## Only one OpenAI transcription model is usable
 
 `gpt-transcribe`, `gpt-4o-transcribe` and `gpt-4o-mini-transcribe` return
-running text with no timings at all — amanu cannot use them for anything, no
+running text with no timings at all. Amanu cannot use them for anything, no
 matter how good the text is: a transcript with no clock can be neither lined
 up with the recording nor attributed to a speaker.
 `gpt-4o-transcribe-diarize` is the one that returns timed segments *and*
 speakers, and `chunking_strategy` is required with it for any audio over 30
-seconds — without that field the API answers 400 rather than transcribing.
+seconds. Without that field the API answers 400 rather than transcribing.
 
-Its 25 MB per request is a real limit, not a guideline: the mix reaches it at
-around 55 minutes, so `AudioSlicer` cuts longer meetings up. Speaker labels are
-per request, so they are prefixed per piece rather than merged — the "A" of the
-second piece is not the "A" of the first, and treating them as one person would
-hand two strangers one name. That is not a theory: a four-minute mix run
-through the real API in four pieces on 19 August came back with the Russian
-voice labelled `1A` in the first piece and `4B` in the last.
+That model has two real limits, not guidelines. A request over 25 MB is
+refused, and so is audio longer than 1400 seconds, whatever it weighs.
+`chunking_strategy=auto` does not lift the duration cap: the API checks the
+file before it chunks. At the mix's 64 kbit/s, 1400 seconds is about 11 MB,
+so the duration cap arrives first, around 23 minutes, and 25 MB closer to an
+hour. `AudioSlicer` cuts on whichever ceiling is tighter. A size-only cut is
+not enough: pieces sized for 25 MB land around 45 minutes, which this model
+also refuses. A 42-minute mix (about 20 MB) is the case that proved it, on
+21 September 2026: HTTP 400, "audio duration 2530.452 seconds is longer than
+1400 seconds", and no slice, because the file was under 25 MB.
 
-Both paths have been run against the API for real — one request, and four —
+Speaker labels are per request, so they are prefixed per piece rather than
+merged. The "A" of the second piece is not the "A" of the first, and treating
+them as one person would hand two strangers one name. That is not a theory: a
+four-minute mix run through the real API in four pieces on 19 August came
+back with the Russian voice labelled `1A` in the first piece and `4B` in the
+last.
+
+Both paths have been run against the API for real, one request and four,
 which is what `requestLimit` being an init parameter is for: proving the sliced
 path costs four minutes of audio rather than an hour of it.
 

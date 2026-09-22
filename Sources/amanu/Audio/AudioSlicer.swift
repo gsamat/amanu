@@ -3,10 +3,10 @@ import Foundation
 
 /// Cuts one audio file into consecutive pieces small enough to upload.
 ///
-/// This exists for OpenAI, which refuses anything over 25 MB per request — a
-/// limit an hour-long meeting passes at the mix's own bitrate. Nobody should
-/// have to know that, so the engine slices, transcribes each piece, and shifts
-/// the timings back onto the session's clock; the transcript comes out looking
+/// This exists for OpenAI, which refuses a request over 25 MB and, for the
+/// diarizing model, audio longer than 1400 seconds. Nobody should have to
+/// know that, so the engine slices, transcribes each piece, and shifts the
+/// timings back onto the session's clock. The transcript comes out looking
 /// like one pass.
 ///
 /// The pieces are written frame by frame through `AVAudioFile` rather than by
@@ -37,7 +37,7 @@ enum AudioSlicer {
     }
 
     /// Split `source` into pieces of at most `seconds` each, written into
-    /// `directory`. A source already short enough is not copied — the single
+    /// `directory`. A source already short enough is not copied. The single
     /// slice points at the original file, so the common case touches no disk.
     static func slice(
         _ source: URL,
