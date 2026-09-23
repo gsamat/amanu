@@ -401,7 +401,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             accessories: [link(
                 localised("Get a key", "Получить ключ"),
                 "https://platform.openai.com/api-keys")])
-        providerCards.adopt([assembly, openai])
+        let elevenlabs = ChoiceCard(
+            id: "elevenlabs",
+            title: "ElevenLabs",
+            detail: localised(
+                "Scribe v2. $0.44 an hour for a two-channel call.",
+                "Scribe v2. $0,44 за час разговора с двумя каналами."),
+            accessories: [link(
+                localised("Get a key", "Получить ключ"),
+                "https://elevenlabs.io/app/developers/api-keys")])
+        providerCards.adopt([assembly, openai, elevenlabs])
         providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
         cloudKey.placeholderString = localised("paste key", "вставьте ключ")
@@ -888,7 +897,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private func hasKey(for provider: String) -> Bool {
-        provider == "openai" ? Config.openAIKey() != nil : Config.assemblyAIKey() != nil
+        switch provider {
+        case "openai": return Config.openAIKey() != nil
+        case "elevenlabs": return Config.elevenLabsKey() != nil
+        default: return Config.assemblyAIKey() != nil
+        }
     }
 
     /// Whichever window is showing the form — the setup wizard or the
@@ -1355,9 +1368,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard !key.isEmpty else { return }
         cloudKeyStatus.stringValue = Self.checkingKey
 
-        let accepted = target == "openai"
-            ? await SummaryKeyProbe.works(provider: .openAI, key: key)
-            : await Self.assemblyKeyWorks(key)
+        let accepted: Bool
+        switch target {
+        case "openai": accepted = await SummaryKeyProbe.works(provider: .openAI, key: key)
+        case "elevenlabs": accepted = await Self.elevenLabsKeyWorks(key)
+        default: accepted = await Self.assemblyKeyWorks(key)
+        }
         guard accepted else {
             cloudKeyStatus.stringValue = hasKey(for: target)
                 ? localised(
@@ -1366,7 +1382,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 : localised("that key was refused", "этот ключ не приняли")
             return
         }
-        let path = target == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
+        let path: URL
+        switch target {
+        case "openai": path = Config.openAIKeyPath
+        case "elevenlabs": path = Config.elevenLabsKeyPath
+        default: path = Config.assemblyAIKeyPath
+        }
         do {
             try Self.writeSecret(key, to: path)
         } catch {
@@ -1443,6 +1464,27 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             return false
         }
         return (response as? HTTPURLResponse)?.statusCode == 200
+    }
+
+    private static func elevenLabsKeyWorks(_ key: String) async -> Bool {
+        // Restricted keys can transcribe without permission to read /v1/user.
+        // Submit no file to the STT endpoint: a permitted key gets validation
+        // error 422, an invalid key gets 401, and nothing is transcribed.
+        let boundary = "amanu-key-check"
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        request.setValue(
+            "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
+        request.httpBody = Data(("--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"model_id\"\r\n\r\n"
+            + "scribe_v2\r\n--\(boundary)--\r\n").utf8)
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else {
+            return false
+        }
+        guard let status = (response as? HTTPURLResponse)?.statusCode else { return false }
+        return status == 422
     }
 
     // MARK: - reading the machine

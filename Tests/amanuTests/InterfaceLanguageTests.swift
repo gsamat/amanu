@@ -559,7 +559,7 @@ struct InterfaceLanguageTests {
         if text.isEmpty { return true }
         // Names of things, and the shape of a key nobody translates.
         let names = [
-            "AssemblyAI", "OpenAI", "Anthropic", "Claude Code", "Codex", "Ollama",
+            "AssemblyAI", "OpenAI", "ElevenLabs", "Anthropic", "Claude Code", "Codex", "Ollama",
             "sk-ant-…", "sk-…", "amanu",
             // The models, named the way their release notes name them.
             "parakeet v3", "parakeet v2", "NVIDIA nemotron",

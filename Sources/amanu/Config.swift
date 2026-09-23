@@ -50,7 +50,7 @@ enum Config {
     }
 
     /// Configured engine: `auto` (default), a local engine, or a cloud
-    /// provider by name — `assemblyai` or `openai`.
+    /// provider by name — `assemblyai`, `openai`, or `elevenlabs`.
     ///
     /// `auto` means "the best one available right now": the cloud provider
     /// when there is a key and the API answers, parakeet otherwise. That
@@ -76,14 +76,13 @@ enum Config {
         return configured
     }
 
-    /// Which cloud engine `auto` reaches for: `assemblyai` (default) or
-    /// `openai`. It only decides the provider — whether the cloud is used at
-    /// all is `engine`, and a `engine` naming a provider outright wins over
-    /// this.
+    /// Which cloud engine `auto` reaches for. It only decides the provider —
+    /// whether the cloud is used at all is `engine`. A provider named in
+    /// `engine` wins over this setting.
     ///
     /// The two are separate settings because they answer separate questions,
     /// and the setup window asks them separately: a switch for "may audio
-    /// leave this Mac", a pair of cards for "to whom". Turning the switch off
+    /// leave this Mac", provider cards for "to whom". Turning the switch off
     /// and on again should not lose the answer to the second one.
     static func transcriptionCloudProvider() -> String {
         let configured = transcription()?["cloud"] as? String ?? "assemblyai"
@@ -98,7 +97,7 @@ enum Config {
 
     /// The cloud engines, by the name they carry in the config and in
     /// transcript.json's provenance.
-    static let cloudEngines: Set<String> = ["assemblyai", "openai"]
+    static let cloudEngines: Set<String> = ["assemblyai", "openai", "elevenlabs"]
     static let localEngines: Set<String> = ["parakeet", "whisper", "gigaam"]
 
     /// OpenAI's transcription model. The default is the only one of theirs
@@ -160,6 +159,7 @@ enum Config {
 
     static let assemblyAIKeyPath = keysDir.appendingPathComponent("assemblyai")
     static let openAIKeyPath = keysDir.appendingPathComponent("openai")
+    static let elevenLabsKeyPath = keysDir.appendingPathComponent("elevenlabs")
     static let anthropicKeyPath = keysDir.appendingPathComponent("anthropic")
 
     /// Where the rest of a machine's toolchain tends to keep the same secret.
@@ -171,6 +171,7 @@ enum Config {
     /// asked to paste something they already have.
     static let assemblyAISharedKeyPaths = sharedKeyPaths("assemblyai")
     static let openAISharedKeyPaths = sharedKeyPaths("openai")
+    static let elevenLabsSharedKeyPaths = sharedKeyPaths("elevenlabs")
     static let anthropicSharedKeyPaths = sharedKeyPaths("anthropic")
 
     private static func sharedKeyPaths(_ service: String) -> [URL] {
@@ -224,6 +225,22 @@ enum Config {
 
     private static func assemblyAI() -> [String: Any]? {
         transcription()?["assemblyai"] as? [String: Any]
+    }
+
+    static func elevenLabsKey() -> String? {
+        if let env = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"],
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        let settings = transcription()?["elevenlabs"] as? [String: Any]
+        if let inline = settings?["api_key"] as? String, !inline.trimmed.isEmpty {
+            return inline.trimmed
+        }
+        if let configured = (settings?["api_key_path"] as? String)
+            .map({ URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) {
+            return secret(at: configured)
+        }
+        return secret(at: elevenLabsKeyPath) ?? secret(atAnyOf: elevenLabsSharedKeyPaths)
     }
 
     private static func transcription() -> [String: Any]? {

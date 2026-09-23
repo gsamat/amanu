@@ -343,15 +343,23 @@ enum DoctorReport {
     }
 
     private static func cloudKey(_ provider: String) -> String? {
-        provider == "openai" ? Config.openAIKey() : Config.assemblyAIKey()
+        switch provider {
+        case "openai": return Config.openAIKey()
+        case "elevenlabs": return Config.elevenLabsKey()
+        default: return Config.assemblyAIKey()
+        }
     }
 
     private static func cloudKeyPath(_ provider: String) -> URL {
-        provider == "openai" ? Config.openAIKeyPath : Config.assemblyAIKeyPath
+        switch provider {
+        case "openai": return Config.openAIKeyPath
+        case "elevenlabs": return Config.elevenLabsKeyPath
+        default: return Config.assemblyAIKeyPath
+        }
     }
 
     private static func cloudName(_ provider: String) -> String {
-        provider == "openai" ? "OpenAI" : "AssemblyAI"
+        TranscriptionChoice.displayName(provider)
     }
 
     static func print(_ checks: [Check]) {

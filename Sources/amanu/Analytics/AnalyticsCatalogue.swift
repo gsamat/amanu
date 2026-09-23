@@ -91,13 +91,13 @@ enum AnalyticsCatalogue {
     /// closed vocabulary at collection and again when replaying older queues.
     static func sanitized(_ properties: [String: Any]) -> [String: Any] {
         var result = properties
-        let engines = ["auto", "parakeet", "openai", "assemblyai"]
+        let engines = ["auto", "parakeet", "openai", "assemblyai", "elevenlabs"]
         let backends = ["auto", "claude-cli", "codex-cli", "anthropic-api", "openai-api", "ollama"]
         let allowed = [
             "engine": engines, "from_engine": engines, "to_engine": engines,
             "transcription_engine": engines,
             "backend": backends, "summary_backend": backends, "speaker_names_backend": backends,
-            "transcription_cloud_provider": ["assemblyai", "openai"],
+            "transcription_cloud_provider": ["assemblyai", "openai", "elevenlabs"],
             "trigger": ["manual", "mic-activity", "calendar"],
         ]
         for (key, choices) in allowed where result[key] != nil {
@@ -136,6 +136,8 @@ enum AnalyticsCatalogue {
         case "assemblyai":
             let model = provenance.components(separatedBy: " · ").first ?? provenance
             return model == "universal" ? "universal" : "custom"
+        case "elevenlabs":
+            return provenance == "scribe_v2" ? "scribe_v2" : "custom"
         default:
             return "unknown"
         }
