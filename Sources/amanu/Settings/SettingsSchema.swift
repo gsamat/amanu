@@ -162,7 +162,7 @@ enum SettingsSchema {
     static var sections: [Section] { [
         Section(title: localised("Recording by itself", "Запись сама по себе"), entries: [
             Entry(["auto_record", "enabled"],
-                  localised("Record meetings automatically", "Записывать встречи сама"),
+                  localised("Record meetings automatically", "Записывать встречи автоматически"),
                   localised(
                       "Start and stop on their own when a call begins and ends.",
                       "Запись начинается и заканчивается сама, вместе со звонком."),

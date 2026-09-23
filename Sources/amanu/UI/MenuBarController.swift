@@ -86,7 +86,7 @@ final class MenuBarController {
         menu.addItem(.separator())
 
         autoRecordItem = NSMenuItem(
-            title: localised("Record meetings automatically", "Записывать встречи сама"),
+            title: localised("Record meetings automatically", "Записывать встречи автоматически"),
             action: #selector(autoRecordClicked),
             keyEquivalent: ""
         )
