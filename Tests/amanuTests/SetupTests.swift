@@ -460,10 +460,10 @@ struct SetupTests {
         }
     }
 
-    /// Both providers are on screen whether or not the cloud is switched on,
+    /// Cloud providers are on screen whether or not the cloud is switched on,
     /// and each says what an hour of meeting costs: the price belongs where
     /// the choice is made.
-    @Test("Both cloud providers are offered, with their price and their key link")
+    @Test("Cloud providers are offered with their price and key link")
     @MainActor
     func providerCardsCarryPriceAndLink() throws {
         let setup = SetupWindow()
@@ -473,8 +473,9 @@ struct SetupTests {
 
         let assembly = try #require(cards.first { $0.id == "assemblyai" })
         let openai = try #require(cards.first { $0.id == "openai" })
+        let elevenlabs = try #require(cards.first { $0.id == "elevenlabs" })
 
-        for card in [assembly, openai] {
+        for card in [assembly, openai, elevenlabs] {
             let detail = card.allDescendants
                 .compactMap { $0 as? NSTextField }
                 .map(\.stringValue)
@@ -482,7 +483,7 @@ struct SetupTests {
             #expect(detail.contains("an hour"), "\(card.id) doesn't say what it costs")
         }
 
-        let links = [assembly, openai].compactMap { card in
+        let links = [assembly, openai, elevenlabs].compactMap { card in
             card.allDescendants
                 .compactMap { $0 as? NSButton }
                 .first { $0.title.hasPrefix("Get a key") }?
@@ -490,6 +491,7 @@ struct SetupTests {
         }
         #expect(links.contains("https://www.assemblyai.com/dashboard/signup"))
         #expect(links.contains("https://platform.openai.com/api-keys"))
+        #expect(links.contains("https://elevenlabs.io/app/developers/api-keys"))
     }
 
     /// Return in a key field must not reach the window's default button.

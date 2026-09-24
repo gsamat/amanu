@@ -103,10 +103,10 @@ Every event also carries `surface`, which is `app` or `cli`.
 | `backend` | the summary backend's name |
 | `model` | a known public model name, or `default`, `custom`, `custom-local`, `unknown` |
 | `fallback_used` | true or false |
-| `from_engine`, `to_engine` | `assemblyai`, `openai`, `parakeet`, or `auto` when selection failed before an engine existed |
+| `from_engine`, `to_engine` | `assemblyai`, `openai`, `elevenlabs`, `parakeet`, or `auto` when selection failed before an engine existed |
 | `component` | `system_audio`, `microphone`, or `unknown` |
 | `outcome` | `deferred` or `gave_up` |
-| `asset` | `parakeet-v2`, `parakeet-v3`, or `nemotron-live` |
+| `asset` | `runtime`, `parakeet-v2`, `parakeet-v3`, `gigaam-v3`, `whisper-large-v3-turbo`, or `nemotron-live` |
 | `artifact` | `recordings_window`, `recordings_root`, or `session_folder` |
 | `reason` | `no_network`, `no_key`, `no_model`, `usage_limit`, `audio_missing`, `audio_too_short`, `refused`, `timed_out`, `http_error`, `quit`, `unknown` |
 | `setup_version` | which version of the setup window was completed |
@@ -143,7 +143,7 @@ indefensible whatever it taught us.
 
 Resent with every event, so it is never stale:
 
-`analytics_schema_version`, `app_version`, `macos_version`, `arch`,
+`analytics_schema_version`, `app_version`, `macos_version` or `windows_version`, `arch`,
 `interface_language`, `live_transcription`, `speaker_names`, `auto_record`,
 `transcription_engine`, `transcription_enabled`,
 `transcription_cloud_provider`, `summary_backend`, `summary_enabled`,

@@ -36,6 +36,53 @@ struct Sessions: ParsableCommand {
     }
 }
 
+/// Rebuild AssemblyAI Markdown from the canonical JSON without transcribing again.
+struct FormatTranscripts: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "format-transcripts",
+        abstract: "Rebuild AssemblyAI transcript.md in existing recording folders."
+    )
+
+    @Option(name: .long, help: "Recordings root directory (overrides the config file).")
+    var out: String?
+
+    @Flag(name: .long, help: "Show which files would change without writing them.")
+    var dryRun = false
+
+    func run() throws {
+        let changed = try Self.reformat(in: Config.resolveRoot(cliOverride: out), dryRun: dryRun)
+        for dir in changed { print(dir.appendingPathComponent("transcript.md").path) }
+        print("\(changed.count) transcript(s) \(dryRun ? "would be reformatted" : "reformatted").")
+    }
+
+    static func reformat(in root: URL, dryRun: Bool = false) throws -> [URL] {
+        let fileManager = FileManager.default
+        let folders = try fileManager.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ).sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var changed: [URL] = []
+        for dir in folders {
+            guard try dir.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true else {
+                continue
+            }
+            let jsonURL = dir.appendingPathComponent("transcript.json")
+            guard fileManager.fileExists(atPath: jsonURL.path) else { continue }
+            let transcript = try JSONDecoder().decode(
+                Transcript.self, from: Data(contentsOf: jsonURL))
+            guard transcript.engine == "assemblyai" else { continue }
+            let markdownURL = dir.appendingPathComponent("transcript.md")
+            let rendered = Data(transcript.rendered(
+                title: dir.lastPathComponent, names: SpeakerNames.read(from: dir)).utf8)
+            if (try? Data(contentsOf: markdownURL)) == rendered { continue }
+            if !dryRun {
+                try rendered.write(to: markdownURL, options: .atomic)
+            }
+            changed.append(dir)
+        }
+        return changed
+    }
+}
+
 /// `amanu process <folder>` — finish one session, wherever it lives now.
 ///
 /// Takes an arbitrary path rather than a session name on purpose. The folder

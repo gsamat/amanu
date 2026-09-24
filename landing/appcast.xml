@@ -6,27 +6,36 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.25</title>
-            <pubDate>Tue, 15 Sep 2026 22:11:26 +0000</pubDate>
+            <title>0.4.26</title>
+            <pubDate>Wed, 23 Sep 2026 19:38:43 +0000</pubDate>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Amanu 0.4.25</h2>
-<h3>Local transcription models</h3>
+            <description><![CDATA[<h2>Amanu 0.4.26</h2>
+<h3>Transcription</h3>
 <ul>
-<li>Local transcription models are once again shown as separate cards, making the choice between Parakeet, Whisper, and GigaAM clear at a glance.</li>
-<li>Every card shows the expected download size before installation and the actual disk usage afterwards.</li>
-<li>Download progress and failures now stay attached to the model they belong to.</li>
-<li>GigaAM is described as an alternative for Russian rather than the default recommendation.</li>
+<li>Transcription no longer gets stuck after acoustic echo cancellation on macOS Tahoe. Amanu now lets Core Audio choose an AAC bitrate supported by the resulting 16 kHz tracks.</li>
+<li>Live transcription hides an echoed microphone phrase even when the cleaner call audio was split into several blocks or arrived through the decoder with a different delay.</li>
+<li>ElevenLabs Scribe v2 is available as a transcription engine. Amanu processes the microphone and call audio separately, retaining distinct speakers on each side.</li>
+<li>AssemblyAI transcripts now group word-sized fragments into readable paragraphs while preserving speaker changes and pauses. Existing transcripts can be reformatted from saved data without sending the audio again.</li>
+</ul>
+<h3>Automatic recording</h3>
+<ul>
+<li>Calls in DION now start automatic recording. Amanu recognises both the main DION app and its helper processes.</li>
+</ul>
+<h3>Recordings</h3>
+<ul>
+<li>Open a transcript directly from the recordings window in your preferred Markdown app. If no app is associated with Markdown, Amanu opens it in TextEdit.</li>
+<li>Open the selected recording folder directly from the same window.</li>
 </ul>
 <h3>Compatibility</h3>
 <ul>
 <li>Universal binary for Apple Silicon and Intel Macs running macOS 14.2 or later. Local transcription requires Apple Silicon; Intel requires a cloud transcription key and has not been tested on physical hardware.</li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.25/amanu-v0.4.25-macos-universal.dmg"
-                sparkle:version="304"
-                sparkle:shortVersionString="0.4.25"
-                sparkle:edSignature="eKC9BsjAP1kyoZP9Wlj0yC2mxuYypOg9Mk6C/3aZv4vEDpJ0riqtTnx2JK0JxeMcbCB/JlmhJN0fx22JxdumDA=="
-                length="23322458"
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.26/amanu-v0.4.26-macos-universal.dmg"
+                sparkle:version="307"
+                sparkle:shortVersionString="0.4.26"
+                sparkle:edSignature="zNWK+FPUTz8MSxqkjeq76SQRMaG1IO/x8QDQBWqHR+hEm4LiRvidYAwlJx3eaFojj01IO8Cmz489Q3OsF+L+BQ=="
+                length="23435606"
                 type="application/octet-stream" />
         </item>
     </channel>
