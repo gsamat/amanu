@@ -47,7 +47,7 @@ meeting without sending its contents anywhere:
 - Ollama can write summaries locally when its Base URL is localhost/loopback.
 
 Cloud models are available when quality or convenience matters more than
-staying entirely offline. AssemblyAI and OpenAI can transcribe; Claude Code,
+staying entirely offline. AssemblyAI, OpenAI, and ElevenLabs can transcribe; Claude Code,
 Codex, Anthropic, and OpenAI can write summaries. Within each model family,
 Amanu prefers an existing CLI subscription to the corresponding metered API
 key and falls through to the next configured backend when a subscription is
@@ -200,6 +200,7 @@ amanu record start           # ask the running app to start recording
 amanu record stop
 amanu sessions               # list recordings and outstanding work
 amanu process <folder>       # finish or retry one meeting
+amanu format-transcripts      # rebuild AssemblyAI Markdown from saved transcripts
 amanu setup                  # reopen first-run setup
 ```
 
@@ -258,7 +259,13 @@ only values that differ from the defaults. A compact example:
   Provider overrides are `transcription.openai.model`,
   `transcription.assemblyai.api_key`,
   `transcription.assemblyai.api_key_path`, and
-  `transcription.assemblyai.speech_model`. `live_transcription.enabled`
+  `transcription.assemblyai.speech_model`, plus
+  `transcription.elevenlabs.api_key` and
+  `transcription.elevenlabs.api_key_path`. Choose `elevenlabs` as
+  `transcription.cloud` or `transcription.engine` to use Scribe v2. It sends
+  the microphone and system channels separately, with speaker diarization on
+  each; a mono import uses the same diarization. Set `ELEVENLABS_API_KEY` or
+  save a key in `~/.config/amanu/keys/elevenlabs`. `live_transcription.enabled`
   controls the on-device preview.
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,

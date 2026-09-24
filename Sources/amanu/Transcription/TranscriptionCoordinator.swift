@@ -448,7 +448,7 @@ actor TranscriptionCoordinator {
         TrackCompressor.settle(sessionDir: dir)
     }
 
-    /// One pass over aligned stereo. AssemblyAI's one-based channel labels
+    /// One aligned stereo input. One-based channel labels from the engine
     /// carry the side directly (`1A` is mic, `2A` is system), so this path does
     /// no envelope comparison and remains correct when the raw mic contains a
     /// quieter acoustic copy of the far end.
@@ -693,13 +693,19 @@ actor TranscriptionCoordinator {
     }
 
     private static func cloudKey(for provider: String) -> String? {
-        provider == "openai" ? Config.openAIKey() : Config.assemblyAIKey()
+        switch provider {
+        case "openai": return Config.openAIKey()
+        case "elevenlabs": return Config.elevenLabsKey()
+        default: return Config.assemblyAIKey()
+        }
     }
 
     private static func cloudEngine(_ provider: String) throws -> TranscriptionEngine {
-        provider == "openai"
-            ? try OpenAITranscriptionEngine()
-            : try AssemblyAIEngine()
+        switch provider {
+        case "openai": return try OpenAITranscriptionEngine()
+        case "elevenlabs": return try ElevenLabsEngine()
+        default: return try AssemblyAIEngine()
+        }
     }
 
     private static func localEngine(named name: String) -> TranscriptionEngine {
@@ -754,8 +760,9 @@ actor TranscriptionCoordinator {
             "local transcription needs Apple Silicon, and this Mac has no key "
                 + "for a cloud engine — put an AssemblyAI one in "
                 + "\(Config.assemblyAIKeyPath.path) or an OpenAI one in "
-                + "\(Config.openAIKeyPath.path) (chmod 600), or set "
-                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY"
+                + "\(Config.openAIKeyPath.path), or an ElevenLabs one in "
+                + "\(Config.elevenLabsKeyPath.path) (chmod 600), or set "
+                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY / ELEVENLABS_API_KEY"
         }
     }
 
@@ -779,9 +786,12 @@ actor TranscriptionCoordinator {
     /// including an unauthorized one: the question is whether the network is
     /// up, not whether the key is good.
     private static func cloudReachable(_ provider: String) async -> Bool {
-        let url = provider == "openai"
-            ? URL(string: "https://api.openai.com/v1/models")!
-            : URL(string: "https://api.assemblyai.com/v2/transcript")!
+        let url: URL
+        switch provider {
+        case "openai": url = URL(string: "https://api.openai.com/v1/models")!
+        case "elevenlabs": url = URL(string: "https://api.elevenlabs.io/v1/user")!
+        default: url = URL(string: "https://api.assemblyai.com/v2/transcript")!
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 5
@@ -971,12 +981,53 @@ struct Transcript: Codable {
             lines.append("speakers: " + named.joined(separator: ", "))
         }
         lines.append("")
-        for seg in segments {
-            let who = names?.name(for: seg.speaker) ?? seg.speaker
-            lines.append("**[\(Self.clock(seg.start_ms))] \(who):** \(seg.text)")
-            lines.append("")
+        if engine == "assemblyai" {
+            for paragraph in paragraphs(names: names) {
+                lines.append("**[\(Self.clock(paragraph.start_ms))] \(paragraph.speaker):** \(paragraph.text)")
+                lines.append("")
+            }
+        } else {
+            for segment in segments {
+                let who = names?.name(for: segment.speaker) ?? segment.speaker
+                lines.append("**[\(Self.clock(segment.start_ms))] \(who):** \(segment.text)")
+                lines.append("")
+            }
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// AssemblyAI can return one diarized utterance per word. Keep those
+    /// timestamps in transcript.json, but present continuous speech as a turn.
+    /// A brief interjection by another speaker does not split that turn.
+    private func paragraphs(names: SpeakerNames?) -> [Paragraph] {
+        var result: [Paragraph] = []
+        var lastBySpeaker: [String: Int] = [:]
+        for segment in segments {
+            let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { continue }
+            let speaker = names?.name(for: segment.speaker) ?? segment.speaker
+            if let index = lastBySpeaker[speaker],
+               segment.start_ms - result[index].end_ms <= 1_500 {
+                let separator = text.first.map { ",.!?;:…)]}»".contains($0) } == true ? "" : " "
+                result[index].text += separator + text
+                result[index].end_ms = max(result[index].end_ms, segment.end_ms)
+            } else {
+                lastBySpeaker[speaker] = result.count
+                result.append(Paragraph(
+                    speaker: speaker,
+                    start_ms: segment.start_ms,
+                    end_ms: segment.end_ms,
+                    text: text))
+            }
+        }
+        return result
+    }
+
+    private struct Paragraph {
+        let speaker: String
+        let start_ms: Int
+        var end_ms: Int
+        var text: String
     }
 
     private static func clock(_ ms: Int) -> String {

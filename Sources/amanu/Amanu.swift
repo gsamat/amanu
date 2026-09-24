@@ -8,7 +8,8 @@ struct Amanu: ParsableCommand {
         commandName: "amanu",
         abstract: "Local meeting recorder + transcriber. Records mic and system audio as two tracks, then transcribes on-device.",
         subcommands: [
-            Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, ProcessSession.self,
+            Run.self, Setup.self, Doctor.self, Install.self, Sessions.self, FormatTranscripts.self,
+            ProcessSession.self,
             Record.self, AnalyticsCommand.self,
         ],
         defaultSubcommand: Run.self

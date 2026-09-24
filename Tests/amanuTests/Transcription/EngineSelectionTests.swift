@@ -74,6 +74,8 @@ struct EngineSelectionTests {
     func openAIIsCloud() {
         #expect(Self.choice("openai", key: false, localModels: true) == .cloud)
         #expect(Self.choice("openai", key: true, localModels: false) == .cloud)
+        #expect(Self.choice("elevenlabs", key: false, localModels: true) == .cloud)
+        #expect(Self.choice("elevenlabs", key: true, localModels: false) == .cloud)
     }
 
     /// Which cloud service a configuration means. An engine naming one
@@ -82,6 +84,7 @@ struct EngineSelectionTests {
     func providerFromEngineName() {
         #expect(TranscriptionCoordinator.cloudProvider(configured: "openai") == "openai")
         #expect(TranscriptionCoordinator.cloudProvider(configured: "assemblyai") == "assemblyai")
+        #expect(TranscriptionCoordinator.cloudProvider(configured: "elevenlabs") == "elevenlabs")
     }
 
     @Test("An unrecognised engine name is treated as auto")

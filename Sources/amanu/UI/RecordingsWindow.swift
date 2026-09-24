@@ -21,6 +21,7 @@ final class RecordingsWindow: NSObject {
         .init(id: "gigaam", title: "GigaAM"),
         .init(id: "assemblyai", title: "AssemblyAI"),
         .init(id: "openai", title: "OpenAI"),
+        .init(id: "elevenlabs", title: "ElevenLabs"),
     ] }
 
     var onImportFiles: (([URL]) -> Void)?
@@ -36,6 +37,7 @@ final class RecordingsWindow: NSObject {
     private let speakersStack = NSStackView()
     private let finishButton = NSButton()
     private let retranscribeButton = NSButton()
+    private let openTranscriptButton = NSButton()
     private let openFolderButton = NSButton()
     private let deleteButton = NSButton()
     private let importButton = NSButton()
@@ -162,6 +164,8 @@ final class RecordingsWindow: NSObject {
             (finishButton, localised("Finish processing", "Доделать"), #selector(finishClicked)),
             (retranscribeButton,
              localised("Re-transcribe", "Расшифровать заново"), #selector(retranscribeClicked)),
+            (openTranscriptButton,
+             localised("Open transcript", "Открыть расшифровку"), #selector(openTranscriptClicked)),
             (openFolderButton, localised("Open folder", "Открыть папку"), #selector(openFolderClicked)),
             (deleteButton, localised("Delete", "Удалить"), #selector(deleteClicked)),
         ] as [(NSButton, String, Selector)] {
@@ -171,12 +175,22 @@ final class RecordingsWindow: NSObject {
             button.action = action
         }
         importButton.identifier = NSUserInterfaceItemIdentifier("choose-media-import")
+        openTranscriptButton.identifier = NSUserInterfaceItemIdentifier("open-transcript")
 
-        let buttons = NSStackView(views: [
-            importButton, finishButton, retranscribeButton, openFolderButton, deleteButton, busyLabel,
+        let processingButtons = NSStackView(views: [
+            importButton, finishButton, retranscribeButton,
         ])
-        buttons.orientation = .horizontal
-        buttons.spacing = 8
+        processingButtons.orientation = .horizontal
+        processingButtons.spacing = 8
+        let fileButtons = NSStackView(views: [
+            openTranscriptButton, openFolderButton, deleteButton, busyLabel,
+        ])
+        fileButtons.orientation = .horizontal
+        fileButtons.spacing = 8
+        let buttons = NSStackView(views: [processingButtons, fileButtons])
+        buttons.orientation = .vertical
+        buttons.alignment = .leading
+        buttons.spacing = 6
 
         let detailScroll = NSScrollView()
         detailScroll.documentView = speakersStack
@@ -326,6 +340,11 @@ final class RecordingsWindow: NSObject {
         // would be the cruellest button in the window, since pressing it
         // throws away the transcript that is now the only record there is.
         retranscribeButton.isEnabled = !working && (item?.hasAudio ?? false)
+        openTranscriptButton.isEnabled = item.map {
+            $0.transcript == .done
+                || FileManager.default.fileExists(
+                    atPath: $0.dir.appendingPathComponent("transcript.md").path)
+        } ?? false
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
         busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
@@ -491,12 +510,62 @@ final class RecordingsWindow: NSObject {
 
     @objc private func chooseImportClicked() { onChooseImport?() }
 
+    @objc private func openTranscriptClicked() {
+        guard let item = selected else { return }
+        guard let file = Self.readableTranscript(in: item.dir) else { return }
+        Self.openTranscript(file,
+            openDefault: { file in
+                guard NSWorkspace.shared.urlForApplication(toOpen: file) != nil else { return false }
+                return NSWorkspace.shared.open(file)
+            },
+            openTextEdit: { file in
+                guard let textEdit = NSWorkspace.shared.urlForApplication(
+                    withBundleIdentifier: "com.apple.TextEdit"
+                ) else {
+                    let alert = NSAlert()
+                    alert.messageText = localised(
+                        "Could not open the transcript", "Не удалось открыть расшифровку")
+                    alert.informativeText = file.path
+                    alert.runModal()
+                    return
+                }
+                NSWorkspace.shared.open(
+                    [file], withApplicationAt: textEdit,
+                    configuration: NSWorkspace.OpenConfiguration()
+                ) { _, error in
+                    if let error {
+                        Task { @MainActor in NSAlert(error: error).runModal() }
+                    }
+                }
+            })
+    }
+
+    static func readableTranscript(in dir: URL) -> URL? {
+        let file = dir.appendingPathComponent("transcript.md")
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        guard let transcript = PostProcessor.readTranscript(dir) else { return nil }
+        do {
+            try transcript.writeMarkdown(to: dir, names: SpeakerNames.read(from: dir))
+            return file
+        } catch {
+            return nil
+        }
+    }
+
+    static func openTranscript(
+        _ file: URL,
+        openDefault: (URL) -> Bool,
+        openTextEdit: (URL) -> Void
+    ) {
+        if !openDefault(file) { openTextEdit(file) }
+    }
+
     @objc private func openFolderClicked() {
         guard let item = selected else { return }
         Analytics.track(.artifactOpened, [
             .artifact: .text(Analytics.Artifact.sessionFolder.rawValue),
         ])
-        NSWorkspace.shared.activateFileViewerSelecting([item.dir])
+        NSWorkspace.shared.open(item.dir)
     }
 
     /// To the Trash, never `rm`. These are meetings: the cost of a mistaken

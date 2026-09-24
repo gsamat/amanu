@@ -91,7 +91,11 @@ struct TranscriptionChoice: Equatable {
 
     /// The service's name as a person would write it.
     static func displayName(_ provider: String) -> String {
-        provider == "openai" ? "OpenAI" : "AssemblyAI"
+        switch provider {
+        case "openai": return "OpenAI"
+        case "elevenlabs": return "ElevenLabs"
+        default: return "AssemblyAI"
+        }
     }
 
     /// Whether a provider asked for earlier is still waiting for a key.

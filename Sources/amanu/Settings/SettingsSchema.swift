@@ -91,12 +91,12 @@ enum SettingsSchema {
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
                           "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
-                      .choice(["auto", "assemblyai", "openai"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs"]), default: "auto", askedInSetup: true),
                 Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                       localised(
-                          "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
-                          "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
-                      .choice(["assemblyai", "openai"]), default: "assemblyai", askedInSetup: true),
+                          "Which service auto uploads to when a key is available.",
+                          "В какой сервис auto отправляет запись, когда есть ключ."),
+                      .choice(["assemblyai", "openai", "elevenlabs"]), default: "assemblyai", askedInSetup: true),
                 Entry(["transcription", "local_engine"],
                       localised("Local engine", "Локальный движок"),
                       localised(
@@ -126,12 +126,12 @@ enum SettingsSchema {
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
                       "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
-                      .choice(["auto", "assemblyai", "openai", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                   localised(
-                      "Which service auto uploads to. assemblyai has no length limit; openai charges more.",
-                      "Куда auto отправляет запись. У assemblyai нет предела длины, openai дороже."),
-                  .choice(["assemblyai", "openai"]), default: "assemblyai", askedInSetup: true),
+                      "Which service auto uploads to when a key is available.",
+                      "В какой сервис auto отправляет запись, когда есть ключ."),
+                  .choice(["assemblyai", "openai", "elevenlabs"]), default: "assemblyai", askedInSetup: true),
             Entry(["transcription", "local_engine"],
                   localised("Local engine", "Локальный движок"),
                   localised(
@@ -296,6 +296,12 @@ enum SettingsSchema {
                       "По умолчанию стоит единственная модель OpenAI, которая возвращает и время, "
                           + "и говорящих."),
                   .text, default: "gpt-4o-transcribe-diarize"),
+            Entry(["transcription", "elevenlabs", "api_key_path"],
+                  localised("ElevenLabs key file", "Файл ключа ElevenLabs"),
+                  localised(
+                      "Where the ElevenLabs key is read from. ELEVENLABS_API_KEY wins over it.",
+                      "Откуда читается ключ ElevenLabs. ELEVENLABS_API_KEY важнее."),
+                  .text, default: "~/.config/amanu/keys/elevenlabs"),
         ]),
 
         Section(title: localised("Summaries", "Саммари"), entries: [
@@ -597,7 +603,9 @@ enum SettingsSchema {
     /// into a screenshot. The path to a key file is offered instead. Keys
     /// listed here still count as known — a setting amanu obeys must never be
     /// reported as one it ignores.
-    static let unrenderedKeys = ["transcription.assemblyai.api_key"]
+    static let unrenderedKeys = [
+        "transcription.assemblyai.api_key", "transcription.elevenlabs.api_key",
+    ]
 
     /// Older releases exposed these choices. Retained audio now always becomes
     /// one compact stereo M4A, but accepting the keys keeps an old config from

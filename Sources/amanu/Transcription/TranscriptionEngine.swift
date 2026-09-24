@@ -25,8 +25,9 @@ enum TranscriptionInput: Sendable {
     /// One call per track. mic → "me", system → "them"; free two-party
     /// diarization with no speaker model involved.
     case perTrack
-    /// One call over aligned stereo: mic on channel 1, system on channel 2.
-    /// The engine returns channel-qualified speaker labels, so no energy-based
+    /// Aligned stereo: mic on channel 1, system on channel 2. The engine may
+    /// send one request or extract and process the channels independently.
+    /// It returns channel-qualified speaker labels, so no energy-based
     /// side attribution is needed.
     case multichannel
     /// One call for the whole session against a single mixed-down file. The
@@ -43,7 +44,7 @@ enum TranscriptionInput: Sendable {
     }
 }
 
-/// AssemblyAI's multichannel diarization labels combine the one-based channel
+/// Multichannel diarization labels combine the one-based channel
 /// and the voice within it (`1A`, `2B`). Amanu's stable vocabulary keeps those
 /// two facts separate: channel 1 is `me`, channel 2 is `them`, and a suffix is
 /// useful only while more than one voice survives on that side.
