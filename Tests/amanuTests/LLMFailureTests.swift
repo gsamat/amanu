@@ -60,6 +60,64 @@ struct LLMFailureTests {
         #expect(LLMError.isTransient(URLError(.timedOut)))
     }
 
+    /// A subscription CLI that has signed itself out is back the next time
+    /// its owner uses it for anything else, so a summary lost to it must be
+    /// deferred rather than written off. The strings are the ones the
+    /// binaries print.
+    @Test("A signed-out CLI is transient, and is reported as a missing credential")
+    func signedOutCLIIsTransient() {
+        let signedOut = [
+            "Failed to authenticate: OAuth session expired and could not be refreshed",
+            "API Error: 401 Invalid API key · Please run /login",
+            "Not logged in",
+            "ERROR: Your access token could not be refreshed. Please log out and sign in again.",
+        ]
+        for output in signedOut {
+            let error = LLMError.exit(1, output)
+            #expect(error.isSignedOut, "\(output)")
+            #expect(error.isTransient, "\(output)")
+            #expect(!error.isUsageLimit, "\(output)")
+            #expect(Analytics.reason(for: error) == .noKey, "\(output)")
+        }
+
+        // A key the API refuses stays refused until somebody replaces it.
+        #expect(!LLMError.http(401, "invalid x-api-key").isSignedOut)
+        #expect(!LLMError.exit(1, "The 'gpt-5' model is not supported").isSignedOut)
+    }
+
+    /// `codex exec` writes a banner, then its whole input, then the error.
+    @Test("A failed command is described by how it ended, not by its echo of the prompt")
+    func failureTextKeepsTheEndAndDropsTheEcho() {
+        let prompt = "You are taking notes.\n\n"
+            + String(repeating: "them: we are over quota on the staging cluster\n", count: 200)
+        let stderr = "OpenAI Codex v0.156.1\n--------\nmodel: gpt-5\n--------\nuser\n"
+            + prompt.trimmingCharacters(in: .whitespacesAndNewlines) + "\n\n"
+            + "hook: SessionStart\n"
+            + #"ERROR: {"status":400,"message":"The 'gpt-5' model is not supported."}"# + "\n"
+
+        let text = LLMBackend.failureText(
+            stderr: Data(stderr.utf8), stdout: Data(), input: prompt)
+
+        #expect(text.contains("The 'gpt-5' model is not supported."))
+        #expect(!text.contains("staging cluster"))
+        // The meeting talked about a quota; the backend never ran out of one.
+        #expect(!LLMError.exit(1, text).isUsageLimit)
+        #expect(!LLMError.exit(1, text).isTransient)
+    }
+
+    @Test("A long failure is cut from the front, at a line")
+    func failureTextKeepsTheTail() {
+        let stderr = (1...200).map { "trace line \($0)" }.joined(separator: "\n")
+            + "\nfatal: the actual reason"
+        let text = LLMBackend.failureText(
+            stderr: Data(stderr.utf8), stdout: Data(), input: "")
+
+        #expect(text.hasPrefix("…trace line "))
+        #expect(text.hasSuffix("fatal: the actual reason"))
+        #expect(text.count <= 1001)
+        #expect(!text.contains("trace line 1\n"))
+    }
+
     /// The model answered — it just answered badly. Repeating the same request
     /// won't change that, and retrying for ever is how a session never settles.
     @Test("A bad answer is permanent, not transient")

@@ -224,10 +224,36 @@ struct LLMBackend {
         guard result.status == 0 else {
             throw LLMError.exit(
                 Int(result.status),
-                String(decoding: result.stderr.prefix(600), as: UTF8.self)
-                    + String(decoding: result.stdout.suffix(600), as: UTF8.self))
+                failureText(stderr: result.stderr, stdout: result.stdout, input: input))
         }
         return String(decoding: result.stdout, as: UTF8.self)
+    }
+
+    /// What a failed command said about why, for the session log and for the
+    /// checks that decide whether to try again later.
+    ///
+    /// The reason is at the end, not the start: `codex exec` opens stderr with
+    /// a banner and then echoes its whole input — the transcript — before the
+    /// error that ended the run, so the head of its stderr is the one part
+    /// certain not to say what went wrong. The echo is cut out rather than
+    /// merely scrolled past, because a meeting that talked about a quota must
+    /// not read as a spent one.
+    static func failureText(stderr: Data, stdout: Data, input: String) -> String {
+        var said = String(decoding: stderr, as: UTF8.self)
+        let echoed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !echoed.isEmpty {
+            said = said.replacingOccurrences(of: echoed, with: "[input]")
+        }
+        return tail(said, limit: 1000) + tail(String(decoding: stdout, as: UTF8.self), limit: 400)
+    }
+
+    /// The last `limit` characters, from the start of a line where one begins
+    /// inside them.
+    private static func tail(_ text: String, limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let end = text.suffix(limit)
+        guard let newline = end.firstIndex(of: "\n") else { return "…" + end }
+        return "…" + end[end.index(after: newline)...]
     }
 
 }
@@ -265,20 +291,35 @@ enum LLMError: Error, CustomStringConvertible {
         return Self.usageLimitMarkers.contains { haystack.contains($0) }
     }
 
+    /// Whether a borrowed CLI has lost its sign-in: an expired OAuth session,
+    /// or a login that was never made on this machine.
+    ///
+    /// Only the command-line backends can be in this state. An API key the
+    /// server refuses answers 401, and stays refused until somebody replaces
+    /// it; a subscription CLI that has signed itself out comes back the moment
+    /// its owner runs `/login` or `codex login`, which is the next time they
+    /// use it for anything else.
+    var isSignedOut: Bool {
+        guard case .exit(_, let output) = self else { return false }
+        let haystack = output.lowercased()
+        return Self.signedOutMarkers.contains { haystack.contains($0) }
+    }
+
     /// Whether the same request would plausibly succeed later: no network, a
     /// server that fell over, a local model that isn't running yet.
     ///
     /// This is the distinction between "try again this evening" and "this will
     /// never work" — a summary skipped on a plane must not be written off, and
-    /// a malformed answer must not be retried for ever. A spent allowance
-    /// counts as transient: it comes back.
+    /// a malformed answer must not be retried for ever. A spent allowance and
+    /// a lapsed sign-in count as transient: both come back.
     var isTransient: Bool {
         switch self {
         case .http(let code, _):
             return code == 429 || code >= 500
         case .exit(_, let output):
             let haystack = output.lowercased()
-            return isUsageLimit || Self.transientMarkers.contains { haystack.contains($0) }
+            return isUsageLimit || isSignedOut
+                || Self.transientMarkers.contains { haystack.contains($0) }
         case .emptyResponse, .malformedResponse:
             // The model answered; it just answered badly. Repeating the same
             // request is unlikely to change that.
@@ -289,6 +330,14 @@ enum LLMError: Error, CustomStringConvertible {
     private static let usageLimitMarkers = [
         "usage limit", "rate limit", "quota", "limit reached", "out of credit",
         "insufficient_quota", "429",
+    ]
+
+    /// What `claude` and `codex` print when they have nobody signed in, as
+    /// their binaries spell it.
+    private static let signedOutMarkers = [
+        "failed to authenticate", "not logged in", "please run /login",
+        "run codex login", "could not be refreshed", "sign in again",
+        "oauth token expired", "oauth token revoked",
     ]
 
     private static let transientMarkers = [
@@ -321,5 +370,9 @@ enum LLMError: Error, CustomStringConvertible {
 
     static func isUsageLimit(_ error: Error) -> Bool {
         (error as? LLMError)?.isUsageLimit ?? false
+    }
+
+    static func isSignedOut(_ error: Error) -> Bool {
+        (error as? LLMError)?.isSignedOut ?? false
     }
 }
