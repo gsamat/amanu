@@ -224,10 +224,46 @@ struct LLMBackend {
         guard result.status == 0 else {
             throw LLMError.exit(
                 Int(result.status),
-                String(decoding: result.stderr.prefix(600), as: UTF8.self)
-                    + String(decoding: result.stdout.suffix(600), as: UTF8.self))
+                failureText(stderr: result.stderr, stdout: result.stdout, input: input))
         }
         return String(decoding: result.stdout, as: UTF8.self)
+    }
+
+    /// What a failed command said about why, for the session log and for the
+    /// checks that decide whether to try again later.
+    ///
+    /// The reason is at the end, not the start: `codex exec` opens stderr with
+    /// a banner and then echoes its whole input — the transcript — before the
+    /// error that ended the run, so the head of its stderr is the one part
+    /// certain not to say what went wrong. Everything up to the end of the
+    /// echo is dropped rather than merely scrolled past, because a meeting
+    /// that talked about a quota must not read as a spent one.
+    ///
+    /// The echo is found by the input's last line alone, searched for from
+    /// the end: a CLI that rewraps or shortens the start of what it repeats
+    /// still leaves that line intact, and one that echoes nothing is left
+    /// alone.
+    static func failureText(stderr: Data, stdout: Data, input: String) -> String {
+        var said = String(decoding: stderr, as: UTF8.self)
+        let lastLine = input.split(separator: "\n").last { !$0.allSatisfy(\.isWhitespace) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if let lastLine, !lastLine.isEmpty,
+           let echo = said.range(of: lastLine, options: [.literal, .backwards]) {
+            said = "[input]" + said[echo.upperBound...]
+        }
+        let parts = [tail(said, limit: 1000), tail(String(decoding: stdout, as: UTF8.self), limit: 400)]
+        // A line break between the two, so that neither stream's last words
+        // run into the other's first and spell a marker neither said.
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    /// The last `limit` characters, from the start of a line where one begins
+    /// inside them.
+    private static func tail(_ text: String, limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let end = text.suffix(limit)
+        guard let newline = end.firstIndex(of: "\n") else { return "…" + end }
+        return "…" + end[end.index(after: newline)...]
     }
 
 }
@@ -265,6 +301,29 @@ enum LLMError: Error, CustomStringConvertible {
         return Self.usageLimitMarkers.contains { haystack.contains($0) }
     }
 
+    /// Whether a borrowed CLI has lost its sign-in: an expired OAuth session,
+    /// or a login that was never made on this machine.
+    ///
+    /// Only the command-line backends can be in this state; an API key the
+    /// server refuses answers 401 instead. It is worth naming in the log,
+    /// because the fix is the person's — `/login` or `codex login`, then
+    /// Finish processing — and nothing in the error says so.
+    ///
+    /// It is deliberately not transient. A CLI that was signed in last week
+    /// will probably be signed in again soon, but one found inside a desktop
+    /// app and never signed in at all never will, and a deferred session is
+    /// retried at every launch and every network change with no end.
+    ///
+    /// Only the last few lines are read. That is where both CLIs put the
+    /// verdict, and it keeps an MCP server's own sign-in chatter earlier in
+    /// the run from being taken for the CLI's.
+    var isSignedOut: Bool {
+        guard case .exit(_, let output) = self else { return false }
+        let haystack = output.split(separator: "\n").suffix(4).joined(separator: "\n")
+            .lowercased()
+        return Self.signedOutMarkers.contains { haystack.contains($0) }
+    }
+
     /// Whether the same request would plausibly succeed later: no network, a
     /// server that fell over, a local model that isn't running yet.
     ///
@@ -289,6 +348,16 @@ enum LLMError: Error, CustomStringConvertible {
     private static let usageLimitMarkers = [
         "usage limit", "rate limit", "quota", "limit reached", "out of credit",
         "insufficient_quota", "429",
+    ]
+
+    /// What `claude` and `codex` print when they have nobody signed in, as
+    /// their binaries spell it — and only the phrases that name the CLI's own
+    /// sign-in, not the generic ones ("failed to authenticate") that any MCP
+    /// server with an OAuth token of its own might also print.
+    private static let signedOutMarkers = [
+        "please run /login", "run codex login", "not logged in",
+        "oauth session expired", "oauth token expired", "oauth token revoked",
+        "access token could not be refreshed",
     ]
 
     private static let transientMarkers = [
@@ -321,5 +390,9 @@ enum LLMError: Error, CustomStringConvertible {
 
     static func isUsageLimit(_ error: Error) -> Bool {
         (error as? LLMError)?.isUsageLimit ?? false
+    }
+
+    static func isSignedOut(_ error: Error) -> Bool {
+        (error as? LLMError)?.isSignedOut ?? false
     }
 }

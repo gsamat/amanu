@@ -105,6 +105,37 @@ struct SessionInventoryTests {
         #expect(PostProcessor.outstanding(failed, policy: Self.allPostProcessing).isEmpty)
     }
 
+    /// Failed is final for the sweep and for nobody else. A person who has
+    /// signed a CLI back in, or corrected a model name, and asks again has
+    /// changed the thing the failure was a judgement about.
+    @Test("Failed naming and summary are tried again when a person asks")
+    @MainActor
+    func failedWorkComesBackWhenAskedFor() throws {
+        let failed = try Self.session(state: [
+            SessionState.Key.speakersStatus: "failed",
+            SessionState.Key.summaryStatus: "failed",
+        ])
+        let finished = try Self.session(speakers: true, summary: true)
+        defer {
+            try? FileManager.default.removeItem(at: failed)
+            try? FileManager.default.removeItem(at: finished)
+        }
+
+        let item = try #require(SessionInventory.item(for: failed, policy: Self.allPostProcessing))
+        #expect(item.postProcessingFailed)
+        #expect(PostProcessor.outstanding(
+            failed, policy: Self.allPostProcessing, retryingFailed: true)
+            == .init(names: true, summary: true))
+        #expect(RecordingsWindow.decision(for: item, policy: Self.allPostProcessing) == .finish)
+
+        // Asking again is not a way to redo work that succeeded.
+        #expect(PostProcessor.outstanding(
+            finished, policy: Self.allPostProcessing, retryingFailed: true).isEmpty)
+        let done = try #require(SessionInventory.item(
+            for: finished, policy: Self.allPostProcessing))
+        #expect(!done.postProcessingFailed)
+    }
+
     @Test("A retired session shows why, and is owed nothing until re-queued")
     func retiredSessionExplainsItself() throws {
         let dir = try Self.session(transcript: false, state: [
@@ -117,6 +148,7 @@ struct SessionInventoryTests {
         // Nothing to name or summarize without a transcript — and crucially,
         // no post-processing attempt that could burn its way to "failed".
         #expect(PostProcessor.outstanding(dir).isEmpty)
+        #expect(PostProcessor.outstanding(dir, retryingFailed: true).isEmpty)
     }
 
     @Test("Re-transcribing clears the marks and the derived files")
