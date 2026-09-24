@@ -60,12 +60,12 @@ struct LLMFailureTests {
         #expect(LLMError.isTransient(URLError(.timedOut)))
     }
 
-    /// A subscription CLI that has signed itself out is back the next time
-    /// its owner uses it for anything else, so a summary lost to it must be
-    /// deferred rather than written off. The strings are the ones the
-    /// binaries print.
-    @Test("A signed-out CLI is transient, and is reported as a missing credential")
-    func signedOutCLIIsTransient() {
+    /// Recognised so the log can say what to do about it, and deliberately
+    /// not transient: a CLI that was never signed in would otherwise keep its
+    /// sessions deferred, and retried at every launch, for ever. The strings
+    /// are the ones the binaries print.
+    @Test("A signed-out CLI is named, reported as a missing credential, and not deferred")
+    func signedOutCLIIsRecognised() {
         let signedOut = [
             "Failed to authenticate: OAuth session expired and could not be refreshed",
             "API Error: 401 Invalid API key · Please run /login",
@@ -75,14 +75,22 @@ struct LLMFailureTests {
         for output in signedOut {
             let error = LLMError.exit(1, output)
             #expect(error.isSignedOut, "\(output)")
-            #expect(error.isTransient, "\(output)")
+            #expect(!error.isTransient, "\(output)")
             #expect(!error.isUsageLimit, "\(output)")
             #expect(Analytics.reason(for: error) == .noKey, "\(output)")
         }
 
-        // A key the API refuses stays refused until somebody replaces it.
+        // A key the API refuses answers with a status, not a CLI's words.
         #expect(!LLMError.http(401, "invalid x-api-key").isSignedOut)
         #expect(!LLMError.exit(1, "The 'gpt-5' model is not supported").isSignedOut)
+        // An MCP server's own sign-in trouble is not the CLI's.
+        #expect(!LLMError.exit(1, "mcp: linear failed to authenticate\nERROR: bad model")
+            .isSignedOut)
+        // Nor is a phrase that scrolled past long before the run ended.
+        let early = "not logged in to the calendar server\n"
+            + (1...10).map { "hook: step \($0)" }.joined(separator: "\n")
+            + "\nERROR: the model is not supported"
+        #expect(!LLMError.exit(1, early).isSignedOut)
     }
 
     /// `codex exec` writes a banner, then its whole input, then the error.
@@ -103,6 +111,30 @@ struct LLMFailureTests {
         // The meeting talked about a quota; the backend never ran out of one.
         #expect(!LLMError.exit(1, text).isUsageLimit)
         #expect(!LLMError.exit(1, text).isTransient)
+    }
+
+    /// A CLI that rewraps the start of what it repeats still repeats the end.
+    @Test("An echo that does not match the input from its first line is still dropped")
+    func failureTextDropsAReformattedEcho() {
+        let prompt = "You are taking notes.\nWrite them in Russian.\n\n---\n"
+            + "them: the staging cluster timed out again\nme: let's ship on Monday"
+        let stderr = "banner\nuser\nYou are taking notes. Write them in Russian.\n---\n"
+            + "them: the staging cluster timed out again\nme: let's ship on Monday\n"
+            + "ERROR: The model is not supported.\n"
+
+        let text = LLMBackend.failureText(
+            stderr: Data(stderr.utf8), stdout: Data(), input: prompt)
+
+        #expect(text == "[input]\nERROR: The model is not supported.\n")
+        #expect(!LLMError.exit(1, text).isTransient, "the meeting's timeout is not the backend's")
+    }
+
+    @Test("The two streams are kept apart by a line break")
+    func failureTextSeparatesTheStreams() {
+        let text = LLMBackend.failureText(
+            stderr: Data("warning: rate".utf8), stdout: Data(" limit ahead".utf8), input: "")
+        #expect(text == "warning: rate\n limit ahead")
+        #expect(!LLMError.exit(1, text).isUsageLimit)
     }
 
     @Test("A long failure is cut from the front, at a line")

@@ -431,6 +431,15 @@ final class RecordingsWindow: NSObject {
             "Снова не вышло. Почему — написано в transcribe.log в папке записи.")
     }
 
+    /// Said when a retry reached no model at all. That is not a failure, and
+    /// it comes back on its own, so the line says when rather than why.
+    static var deferredAgainLine: String {
+        localised(
+            "No model could be reached just now. It will be tried again when the network is back.",
+            "Сейчас не получилось достучаться ни до одной модели — попробую ещё раз сам, "
+                + "когда появится сеть.")
+    }
+
     @objc private func finishClicked() {
         guard let item = selected else { return }
         switch Self.decision(for: item) {
@@ -458,12 +467,15 @@ final class RecordingsWindow: NSObject {
                 // the one thing the decision above cannot see. The command
                 // line answers that the same way, and the session log has
                 // the detail either way.
+                // Without the other two lines a retry that did not work looks
+                // exactly like a button that did nothing.
+                let after = SessionInventory.item(for: item.dir)
                 if work.isEmpty {
                     say(Self.nothingOwedLine, about: item)
-                } else if SessionInventory.item(for: item.dir)?.postProcessingFailed == true {
-                    // Without this a retry that failed again looks exactly
-                    // like a button that did nothing.
+                } else if after?.postProcessingFailed == true {
                     say(Self.failedAgainLine, about: item)
+                } else if after?.speakers == .deferred || after?.summary == .deferred {
+                    say(Self.deferredAgainLine, about: item)
                 }
             }
         }

@@ -235,16 +235,26 @@ struct LLMBackend {
     /// The reason is at the end, not the start: `codex exec` opens stderr with
     /// a banner and then echoes its whole input — the transcript — before the
     /// error that ended the run, so the head of its stderr is the one part
-    /// certain not to say what went wrong. The echo is cut out rather than
-    /// merely scrolled past, because a meeting that talked about a quota must
-    /// not read as a spent one.
+    /// certain not to say what went wrong. Everything up to the end of the
+    /// echo is dropped rather than merely scrolled past, because a meeting
+    /// that talked about a quota must not read as a spent one.
+    ///
+    /// The echo is found by the input's last line alone, searched for from
+    /// the end: a CLI that rewraps or shortens the start of what it repeats
+    /// still leaves that line intact, and one that echoes nothing is left
+    /// alone.
     static func failureText(stderr: Data, stdout: Data, input: String) -> String {
         var said = String(decoding: stderr, as: UTF8.self)
-        let echoed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !echoed.isEmpty {
-            said = said.replacingOccurrences(of: echoed, with: "[input]")
+        let lastLine = input.split(separator: "\n").last { !$0.allSatisfy(\.isWhitespace) }
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if let lastLine, !lastLine.isEmpty,
+           let echo = said.range(of: lastLine, options: [.literal, .backwards]) {
+            said = "[input]" + said[echo.upperBound...]
         }
-        return tail(said, limit: 1000) + tail(String(decoding: stdout, as: UTF8.self), limit: 400)
+        let parts = [tail(said, limit: 1000), tail(String(decoding: stdout, as: UTF8.self), limit: 400)]
+        // A line break between the two, so that neither stream's last words
+        // run into the other's first and spell a marker neither said.
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// The last `limit` characters, from the start of a line where one begins
@@ -294,14 +304,23 @@ enum LLMError: Error, CustomStringConvertible {
     /// Whether a borrowed CLI has lost its sign-in: an expired OAuth session,
     /// or a login that was never made on this machine.
     ///
-    /// Only the command-line backends can be in this state. An API key the
-    /// server refuses answers 401, and stays refused until somebody replaces
-    /// it; a subscription CLI that has signed itself out comes back the moment
-    /// its owner runs `/login` or `codex login`, which is the next time they
-    /// use it for anything else.
+    /// Only the command-line backends can be in this state; an API key the
+    /// server refuses answers 401 instead. It is worth naming in the log,
+    /// because the fix is the person's — `/login` or `codex login`, then
+    /// Finish processing — and nothing in the error says so.
+    ///
+    /// It is deliberately not transient. A CLI that was signed in last week
+    /// will probably be signed in again soon, but one found inside a desktop
+    /// app and never signed in at all never will, and a deferred session is
+    /// retried at every launch and every network change with no end.
+    ///
+    /// Only the last few lines are read. That is where both CLIs put the
+    /// verdict, and it keeps an MCP server's own sign-in chatter earlier in
+    /// the run from being taken for the CLI's.
     var isSignedOut: Bool {
         guard case .exit(_, let output) = self else { return false }
-        let haystack = output.lowercased()
+        let haystack = output.split(separator: "\n").suffix(4).joined(separator: "\n")
+            .lowercased()
         return Self.signedOutMarkers.contains { haystack.contains($0) }
     }
 
@@ -310,16 +329,15 @@ enum LLMError: Error, CustomStringConvertible {
     ///
     /// This is the distinction between "try again this evening" and "this will
     /// never work" — a summary skipped on a plane must not be written off, and
-    /// a malformed answer must not be retried for ever. A spent allowance and
-    /// a lapsed sign-in count as transient: both come back.
+    /// a malformed answer must not be retried for ever. A spent allowance
+    /// counts as transient: it comes back.
     var isTransient: Bool {
         switch self {
         case .http(let code, _):
             return code == 429 || code >= 500
         case .exit(_, let output):
             let haystack = output.lowercased()
-            return isUsageLimit || isSignedOut
-                || Self.transientMarkers.contains { haystack.contains($0) }
+            return isUsageLimit || Self.transientMarkers.contains { haystack.contains($0) }
         case .emptyResponse, .malformedResponse:
             // The model answered; it just answered badly. Repeating the same
             // request is unlikely to change that.
@@ -333,11 +351,13 @@ enum LLMError: Error, CustomStringConvertible {
     ]
 
     /// What `claude` and `codex` print when they have nobody signed in, as
-    /// their binaries spell it.
+    /// their binaries spell it — and only the phrases that name the CLI's own
+    /// sign-in, not the generic ones ("failed to authenticate") that any MCP
+    /// server with an OAuth token of its own might also print.
     private static let signedOutMarkers = [
-        "failed to authenticate", "not logged in", "please run /login",
-        "run codex login", "could not be refreshed", "sign in again",
-        "oauth token expired", "oauth token revoked",
+        "please run /login", "run codex login", "not logged in",
+        "oauth session expired", "oauth token expired", "oauth token revoked",
+        "access token could not be refreshed",
     ]
 
     private static let transientMarkers = [

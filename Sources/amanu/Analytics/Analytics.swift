@@ -112,8 +112,8 @@ enum Analytics {
     static func reason(for error: Error) -> Reason {
         if LLMError.isUsageLimit(error) { return .usageLimit }
         // A CLI with nobody signed in is short of a credential, the same as a
-        // missing key — and is transient, so the catch-all below would
-        // otherwise report it as a network outage.
+        // missing key, and says so more usefully than the `unknown` the
+        // catch-all below would give it.
         if LLMError.isSignedOut(error) { return .noKey }
         if error is CancellationError { return .quit }
         if let url = error as? URLError {
