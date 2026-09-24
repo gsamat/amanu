@@ -80,10 +80,10 @@ struct OpenAIEngineTests {
     }
 
     /// The cache is the server's own answer, and a retry after a crash has to
-    /// find every piece of it — so the name says which piece it is, and the
+    /// find every piece of it, so the name says which piece it is, and the
     /// ordinary one-request case keeps the plain name.
     /// The engine used to pass the configured language straight through, which
-    /// is a pin — and "meetings are mostly in Russian" is precisely the case
+    /// is a pin, and "meetings are mostly in Russian" is precisely the case
     /// where a pin is sometimes wrong. OpenAI has no expected_languages to
     /// narrow detection with instead, so the only safe answer is to say
     /// nothing and let the model listen.
@@ -129,5 +129,46 @@ struct OpenAIEngineTests {
         #expect(Double(length) * bytesPerSecond < Double(limit))
         // And not so cautious that it turns one meeting into a dozen uploads.
         #expect(length > 2000)
+    }
+
+    /// The diarizing model refuses audio longer than 1400 seconds even when
+    /// the file is well under 25 MB. A 42-minute mix at 64 kbit/s is about
+    /// 20 MB, which is exactly the recording that came back as HTTP 400 on
+    /// 21 September: 2530 seconds, and no slice, because size was the only
+    /// ceiling the engine looked at.
+    @Test("A meeting under 25 MB but over 1400 seconds is still cut into pieces")
+    func durationCeilingSlicesASmallLongFile() {
+        let length = try! #require(OpenAITranscriptionEngine.pieceLength(
+            bytes: 20 * 1_048_576, duration: 2530))
+        #expect(length <= OpenAITranscriptionEngine.maxAudioDuration - OpenAITranscriptionEngine.durationSlack)
+        #expect(length >= 60)
+    }
+
+    /// Size-based pieces of a long meeting land around 45 minutes, which the
+    /// same model also refuses. The shorter of the two ceilings wins, and a
+    /// file whose bitrate would blow the 25 MB cap still follows the size one.
+    @Test("Piece length stays under both the size limit and the duration limit")
+    func pieceLengthObeysBothCeilings() {
+        let limit = OpenAITranscriptionEngine.defaultRequestLimit
+        let cap = OpenAITranscriptionEngine.maxAudioDuration
+            - OpenAITranscriptionEngine.durationSlack
+
+        let long = try! #require(OpenAITranscriptionEngine.pieceLength(
+            bytes: 55 * 1_048_576, duration: 7200))
+        #expect(long == cap)
+
+        // 100 MB across 25 minutes: a duration cap of ~23 minutes would still
+        // be over 25 MB, so the size ceiling has to win.
+        let heavy: Int64 = 100 * 1_048_576
+        let bySize = try! #require(AudioSlicer.sliceLength(
+            bytes: heavy, duration: 1500, limit: limit))
+        let tight = try! #require(OpenAITranscriptionEngine.pieceLength(
+            bytes: heavy, duration: 1500))
+        #expect(tight == bySize)
+        #expect(tight < cap)
+
+        // A short file under 25 MB needs no cut at all.
+        #expect(OpenAITranscriptionEngine.pieceLength(
+            bytes: 10 * 1_048_576, duration: 1200) == nil)
     }
 }
