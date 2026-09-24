@@ -335,7 +335,10 @@ final class RecordingsWindow: NSObject {
 
     private func updateButtons() {
         let item = selected
-        finishButton.isEnabled = !working && (item?.isOutstanding ?? false)
+        // Names or a summary that gave up enable it too: this button is the
+        // only way back for them, since nothing retries a failure on its own.
+        finishButton.isEnabled = !working
+            && (item.map { $0.isOutstanding || $0.postProcessingFailed } ?? false)
         // Nothing to transcribe again once the audio is gone — and offering it
         // would be the cruellest button in the window, since pressing it
         // throws away the transcript that is now the only record there is.
@@ -370,7 +373,8 @@ final class RecordingsWindow: NSObject {
 
     /// What Finish processing does about one recording.
     enum Decision: Equatable {
-        /// A transcript exists and something after it is still owed.
+        /// A transcript exists and something after it is still owed, or gave
+        /// up and is being asked for again.
         case finish
         /// No transcript, but audio to make one from.
         case transcribe(clearingFirst: Bool)
@@ -401,7 +405,8 @@ final class RecordingsWindow: NSObject {
         case .transcribe(let clearingFirst):
             return .transcribe(clearingFirst: clearingFirst)
         case .finish:
-            return PostProcessor.outstanding(item.dir, policy: policy).isEmpty
+            return PostProcessor.outstanding(item.dir, policy: policy, retryingFailed: true)
+                .isEmpty
                 ? .nothingOwed
                 : .finish
         }
@@ -415,6 +420,15 @@ final class RecordingsWindow: NSObject {
         localised(
             "Everything that can be done here is already done.",
             "Всё, что можно было сделать, уже сделано.")
+    }
+
+    /// Said when a retry came back failed. The reason is in the session log,
+    /// and naming the file is what saves a person looking for it — the
+    /// window has no room for an error that can run to a paragraph.
+    static var failedAgainLine: String {
+        localised(
+            "It didn't work this time either. transcribe.log in the recording's folder says why.",
+            "Снова не вышло. Почему — написано в transcribe.log в папке записи.")
     }
 
     @objc private func finishClicked() {
@@ -437,14 +451,20 @@ final class RecordingsWindow: NSObject {
             working = true
             updateButtons()
             Task {
-                let work = await PostProcessor.finish(item.dir)
+                let work = await PostProcessor.finish(item.dir, retryingFailed: true)
                 working = false
                 reload()
                 // Empty after all means the transcript could not be read —
                 // the one thing the decision above cannot see. The command
                 // line answers that the same way, and the session log has
                 // the detail either way.
-                if work.isEmpty { say(Self.nothingOwedLine, about: item) }
+                if work.isEmpty {
+                    say(Self.nothingOwedLine, about: item)
+                } else if SessionInventory.item(for: item.dir)?.postProcessingFailed == true {
+                    // Without this a retry that failed again looks exactly
+                    // like a button that did nothing.
+                    say(Self.failedAgainLine, about: item)
+                }
             }
         }
     }

@@ -42,12 +42,20 @@ enum PostProcessor {
     /// A step is outstanding when its artifact is missing and its state isn't
     /// `failed` — a session that will never summarize must stop being offered,
     /// or every sweep picks it up again for ever.
-    static func outstanding(_ dir: URL, policy: Policy = .configured) -> Work {
+    ///
+    /// `retryingFailed` is the exception, and it belongs to a person. "Will
+    /// never" is a judgement about what time can fix; it says nothing about
+    /// a model name corrected in the settings or a CLI signed back in, and
+    /// someone who has just done either and asks again is owed the attempt.
+    static func outstanding(
+        _ dir: URL, policy: Policy = .configured, retryingFailed: Bool = false
+    ) -> Work {
         let fm = FileManager.default
         func exists(_ name: String) -> Bool {
             fm.fileExists(atPath: dir.appendingPathComponent(name).path)
         }
         func gaveUp(_ key: String) -> Bool {
+            guard !retryingFailed else { return false }
             guard let status = SessionState.value(dir, key) as? String else { return false }
             return status != SessionState.deferred
         }
@@ -79,10 +87,14 @@ enum PostProcessor {
     ///
     /// `policy` is here for the same reason `outstanding` has one: a test can
     /// say which steps it is exercising instead of inheriting whatever the
-    /// machine owner has turned on this week.
+    /// machine owner has turned on this week. `retryingFailed` is passed by
+    /// the two callers a person drives — the button and `amanu process` —
+    /// and never by the sweep.
     @discardableResult
-    static func finish(_ dir: URL, policy: Policy = .configured) async -> Work {
-        let work = outstanding(dir, policy: policy)
+    static func finish(
+        _ dir: URL, policy: Policy = .configured, retryingFailed: Bool = false
+    ) async -> Work {
+        let work = outstanding(dir, policy: policy, retryingFailed: retryingFailed)
         guard !work.isEmpty else { return work }
 
         do {
