@@ -34,7 +34,7 @@ final class StatusWindow {
     private let pauseButton = NSButton(
         title: localised("Pause", "Пауза"), target: nil, action: nil)
     private let autoRecordCheckbox = NSButton(
-        checkboxWithTitle: localised("Record meetings automatically", "Записывать встречи сама"),
+        checkboxWithTitle: localised("Record meetings automatically", "Записывать встречи автоматически"),
         target: nil, action: nil)
     private let decisionLabel = NSTextField(labelWithString: "")
     private let liveCheckbox = NSButton(
