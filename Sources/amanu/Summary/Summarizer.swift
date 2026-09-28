@@ -88,6 +88,8 @@ enum Summarizer {
                 ])
                 log(LLMError.isUsageLimit(error)
                     ? "\(backend.name) is out of allowance — trying the next backend"
+                    : LLMError.isSignedOut(error)
+                    ? "\(backend.name) is signed out — sign it back in; trying the next backend"
                     : "summary via \(backend.name) failed: \(error)")
             }
         }

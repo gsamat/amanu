@@ -97,7 +97,16 @@ marks the step `failed` on the first occurrence, exactly as `Summarizer`
 already does. Two states matching one rule beat two states matching two, and
 the case a counter would rescue — a model that answers badly once and well the
 next time — is rare enough not to justify a second retry policy sitting beside
-the first. Clearing the key by hand offers the session again.
+the first.
+
+*Changed later.* `failed` is final for the sweep and for nobody else. Finish
+processing is enabled for a session whose names or summary failed, and it and
+`amanu process` both try those steps again; the sweep never does. What stopped
+a step is often something a person fixes — a model name in the settings, a
+CLI whose sign-in lapsed — and editing `meta.json` was the only way back
+before. A lapsed sign-in is recognised (`LLMError.isSignedOut`) and named in
+the log, but it is not transient: a CLI that was never signed in would keep
+its sessions deferred for ever.
 
 Triggers: daemon start, the end of a transcription, the network coming back
 (`NWPathMonitor`), the button, the script.

@@ -23,6 +23,11 @@ enum SessionInventory {
 
         var isOutstanding: Bool { self == .pending || self == .deferred }
 
+        var isFailed: Bool {
+            if case .failed = self { return true }
+            return false
+        }
+
         /// For a terminal listing, which stays in English along with the
         /// rest of the command line — half of what it prints is the names of
         /// things, and a report pasted into an issue is worth more in one
@@ -76,6 +81,11 @@ enum SessionInventory {
         var isOutstanding: Bool {
             transcript.isOutstanding || speakers.isOutstanding || summary.isOutstanding
         }
+
+        /// Whether naming or the summary gave up. Nothing comes back for these
+        /// on its own; they are for a person to ask for again, once they have
+        /// fixed whatever the session log says stopped them.
+        var postProcessingFailed: Bool { speakers.isFailed || summary.isFailed }
 
         /// One line for a terminal listing.
         var summaryLine: String {
