@@ -7,16 +7,18 @@ import Foundation
 /// OpenAI's transcription models amanu can use: the others return running text
 /// with no timings at all, and a transcript with no clock can be neither
 /// aligned with the recording nor attributed to a speaker. This one returns
-/// segments with start, end and a speaker label — the same shape AssemblyAI
+/// segments with start, end and a speaker label, the same shape AssemblyAI
 /// returns, which is why both are `.mixed` engines and share everything
 /// downstream.
 ///
-/// Two things about the API leak into the code. Requests are capped at 25 MB,
-/// which the mix passes at around 55 minutes, so a long meeting is cut into
-/// pieces and the timings shifted back onto the session clock; the person who
-/// recorded it never hears about any of this. And `chunking_strategy` is
-/// required for anything over 30 seconds — the API refuses outright without
-/// it, so it is always sent.
+/// Two things about the API leak into the code. A request is refused over
+/// 25 MB, and `gpt-4o-transcribe-diarize` also refuses audio longer than
+/// 1400 seconds no matter how small the file is. At the mix's bitrate the
+/// duration cap arrives first, around 23 minutes, and the size cap closer to
+/// an hour. Either way a long meeting is cut into pieces and the timings
+/// shifted back onto the session clock. The person who recorded it never
+/// hears about any of this. And `chunking_strategy` is required for anything
+/// over 30 seconds. The API refuses outright without it, so it is always sent.
 ///
 /// Every response is cached next to the audio as `transcript.openai*.json`,
 /// so a retry after a crash re-renders from disk instead of re-uploading and
@@ -29,7 +31,7 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
 
         /// Only "there was no speech in this audio" is permanent; a silent
         /// recording will still be silent tomorrow. A missing key or an HTTP
-        /// error is worth another go — see the note on the protocol.
+        /// error is worth another go. See the note on the protocol.
         var isPermanent: Bool {
             if case .empty = self { return true }
             return false
@@ -38,7 +40,7 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
         var description: String {
             switch self {
             case .noAPIKey:
-                return "no OpenAI API key — put one in \(Config.openAIKeyPath.path)"
+                return "no OpenAI API key: put one in \(Config.openAIKeyPath.path)"
                     + " (chmod 600) or set OPENAI_API_KEY"
             case .http(let code, let body):
                 return "openai transcription failed: HTTP \(code) \(body.prefix(400))"
@@ -53,22 +55,33 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
     /// documentation states and what a larger file is refused with.
     static let defaultRequestLimit: Int64 = 25 * 1_048_576
 
+    /// What `gpt-4o-transcribe-diarize` answers 400 with once audio passes it:
+    /// "longer than 1400 seconds which is the maximum for this model".
+    /// `chunking_strategy=auto` does not lift it. The file has to be cut here.
+    static let maxAudioDuration: TimeInterval = 1400
+
+    /// How far under `maxAudioDuration` a piece is cut. An AAC file measures a
+    /// fraction of a second longer than the PCM it was sliced from (one
+    /// meeting came back as 2530.452s against 2530s of samples), and a piece
+    /// that lands past the cap fails the whole transcription.
+    static let durationSlack: TimeInterval = 10
+
     nonisolated let name = "openai"
     nonisolated let model: String
     nonisolated let input: TranscriptionInput = .mixed
 
     private let apiKey: String
-    /// The languages this meeting may be in. Consulted for one decision only —
-    /// whether a language can be named at all — because the API has no way to
+    /// The languages this meeting may be in. Consulted for one decision only,
+    /// whether a language can be named at all, because the API has no way to
     /// narrow detection to a set the way assemblyai's `expected_languages`
     /// does. See `languageField(for:)`.
     private let expected: [String]
     /// A parameter rather than a constant so the sliced path can be exercised
     /// against real audio and the real API without a meeting long enough to
-    /// pass 25 MB — an hour of it, every time anyone wanted to check.
+    /// pass 25 MB, an hour of it, every time anyone wanted to check.
     private let requestLimit: Int64
 
-    /// Throws rather than failing at transcribe time — a missing key should
+    /// Throws rather than failing at transcribe time. A missing key should
     /// show up in the log the moment the engine is picked, not an upload later.
     init(requestLimit: Int64 = OpenAITranscriptionEngine.defaultRequestLimit) throws {
         guard let key = Config.openAIKey() else { throw EngineError.noAPIKey }
@@ -85,7 +98,7 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
         let dir = audio.deletingLastPathComponent()
         let slices = try await sliced(audio)
         if slices.count > 1 {
-            note("\(slices.count) pieces — the mix is over the API's limit")
+            note("\(slices.count) pieces: the mix is over the API's limit")
         }
 
         var segments: [TranscriptSegment] = []
@@ -122,13 +135,39 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
     private func sliced(_ audio: URL) async throws -> [AudioSlicer.Slice] {
         let whole = [AudioSlicer.Slice(url: audio, offset: 0)]
         let attributes = try? FileManager.default.attributesOfItem(atPath: audio.path)
-        guard let bytes = attributes?[.size] as? Int64, bytes > requestLimit else {
-            return whole
-        }
-        guard let length = AudioSlicer.sliceLength(
-            bytes: bytes, duration: Self.duration(of: audio), limit: requestLimit
+        let bytes = attributes?[.size] as? Int64 ?? 0
+        guard let length = Self.pieceLength(
+            bytes: bytes,
+            duration: Self.duration(of: audio),
+            requestLimit: requestLimit
         ) else { return whole }
         return try await AudioSlicer.slice(audio, every: length, into: Self.sliceDirectory(audio))
+    }
+
+    /// How long each upload may be, or nil when one request can take the file.
+    ///
+    /// Two ceilings, and either one fails the meeting if a piece crosses it.
+    /// Size alone is not enough: a 42-minute mix at 64 kbit/s is about 20 MB,
+    /// under 25 MB, and still longer than 1400 seconds. A size-only cut of a
+    /// longer meeting lands around 45 minutes, which this model also refuses.
+    /// The shorter ceiling wins.
+    static func pieceLength(
+        bytes: Int64,
+        duration: TimeInterval,
+        requestLimit: Int64 = defaultRequestLimit,
+        durationLimit: TimeInterval = maxAudioDuration,
+        slack: TimeInterval = durationSlack
+    ) -> TimeInterval? {
+        let bySize = AudioSlicer.sliceLength(
+            bytes: bytes, duration: duration, limit: requestLimit)
+        let cap = durationLimit - slack
+        let byDuration: TimeInterval? = duration > cap && cap >= 60 ? cap : nil
+        switch (bySize, byDuration) {
+        case (nil, nil): return nil
+        case (let size?, nil): return size
+        case (nil, let capped?): return capped
+        case (let size?, let capped?): return min(size, capped)
+        }
     }
 
     private static func sliceDirectory(_ audio: URL) -> URL {
@@ -190,14 +229,14 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
     /// The `language` field for a request, or nil to let the model detect.
     ///
     /// `language` is a pin: it tells the model what it is listening to rather
-    /// than what it might be, and there is nothing beside it — no
-    /// `expected_languages`, no candidate list — to express an expectation
+    /// than what it might be, and there is nothing beside it (no
+    /// `expected_languages`, no candidate list) to express an expectation
     /// instead. So it is only sent when the expectation is a single language
     /// and there is nothing for the pin to be wrong about, which today means
     /// somebody who chose English.
     ///
     /// "Mostly Russian" is not that. It means Russian *and* English, and a
-    /// pin on either is how the other comes back as fluent nonsense — the
+    /// pin on either is how the other comes back as fluent nonsense: the
     /// same failure the local engine's script filter used to cause, and the
     /// same reason it matters: `keep_audio` is off by default, so that
     /// transcript is the whole of what survives the meeting. Detection over
@@ -276,8 +315,8 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
         )]
     }
 
-    /// The slice of the API response amanu uses. Everything else it returns —
-    /// usage, logprobs, the task name — is none of our business.
+    /// The slice of the API response amanu uses. Everything else it returns
+    /// (usage, logprobs, the task name) is none of our business.
     struct Response: Decodable, Sendable {
         struct Segment: Decodable, Sendable {
             let start: TimeInterval
