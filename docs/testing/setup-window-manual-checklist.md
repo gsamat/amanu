@@ -142,7 +142,11 @@ for it any more.
   **key works**, and the key lands in `~/.config/amanu/keys/` with mode 0600 —
   never in `config.json`. amanu never writes to the shared
   `~/.config/assemblyai/token`, though it still reads it.
-- Paste a *wrong* key over a working one and confirm the saved key is
+- Click **Change key** on a card that already says **key works**. Confirm the
+  paste field was hidden until then, that it opens and names that provider,
+  and that **Get a key** is gone. Paste a working key and confirm the file in
+  `~/.config/amanu/keys/` is replaced, the provider in force does not change,
+  and the field hides again. Paste a wrong key and confirm the saved one is
   untouched and the status says so.
 - Submit a key with **Return** rather than by clicking away, and confirm the
   window stays open long enough to say what happened — `checking…`, then

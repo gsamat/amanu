@@ -184,6 +184,52 @@ struct TranscriptionChoiceTests {
         #expect(!TranscriptionChoice.rowNeedsKey(pending: nil, cloudOn: false))
     }
 
+    /// A working key used to be the end of the field: the line hid itself,
+    /// and nothing on the card opened it again. Replacing a key is a separate
+    /// question from asking for the first one.
+    @Test("A working key hides the field until someone asks to replace it")
+    func keyFieldStaysHiddenUntilReplacement() {
+        #expect(!TranscriptionChoice.showsKeyField(
+            pending: nil, replacing: nil, inForceHasKey: true))
+        #expect(TranscriptionChoice.showsKeyField(
+            pending: nil, replacing: "openai", inForceHasKey: true))
+        #expect(TranscriptionChoice.showsKeyField(
+            pending: "openai", replacing: nil, inForceHasKey: false))
+        #expect(TranscriptionChoice.showsKeyField(
+            pending: nil, replacing: nil, inForceHasKey: false))
+        #expect(TranscriptionChoice.showsKeyField(
+            pending: nil, replacing: "assemblyai", inForceHasKey: true))
+    }
+
+    /// The sentence has to name the provider. The field is shared by both
+    /// cards, so "paste a new key" under a row of two would not say which
+    /// secret is about to be rewritten.
+    @Test("Replacing a key names the provider whose secret will change")
+    func replaceKeyPromptNamesTheProvider() {
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: nil, replacing: "openai", inForce: "openai", cloudOn: true)
+            == "paste a new OpenAI key to replace the saved one")
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: nil, replacing: "assemblyai", inForce: "openai", cloudOn: true)
+            == "paste a new AssemblyAI key to replace the saved one")
+        // A first key is still the question being asked. A leftover replace
+        // must not talk over it.
+        #expect(TranscriptionChoice.keyPrompt(
+            pending: "openai", replacing: "assemblyai", inForce: "assemblyai", cloudOn: true)
+            == "paste a key to move to OpenAI")
+    }
+
+    /// Pasting a replacement must not also flip the provider. The person
+    /// asked to change a secret, not to send the next meeting somewhere else.
+    @Test("Replacing a saved key does not switch the provider")
+    func replacementDoesNotSwitchProvider() {
+        #expect(TranscriptionChoice.keyReplacementOnly(replacing: "openai", pending: nil))
+        #expect(!TranscriptionChoice.keyReplacementOnly(replacing: nil, pending: "openai"))
+        #expect(!TranscriptionChoice.keyReplacementOnly(replacing: nil, pending: nil))
+        #expect(!TranscriptionChoice.keyReplacementOnly(
+            replacing: "openai", pending: "assemblyai"))
+    }
+
     /// The Intel half of the universal binary: there is no local model, so
     /// the local switch cannot be on however the config reads.
     @Test("Without local models the local switch is always off")
