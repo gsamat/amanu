@@ -41,7 +41,7 @@ Read first, in this order:
 | Phase 2.1–2.3: Parakeet download, a manual recording, local transcript, kept audio | laptop, beta.4 | works, with three bugs fixed for beta.6 and one open — see "Phase 2 on beta.4" |
 | Signed beta.7 (`8723ccc`), including the fixes above | [Windows CI run 36618675823](https://github.com/gsamat/amanu/actions/runs/36618675823) | 110 tests pass; valid Fands Software LLC signatures and timestamps on the installer, payload and packaged Velopack helpers; no GitHub Release. Never installed on the laptop. |
 | This branch's signed beta.6 (`45574de`, run 36617549549) | laptop, installed over beta.4 by Samat | installs, signatures valid, settings kept — but **the processing queue never starts on a second launch**; see "Beta.6 on the laptop". beta.7 has the same bug. |
-| Beta.8 (`cdc86b9` and after) | — | fixes that; **not yet built** |
+| Signed beta.8 (`9739642`, run 36620569067) | laptop, installed over beta.6 by Samat | **installed and current.** The startup fix, UTF-8 transcripts and the "no model" wait all confirmed on the real recording — see "Beta.8 on the laptop" |
 | Phase 2.4 (ten minutes, alignment across silence), phase 3 | — | **nothing yet** |
 
 ### Phase 1 on beta.4 (29 September, evening)
@@ -177,6 +177,26 @@ Also seen, not yet looked into: after "Transcribe again" the Recordings list kep
 showing the old status. It may only be that no processing event was published
 because the queue was not running; re-check on beta.8.
 
+### Beta.8 on the laptop (29 September, late evening)
+
+Samat installed beta.8 over beta.6: real path, ProductVersion
+`0.6.0-beta.8+9739642`, installer signed and timestamped. This was not the
+installation's first launch, so it exercised the fix:
+
+- `analytics.json` kept its id and gained `0.6.0-beta.8` in `versionsSeen`; no
+  new `errors.log` (beta.6's is kept as `errors.beta6.log`).
+- The queue started and, within 30 s, finished the re-transcription beta.6 had
+  abandoned (it resumed from the `.archive-*.wav` files and `transcribe.engine`).
+- **The Russian side is correct Cyrillic** in `transcript.md` and in the
+  Recordings window's Transcript tab.
+- Names and summary are deferred with "No model is set up for this: install Claude
+  Code or Codex, add an API key, or run Ollama.", every attempt counter at 0, and
+  the Recordings list says "waiting" rather than "failed".
+- Screenshots: `C:\Users\samat\Documents\amanu-test-shots\beta8-*.jpg`.
+
+Not fixed: the Transcript tab shows the Markdown source (`**[0:05] them:**`)
+rather than rendering it; still one segment per side (see Phase 2).
+
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
 launch" while the release notes promise no restarts.
@@ -239,10 +259,10 @@ leaves one process. No `errors.log`, no Application-log errors.
 
 ## The installers
 
-- Installed on the laptop: this branch's beta.6 from
-  `C:\Users\samat\AppData\Local\Temp\amanu-beta6\Amanu-Windows-0.6.0-beta.6-x64\Amanu-beta-Setup.exe`
-  (signed, per-user, no UAC; ProductVersion 0.6.0-beta.6, commit `45574de`).
-  beta.4, unsigned, is still at `C:\Users\samat\AppData\Local\Temp\amanu-beta4\…`.
+- Installed on the laptop: beta.8 from
+  `C:\Users\samat\AppData\Local\Temp\amanu-beta8\Amanu-Windows-0.6.0-beta.8-x64\Amanu-beta-Setup.exe`
+  (signed, per-user, no UAC; ProductVersion 0.6.0-beta.8, commit `9739642`).
+  Earlier installers are beside it in `…\Temp\amanu-beta6` and `…\Temp\amanu-beta4`.
 - To build a new one after a fix: bump `<Version>` in
   `windows/src/Amanu.App/Amanu.App.csproj` (and the default in
   `windows/scripts/Build-Beta.ps1`, `windows/README.md`,
