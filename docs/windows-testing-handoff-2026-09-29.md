@@ -39,7 +39,7 @@ Read first, in this order:
 | Phase 1 GUI checks on **beta.3** | laptop, but the install was inside Claude's MSIX container (see below) | findings below, fixed in beta.4 |
 | Phase 1 GUI checks on **beta.4**, all nine items | laptop, real install (Samat ran the Setup from Explorer) | pass — see "Phase 1 on beta.4" below |
 | Phase 2.1–2.3: Parakeet download, a manual recording, local transcript, kept audio | laptop, beta.4 | works, with three bugs fixed for beta.6 and one open — see "Phase 2 on beta.4" |
-| Beta.6 (`45574de`), the first signed build from this branch | CI run 36617549549 | **waiting on signing** — see "Signing" |
+| Signed beta.7 (`8723ccc`), including this session's fixes | [Windows CI run 36618675823](https://github.com/gsamat/amanu/actions/runs/36618675823) | 110 tests pass; valid Fands Software LLC signatures and timestamps on the installer, payload and packaged Velopack helpers; no GitHub Release. Not installed on the laptop yet. |
 | Phase 2.4 (ten minutes, alignment across silence), phase 3 | — | **nothing yet** |
 
 ### Phase 1 on beta.4 (29 September, evening)
@@ -124,21 +124,25 @@ To tell what is really on disk from inside the container, ask WMI
 
 ### Signing (29 September, evening)
 
-While this session worked, a Codex agent set up Azure Artifact Signing on
-`codex/signing-smoke`: the `windows-signing` environment, a tenant-scope Azure
-login, and a workflow that uploads the installer only when it is signed
-(`upload_artifact`, default off). Adding the last signing secret made this
-branch's old workflow try to sign too, and fail at the Azure login. Commit
-`34c2a22` takes that branch's workflow and its test; `BETA.md` says the test
-builds are signed as Fands Software LLC.
+Azure Artifact Signing is now working through the `windows-signing` environment
+and tenant-only OIDC login. Samat explicitly allowed all branches in this
+repository; forks do not match the immutable repository-ID Azure trust. The
+service principal has Certificate Profile Signer access only on the production
+Fands Software LLC profile.
 
-That branch had already built a signed **0.6.0-beta.5** from code without this
-session's fixes, so this branch's next build is **0.6.0-beta.6** — two builds under
-one version would confuse testers and Velopack alike. Run 36617549549 got past
-the Azure login and failed installing the signing module ("Unable to find
-repository 'PSGallery'" on the runner); Samat asked to leave signing to the Codex
-agent and continue once it is done. Dispatch with
-`-f upload_artifact=true`, or there is nothing to download.
+Earlier runs encountered login and signing-module setup errors. Beta.5 proved
+payload and installer signing; beta.6 additionally verified the generated
+Velopack launcher and updater inside both packages. Neither included all of this
+session's latest fixes. Use **0.6.0-beta.7**, built from `8723ccc`, instead:
+[download the signed artifact](https://github.com/gsamat/amanu/actions/runs/36618675823/artifacts/11057746592).
+The 110 core tests and signature checks passed on the Windows CI runner. This
+does not establish GUI or recording behavior on the laptop; install and retest
+there next. The artifact expires after 30 days and requires GitHub sign-in.
+
+`upload_artifact` now defaults to **true** and refuses an unsigned downloadable
+build; `publish_release` defaults to **false**. No GitHub Release or automatic
+update was published. Use a fresh version for subsequent builds; do not replace
+beta.7 with different application code.
 
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
@@ -202,14 +206,14 @@ leaves one process. No `errors.log`, no Application-log errors.
 
 ## The installers
 
-- beta.4 (current): `C:\Users\samat\AppData\Local\Temp\amanu-beta4\Amanu-Windows-0.6.0-beta.4-x64\Amanu-beta-Setup.exe`
+- beta.4 (currently installed on the laptop): `C:\Users\samat\AppData\Local\Temp\amanu-beta4\Amanu-Windows-0.6.0-beta.4-x64\Amanu-beta-Setup.exe`
   (unsigned, per-user, no UAC; ProductVersion 0.6.0-beta.4, commit `061a34c`).
 - To build a new one after a fix: bump `<Version>` in
   `windows/src/Amanu.App/Amanu.App.csproj` (and the default in
   `windows/scripts/Build-Beta.ps1`, `windows/README.md`,
   `.github/workflows/windows-beta.yml`), commit, push, then
   `gh workflow run windows-beta.yml --repo gsamat/amanu --ref claude/windows-version-testing-11d877 -f version=0.6.0-beta.N -f publish_release=false -f upload_artifact=true`
-  (the artifact is uploaded only when asked for, and only when signed),
+  (artifact upload is on by default, and requires signing),
   `gh run watch <id> --repo gsamat/amanu --exit-status`,
   `gh run download <id> --repo gsamat/amanu -D $env:TEMP\amanu-betaN`. About five
   minutes. Don't set `publish_release=true` (a public prerelease) without Samat.
