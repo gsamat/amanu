@@ -4,3 +4,8 @@
 .superpowers/
 dist/
 .env.asc
+**/bin/
+**/obj/
+.vs/
+windows/.tools/
+windows/artifacts/

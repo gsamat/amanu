@@ -1,0 +1,75 @@
+<Window x:Class="Amanu.App.CompactWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Amanu" Width="390" Height="340" MinWidth="360" MinHeight="300"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
+        Background="{DynamicResource WindowBackground}" Foreground="{DynamicResource TextPrimary}">
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="20,18,20,18">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Ellipse x:Name="StateDot" Width="10" Height="10" Margin="0,0,9,0"
+                 VerticalAlignment="Center" Fill="{DynamicResource MutedText}"/>
+        <TextBlock x:Name="StateText" Grid.Column="1" Text="Не записывает"
+                   FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"
+                   AutomationProperties.LiveSetting="Polite"/>
+        <TextBlock x:Name="ElapsedText" Grid.Column="2" FontSize="16"
+                   FontFamily="Segoe UI" FontWeight="SemiBold" VerticalAlignment="Center"
+                   Margin="8,0,0,0"/>
+      </Grid>
+      <TextBlock x:Name="DetailText" Text="Ожидаю звонок" TextWrapping="Wrap"
+                 Foreground="{DynamicResource MutedText}" Margin="19,5,0,14"/>
+
+      <Grid Margin="0,0,0,13">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Button x:Name="RecordButton" Grid.Column="0" Content="Начать запись"
+                Click="RecordButton_Click" Style="{StaticResource PrimaryButton}"
+                AutomationProperties.Name="Начать запись" Margin="0,0,5,0" MinHeight="36"/>
+        <Button x:Name="PauseButton" Grid.Column="1" Content="Пауза"
+                Click="PauseButton_Click" IsEnabled="False"
+                AutomationProperties.Name="Пауза" Margin="5,0,0,0" MinHeight="36"/>
+      </Grid>
+
+      <CheckBox x:Name="AutoRecordCheckBox" Content="Записывать встречи автоматически"
+                Click="AutoRecordCheckBox_Click" Margin="0,0,0,5"/>
+      <CheckBox x:Name="LiveCheckBox" Content="Расшифровка на ходу"
+                Click="LiveCheckBox_Click" Margin="0,0,0,7"/>
+
+      <Border x:Name="ProcessingPanel" Background="{DynamicResource PanelBackground}"
+              BorderBrush="{DynamicResource BorderColor}" BorderThickness="1"
+              CornerRadius="7" Padding="10,8" Margin="0,3,0,8" Visibility="Collapsed">
+        <TextBlock x:Name="ProcessingText" TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite"/>
+      </Border>
+
+      <Button x:Name="TranscriptToggleButton" Content="Показать расшифровку"
+              Click="TranscriptToggleButton_Click" HorizontalAlignment="Left"
+              Margin="0,0,0,5" Visibility="Collapsed"/>
+      <Border x:Name="TranscriptPanel" BorderBrush="{DynamicResource BorderColor}"
+              BorderThickness="1" CornerRadius="7" Margin="0,0,0,10"
+              Visibility="Collapsed">
+        <TextBox x:Name="LiveTranscriptText" IsReadOnly="True" TextWrapping="Wrap"
+                 AcceptsReturn="True" Height="200" VerticalScrollBarVisibility="Auto"
+                 AutomationProperties.Name="Расшифровка на ходу"/>
+      </Border>
+
+      <Border BorderBrush="{DynamicResource BorderColor}" BorderThickness="0,1,0,0"
+              Margin="0,3,0,8"/>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Button Grid.Column="0" Content="Импорт…" Click="ImportButton_Click"
+                Margin="0,0,5,0"/>
+        <Button Grid.Column="1" Content="Записи…" Click="RecordingsButton_Click"
+                Margin="5,0,5,0"/>
+        <Button Grid.Column="2" Content="Настройки…" Click="SettingsButton_Click"
+                Margin="5,0,0,0"/>
+      </Grid>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

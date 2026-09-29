@@ -1,0 +1,307 @@
+<UserControl x:Class="Amanu.App.SetupForm"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource TextPrimary}">
+  <UserControl.Resources>
+    <Style x:Key="RowTitle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="15"/><Setter Property="FontWeight" Value="Medium"/>
+    </Style>
+    <Style x:Key="RowDetail" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="{DynamicResource MutedText}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,3,0,0"/>
+    </Style>
+    <Style x:Key="CardTitle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="Medium"/>
+    </Style>
+    <Style x:Key="CardDetail" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="{DynamicResource MutedText}"/>
+      <Setter Property="TextWrapping" Value="Wrap"/><Setter Property="Margin" Value="0,6,0,0"/>
+    </Style>
+    <Style x:Key="Divider" TargetType="Border">
+      <Setter Property="Height" Value="1"/><Setter Property="Background" Value="{DynamicResource BorderColor}"/>
+    </Style>
+  </UserControl.Resources>
+  <StackPanel Margin="24,22,24,22">
+    <TextBlock Text="Доступ" Style="{StaticResource SectionTitle}"/>
+    <Border Style="{StaticResource SettingBox}">
+      <StackPanel>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Text="Запускать при входе в Windows" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Чтобы не пропустить встречу." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+          <CheckBox x:Name="StartupSwitch" Grid.Column="1" Style="{StaticResource SwitchStyle}"
+                    Margin="14,0,0,0" AutomationProperties.Name="Запускать при входе в Windows"/>
+        </Grid>
+        <Border Style="{StaticResource Divider}"/>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Text="Микрофон и звук приложения" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Windows разрешает доступ к микрофону в системных настройках. Звук звонка захватывается отдельно." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+          <Button Grid.Column="1" Content="Проверить доступ" Margin="14,0,0,0" Click="PrivacyButton_Click"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <TextBlock Text="Расшифровка" Style="{StaticResource SectionTitle}" Margin="0,30,0,9"/>
+    <Border Style="{StaticResource SettingBox}">
+      <StackPanel>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <CheckBox x:Name="CloudSwitch" Style="{StaticResource SwitchStyle}"
+                    AutomationProperties.Name="В облаке"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="В облаке" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Звук уходит на серверы выбранного провайдера. Он различает нескольких говорящих." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+        </Grid>
+        <Border Style="{StaticResource Divider}"/>
+        <StackPanel Margin="58,13,14,15">
+          <UniformGrid Columns="2">
+            <RadioButton x:Name="AssemblyCard" GroupName="CloudProvider" Style="{StaticResource ChoiceCard}" Tag="assemblyai"
+                         Checked="CloudProvider_Checked">
+              <StackPanel>
+                <TextBlock Text="AssemblyAI" Style="{StaticResource CardTitle}"/>
+                <TextBlock Text="Облачная расшифровка с разделением спикеров." Style="{StaticResource CardDetail}"/>
+                <TextBlock x:Name="AssemblyStatus" Style="{StaticResource CardDetail}"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="OpenAiCard" GroupName="CloudProvider" Style="{StaticResource ChoiceCard}" Tag="openai"
+                         Margin="0" Checked="CloudProvider_Checked">
+              <StackPanel>
+                <TextBlock Text="OpenAI" Style="{StaticResource CardTitle}"/>
+                <TextBlock Text="Тот же API-ключ может использоваться для итогов." Style="{StaticResource CardDetail}"/>
+                <TextBlock x:Name="OpenAiStatus" Style="{StaticResource CardDetail}"/>
+              </StackPanel>
+            </RadioButton>
+          </UniformGrid>
+          <StackPanel x:Name="CloudKeySection" Orientation="Horizontal" Margin="0,11,0,0">
+            <TextBlock x:Name="CloudKeyLabel" Text="API-ключ" VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <PasswordBox x:Name="AssemblyKeyBox" Width="260" PasswordChanged="KeyBox_PasswordChanged"/>
+            <PasswordBox x:Name="OpenAiKeyBox" Width="260" PasswordChanged="KeyBox_PasswordChanged" Visibility="Collapsed"/>
+          </StackPanel>
+        </StackPanel>
+        <Border Style="{StaticResource Divider}"/>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <CheckBox x:Name="LocalSwitch" Style="{StaticResource SwitchStyle}"
+                    AutomationProperties.Name="На этом компьютере"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="На этом компьютере" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Звук остаётся на компьютере. При включённых облаке и локальной модели она подстрахует облако." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+        </Grid>
+        <StackPanel Margin="58,0,14,15">
+          <UniformGrid Columns="3">
+            <RadioButton x:Name="ParakeetCard" GroupName="LocalModel" Style="{StaticResource ChoiceCard}" Tag="parakeet"
+                         Checked="LocalModel_Checked">
+              <StackPanel>
+                <TextBlock Text="Parakeet v3" Style="{StaticResource CardTitle}"/>
+                <TextBlock Text="Самая быстрая · около 460 МБ" Style="{StaticResource CardDetail}"/>
+                <TextBlock x:Name="ParakeetStatus" Style="{StaticResource CardDetail}"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="WhisperCard" GroupName="LocalModel" Style="{StaticResource ChoiceCard}" Tag="whisper"
+                         Checked="LocalModel_Checked">
+              <StackPanel>
+                <TextBlock Text="Whisper large-v3-turbo" Style="{StaticResource CardTitle}" TextWrapping="Wrap"/>
+                <TextBlock Text="Точнее на разных языках · около 550 МБ" Style="{StaticResource CardDetail}"/>
+                <TextBlock x:Name="WhisperStatus" Style="{StaticResource CardDetail}"/>
+              </StackPanel>
+            </RadioButton>
+            <RadioButton x:Name="GigaAmCard" GroupName="LocalModel" Style="{StaticResource ChoiceCard}" Tag="gigaam"
+                         Margin="0" Checked="LocalModel_Checked">
+              <StackPanel>
+                <TextBlock Text="GigaAM v3" Style="{StaticResource CardTitle}"/>
+                <TextBlock Text="Альтернатива для русского · около 260 МБ" Style="{StaticResource CardDetail}"/>
+                <TextBlock x:Name="GigaAmStatus" Style="{StaticResource CardDetail}"/>
+              </StackPanel>
+            </RadioButton>
+          </UniformGrid>
+          <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+            <Button x:Name="DownloadModelButton" Content="Скачать выбранную модель" Click="DownloadModelButton_Click"/>
+            <ProgressBar x:Name="ModelProgress" Width="110" Height="8" Margin="8,0" VerticalAlignment="Center"/>
+            <TextBlock x:Name="ModelStatus" Foreground="{DynamicResource MutedText}" FontSize="12"
+                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+      <TextBlock Text="Чаще всего встречи на языке" VerticalAlignment="Center" Foreground="{DynamicResource MutedText}" Margin="0,0,10,0"/>
+      <ComboBox x:Name="LanguageCombo" Width="210">
+        <ComboBoxItem Content="Определять автоматически" Tag=""/>
+        <ComboBoxItem Content="English" Tag="en"/>
+        <ComboBoxItem Content="Русский" Tag="ru"/>
+        <ComboBoxItem Content="Deutsch" Tag="de"/>
+        <ComboBoxItem Content="Français" Tag="fr"/>
+        <ComboBoxItem Content="Español" Tag="es"/>
+        <ComboBoxItem Content="Беларуская" Tag="be"/>
+        <ComboBoxItem Content="Български" Tag="bg"/>
+        <ComboBoxItem Content="Bosanski" Tag="bs"/>
+        <ComboBoxItem Content="Čeština" Tag="cs"/>
+        <ComboBoxItem Content="Dansk" Tag="da"/>
+        <ComboBoxItem Content="Ελληνικά" Tag="el"/>
+        <ComboBoxItem Content="Eesti" Tag="et"/>
+        <ComboBoxItem Content="Suomi" Tag="fi"/>
+        <ComboBoxItem Content="Hrvatski" Tag="hr"/>
+        <ComboBoxItem Content="Magyar" Tag="hu"/>
+        <ComboBoxItem Content="Italiano" Tag="it"/>
+        <ComboBoxItem Content="Lietuvių" Tag="lt"/>
+        <ComboBoxItem Content="Latviešu" Tag="lv"/>
+        <ComboBoxItem Content="Malti" Tag="mt"/>
+        <ComboBoxItem Content="Nederlands" Tag="nl"/>
+        <ComboBoxItem Content="Polski" Tag="pl"/>
+        <ComboBoxItem Content="Português" Tag="pt"/>
+        <ComboBoxItem Content="Română" Tag="ro"/>
+        <ComboBoxItem Content="Slovenčina" Tag="sk"/>
+        <ComboBoxItem Content="Slovenščina" Tag="sl"/>
+        <ComboBoxItem Content="Српски" Tag="sr"/>
+        <ComboBoxItem Content="Svenska" Tag="sv"/>
+        <ComboBoxItem Content="Українська" Tag="uk"/>
+      </ComboBox>
+    </StackPanel>
+    <TextBlock Text="Облако определяет язык автоматически; указанный язык передаётся локальной модели."
+               Style="{StaticResource RowDetail}"/>
+    <Border Style="{StaticResource SettingBox}" Margin="0,16,0,0">
+      <Grid Margin="14,13">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="LiveSwitch" Style="{StaticResource SwitchStyle}"
+                  AutomationProperties.Name="Показывать live-транскрипт"/>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="Показывать расшифровку во время встречи" Style="{StaticResource RowTitle}"/>
+          <TextBlock Text="Текст появляется порциями во время записи; итоговая расшифровка создаётся отдельно." Style="{StaticResource RowDetail}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <TextBlock Text="Файлы" Style="{StaticResource SectionTitle}" Margin="0,30,0,9"/>
+    <Border Style="{StaticResource SettingBox}">
+      <StackPanel>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock x:Name="RecordingsPath" Style="{StaticResource RowTitle}" FontFamily="Consolas" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Text="Папка, где будут лежать записи и расшифровки." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+          <Button Grid.Column="1" Content="Выбрать…" Margin="14,0,0,0" Click="ChooseFolderButton_Click"/>
+        </Grid>
+        <Border Style="{StaticResource Divider}"/>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="Сохранять аудио после расшифровки" Style="{StaticResource RowTitle}" VerticalAlignment="Center"/>
+          <CheckBox x:Name="KeepAudioSwitch" Grid.Column="1" Style="{StaticResource SwitchStyle}"
+                    Margin="14,0,0,0" AutomationProperties.Name="Сохранять аудио после расшифровки"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <StackPanel Orientation="Horizontal" Margin="0,30,0,9">
+      <CheckBox x:Name="SummarySwitch" Style="{StaticResource SwitchStyle}"
+                AutomationProperties.Name="Создавать итог встречи"/>
+      <TextBlock Text="Итоги встречи" Style="{StaticResource SectionTitle}" Margin="11,3,0,0"/>
+    </StackPanel>
+    <UniformGrid Columns="3">
+      <RadioButton x:Name="SummaryAutoCard" GroupName="SummaryBackend" Style="{StaticResource ChoiceCard}" Tag="auto"
+                   Checked="SummaryBackend_Checked">
+        <StackPanel>
+          <TextBlock Text="Автовыбор" Style="{StaticResource CardTitle}"/>
+          <TextBlock Text="Использовать доступный сервис или локальный Ollama." Style="{StaticResource CardDetail}"/>
+        </StackPanel>
+      </RadioButton>
+      <RadioButton x:Name="SummaryKeyCard" GroupName="SummaryBackend" Style="{StaticResource ChoiceCard}" Tag="key"
+                   Checked="SummaryBackend_Checked">
+        <StackPanel>
+          <TextBlock Text="Свой API-ключ" Style="{StaticResource CardTitle}"/>
+          <TextBlock Text="OpenAI или Anthropic, оплата через провайдера." Style="{StaticResource CardDetail}"/>
+        </StackPanel>
+      </RadioButton>
+      <RadioButton x:Name="SummaryOllamaCard" GroupName="SummaryBackend" Style="{StaticResource ChoiceCard}" Tag="ollama"
+                   Margin="0" Checked="SummaryBackend_Checked">
+        <StackPanel>
+          <TextBlock Text="Ollama" Style="{StaticResource CardTitle}"/>
+          <TextBlock Text="Локально по умолчанию; удалённый URL отправит туда текст." Style="{StaticResource CardDetail}"/>
+        </StackPanel>
+      </RadioButton>
+    </UniformGrid>
+    <Border Style="{StaticResource SettingBox}" Margin="0,12,0,0">
+      <StackPanel Margin="14,10">
+        <StackPanel x:Name="SummaryKeyOptions" Orientation="Horizontal" Visibility="Collapsed">
+          <ComboBox x:Name="SummaryProviderCombo" Width="150" SelectionChanged="SummaryProvider_SelectionChanged">
+            <ComboBoxItem Content="OpenAI" Tag="openai"/>
+            <ComboBoxItem Content="Anthropic" Tag="anthropic"/>
+          </ComboBox>
+          <TextBlock Text="API-ключ" Foreground="{DynamicResource MutedText}" VerticalAlignment="Center" Margin="8,0"/>
+          <PasswordBox x:Name="SummaryOpenAiKeyBox" Width="260" PasswordChanged="KeyBox_PasswordChanged"/>
+          <PasswordBox x:Name="SummaryAnthropicKeyBox" Width="260" PasswordChanged="KeyBox_PasswordChanged" Visibility="Collapsed"/>
+        </StackPanel>
+        <StackPanel x:Name="OllamaOptions" Visibility="Collapsed">
+          <TextBlock Text="Ollama URL" Style="{StaticResource RowDetail}"/>
+          <TextBox x:Name="OllamaUrlText"/>
+          <TextBlock Text="Модель" Style="{StaticResource RowDetail}"/>
+          <TextBox x:Name="OllamaModelText"/>
+        </StackPanel>
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <StackPanel>
+            <TextBlock Text="Определять имена говорящих" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="По содержанию разговора, когда есть достаточно подтверждений." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+          <CheckBox x:Name="NamesSwitch" Grid.Column="1" Style="{StaticResource SwitchStyle}"
+                    Margin="14,0,0,0" AutomationProperties.Name="Определять имена говорящих"/>
+        </Grid>
+      </StackPanel>
+    </Border>
+    <TextBlock Text="Облачные модели получают текст встречи. Ollama остаётся на этом компьютере только с локальным URL."
+               Style="{StaticResource RowDetail}" Margin="0,10,0,0"/>
+
+    <TextBlock Text="Где видно Amanu" Style="{StaticResource SectionTitle}" Margin="0,30,0,9"/>
+    <Border Style="{StaticResource SettingBox}">
+      <StackPanel>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <CheckBox x:Name="TraySwitch" Style="{StaticResource SwitchStyle}" AutomationProperties.Name="Значок в трее"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="В области уведомлений" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Значок и меню для записи, настроек и выхода." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+        </Grid>
+        <Border Style="{StaticResource Divider}"/>
+        <Grid Margin="14,13">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <CheckBox x:Name="TaskbarSwitch" Style="{StaticResource SwitchStyle}" AutomationProperties.Name="Значок на панели задач"/>
+          <StackPanel Grid.Column="1">
+            <TextBlock Text="На панели задач" Style="{StaticResource RowTitle}"/>
+            <TextBlock Text="Окно Amanu можно быстро вернуть с панели задач." Style="{StaticResource RowDetail}"/>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+    </Border>
+    <Border Style="{StaticResource SettingBox}" Margin="0,30,0,0">
+      <Grid Margin="14,13">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="AutoRecordSwitch" Style="{StaticResource SwitchStyle}"
+                  AutomationProperties.Name="Записывать звонки автоматически"/>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="Записывать звонки автоматически, когда приложение использует микрофон"
+                     Style="{StaticResource RowTitle}" TextWrapping="Wrap"/>
+          <TextBlock Text="Останавливать запись, когда микрофон освобождается. Короткие звонки отбрасываются." Style="{StaticResource RowDetail}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+    <Border Style="{StaticResource SettingBox}" Margin="0,30,0,0">
+      <Grid Margin="14,13">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="45"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="AnalyticsSwitch" Style="{StaticResource SwitchStyle}"
+                  AutomationProperties.Name="Отправлять статистику использования"/>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="Отправлять статистику использования" Style="{StaticResource RowTitle}"/>
+          <TextBlock Text="Данные о работе функций со случайным идентификатором установки — без содержимого встреч." Style="{StaticResource RowDetail}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+  </StackPanel>
+</UserControl>

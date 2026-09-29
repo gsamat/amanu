@@ -1,0 +1,199 @@
+name: Windows beta
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer package version
+        required: true
+        default: 0.6.0-beta.2
+      publish_release:
+        description: Publish/update a GitHub prerelease so installed betas can auto-update
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: windows-2025
+    env:
+      BETA_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_BETA_CERTIFICATE_BASE64 }}
+      BETA_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_BETA_CERTIFICATE_PASSWORD }}
+      ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+      ARTIFACT_SIGNING_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        working-directory: windows
+        run: dotnet restore Amanu.Windows.slnx
+
+      - name: Test
+        working-directory: windows
+        run: dotnet test tests/Amanu.Core.Tests/Amanu.Core.Tests.csproj --no-restore --configuration Release
+
+      - name: Publish self-contained x64 app
+        working-directory: windows
+        run: >-
+          dotnet publish src/Amanu.App/Amanu.App.csproj
+          --no-restore
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          --property:Version=${{ inputs.version }}
+          --output ${{ runner.temp }}/amanu-publish
+
+      - name: Build pinned local transcription CLI
+        shell: pwsh
+        run: |
+          & windows/scripts/Build-LocalRuntime.ps1 -PublishDirectory "${{ runner.temp }}/amanu-publish"
+
+      - name: Install pinned Velopack CLI
+        run: dotnet tool install --tool-path "${{ runner.temp }}/velopack" vpk --version 1.2.0
+
+      - name: Detect Azure Artifact Signing configuration
+        id: artifact_signing
+        shell: pwsh
+        run: |
+          $available =
+            -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_ENDPOINT) -and
+            -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_ACCOUNT) -and
+            -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_PROFILE)
+          "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+
+      - name: Azure login for Artifact Signing
+        if: steps.artifact_signing.outputs.available == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Amanu payload with Azure Artifact Signing
+        if: steps.artifact_signing.outputs.available == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.ARTIFACT_SIGNING_PROFILE }}
+          files: |
+            ${{ runner.temp }}\amanu-publish\Amanu.exe
+            ${{ runner.temp }}\amanu-publish\Amanu.dll
+            ${{ runner.temp }}\amanu-publish\Amanu.Core.dll
+            ${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Decode optional beta certificate
+        id: certificate
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BETA_CERTIFICATE_BASE64)) {
+            "available=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "amanu-beta-signing.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:BETA_CERTIFICATE_BASE64))
+          "available=true" >> $env:GITHUB_OUTPUT
+          "path=$certificatePath" >> $env:GITHUB_OUTPUT
+
+      - name: Package unsigned beta installer
+        if: steps.certificate.outputs.available != 'true' || steps.artifact_signing.outputs.available == 'true'
+        shell: pwsh
+        run: >-
+          & "${{ runner.temp }}/velopack/vpk.exe" pack
+          --packId Amanu
+          --packVersion "${{ inputs.version }}"
+          --packDir "${{ runner.temp }}/amanu-publish"
+          --mainExe Amanu.exe
+          --packTitle "Amanu Beta"
+          --packAuthors Amanu
+          --icon windows/src/Amanu.App/Assets/Amanu.ico
+          --channel beta
+          --runtime win-x64
+          --releaseNotes windows/BETA.md
+          --outputDir "${{ runner.temp }}/amanu-release"
+
+      - name: Package signed beta installer
+        if: steps.certificate.outputs.available == 'true' && steps.artifact_signing.outputs.available != 'true'
+        shell: pwsh
+        run: >-
+          & "${{ runner.temp }}/velopack/vpk.exe" pack
+          --packId Amanu
+          --packVersion "${{ inputs.version }}"
+          --packDir "${{ runner.temp }}/amanu-publish"
+          --mainExe Amanu.exe
+          --packTitle "Amanu Beta"
+          --packAuthors Amanu
+          --icon windows/src/Amanu.App/Assets/Amanu.ico
+          --channel beta
+          --runtime win-x64
+          --releaseNotes windows/BETA.md
+          --outputDir "${{ runner.temp }}/amanu-release"
+          --signParams "/td sha256 /fd sha256 /f `"${{ steps.certificate.outputs.path }}`" /p `"$env:BETA_CERTIFICATE_PASSWORD`" /tr http://timestamp.digicert.com"
+
+      - name: Sign installer with Azure Artifact Signing
+        if: steps.artifact_signing.outputs.available == 'true'
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.ARTIFACT_SIGNING_PROFILE }}
+          files: ${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify Azure signatures
+        if: steps.artifact_signing.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $files = @(
+            "${{ runner.temp }}\amanu-publish\Amanu.exe",
+            "${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe",
+            "${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe"
+          )
+          foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file
+            if ($signature.Status -ne "Valid") {
+              throw "Invalid Authenticode signature for $file: $($signature.Status)"
+            }
+          }
+
+      - name: Upload installer and update feed
+        uses: actions/upload-artifact@v5
+        with:
+          name: Amanu-Windows-${{ inputs.version }}-x64
+          path: ${{ runner.temp }}/amanu-release/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub beta release and update feed
+        if: inputs.publish_release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "windows-v${{ inputs.version }}"
+          $assets = Get-ChildItem -LiteralPath "${{ runner.temp }}/amanu-release" -File | ForEach-Object { $_.FullName }
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --clobber
+          } else {
+            gh release create $tag @assets --prerelease --title "Amanu Windows ${{ inputs.version }}" --notes-file windows/BETA.md
+          }
+
+      - name: Remove temporary certificate
+        if: always() && steps.certificate.outputs.available == 'true'
+        shell: pwsh
+        run: Remove-Item -LiteralPath "${{ steps.certificate.outputs.path }}" -Force -ErrorAction SilentlyContinue
