@@ -74,12 +74,17 @@ public sealed class LanguageModels(HttpClient httpClient, SecretStore secrets, F
         EgressPurpose purpose, string system, string prompt, CancellationToken cancellationToken)
     {
         var backends = For(purpose);
-        if (backends.Count == 0)
-            throw new ProcessingFailure(FailureKind.Environmental, T(
-                "No model is set up for this: install Claude Code or Codex, add an API key, or run Ollama.",
-                "Для этого не настроена ни одна модель: установите Claude Code или Codex, добавьте API-ключ или запустите Ollama."));
+        var noModel = new ProcessingFailure(FailureKind.Environmental, T(
+            "No model is set up for this: install Claude Code or Codex, add an API key, or run Ollama.",
+            "Для этого не настроена ни одна модель: установите Claude Code или Codex, добавьте API-ключ или запустите Ollama."));
+        if (backends.Count == 0) throw noModel;
         var errors = new List<string>();
         var transient = false;
+        // Whether every backend was an Ollama nobody chose that isn't running —
+        // the end of every `auto` chain on a machine with nothing set up. That is
+        // no model at all: nothing left the computer, so the pass waits for one
+        // without spending its attempts, and says so rather than blaming Ollama.
+        var onlyAbsentFallbacks = true;
         foreach (var backend in backends)
         {
             try
@@ -87,13 +92,17 @@ public sealed class LanguageModels(HttpClient httpClient, SecretStore secrets, F
                 var text = (await backend.Ask(system, prompt, cancellationToken).ConfigureAwait(false)).Trim();
                 if (text.Length > 0) return new LanguageModelAnswer(text, backend.Name, backend.Model);
                 errors.Add($"{backend.Name}: " + T("returned nothing", "ничего не ответил"));
+                onlyAbsentFallbacks = false;
             }
             catch (ProcessingFailure failure) when (!cancellationToken.IsCancellationRequested)
             {
                 errors.Add($"{backend.Name}: {failure.Message}");
-                if (failure.Kind != FailureKind.Recording && !(backend.UnchosenFallback && failure.Unreachable)) transient = true;
+                var absentFallback = backend.UnchosenFallback && failure.Unreachable;
+                if (!absentFallback) onlyAbsentFallbacks = false;
+                if (failure.Kind != FailureKind.Recording && !absentFallback) transient = true;
             }
         }
+        if (onlyAbsentFallbacks) throw noModel;
         throw new ProcessingFailure(transient ? FailureKind.Transient : FailureKind.Recording, string.Join("; ", errors));
     }
 
