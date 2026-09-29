@@ -37,8 +37,48 @@ Read first, in this order:
 | Installer + update feed, local `transcribe-cli.exe` compiled | GitHub Actions, runs 36602075343 (beta.3), 36606882820 (beta.4) | green |
 | `transcribe-cli.exe --help` from the package | laptop | starts, exit 0, statically linked |
 | Phase 1 GUI checks on **beta.3** | laptop, but the install was inside Claude's MSIX container (see below) | findings below, fixed in beta.4 |
-| Anything on **beta.4** | — | **not yet installed for real** |
+| Phase 1 GUI checks on **beta.4**, all nine items | laptop, real install (Samat ran the Setup from Explorer) | pass — see "Phase 1 on beta.4" below |
 | Any recording, transcription, summary | — | **nothing yet** |
+
+### Phase 1 on beta.4 (29 September, evening)
+
+Installed for real at `C:\Users\samat\AppData\Local\Amanu\current\Amanu.exe`
+(ProductVersion `0.6.0-beta.4+061a34c`); WMI confirmed the path.
+
+- Setup opens at 860×648 logical px in the 1280×672 work area, top at y = 12;
+  Settings fits too, with both tabs visible. Every beta.3 layout finding is fixed:
+  the Download buttons line up, the `sk-…` field and the paste-key field keep their
+  margin, Advanced's multiline fields show their right border, the switch is now
+  "Watch which app holds the microphone", and the grey "No card chosen…" line sits
+  above the summary cards.
+- keep_audio writes `{"keep_audio": true}` and clearing it writes `{}`. Unchecking
+  auto-record in the status window rewrote `config.json` and the Settings switch at
+  once.
+- "Later" opens the status window. Its × hides the window and the process stays;
+  a tray left click brings it back. Samat checked the tray right-click menu (items
+  and Windows 11 style, closes on an outside click) and "Later" with his own mouse.
+- Starting "Amanu Beta" from Start while it ran brought the window forward (it was
+  behind Explorer) and left one process — the beta.3 taskbar flash is gone.
+- Real `HKCU\…\Run\Amanu` = `"…\Amanu\current\Amanu.exe" --background`, an
+  `Amanu` Uninstall key exists, no `errors.log`, nothing from Amanu in the
+  Application log.
+- Screenshots: `C:\Users\samat\Documents\amanu-test-shots\beta4-*.jpg`.
+
+Two things about the tooling, not the app. Computer use's synthetic click did not
+press Setup's "Later" in three tries (UI Automation's Invoke did, and so did Samat's
+mouse); every other button and switch took the first click. And one computer-use
+scroll action is one wheel notch, whatever `scroll_amount` says.
+
+The beta.3 run left its files inside Claude's container, where the shell reads them
+*in preference to* the real ones — the shell would have shown beta.3's
+`config.json` after beta.4 was installed. They were moved, not deleted, to
+`…\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\_amanu-beta3-container-leftovers`.
+To tell what is really on disk from inside the container, ask WMI
+(`CIM_DataFile`, and `StdRegProv` under `HKEY_USERS\<sid>` for the registry).
+
+Small notes, not fixed: Advanced puts "Run after each session" under the
+"Interface" heading, and the interface language says it "takes effect at the next
+launch" while the release notes promise no restarts.
 
 ### What beta.3's first run found (all fixed in beta.4, unverified)
 
@@ -119,7 +159,7 @@ leaves one process. No `errors.log`, no Application-log errors.
 Save screenshots as PNGs in `C:\Users\samat\Documents\amanu-test-shots\` with a
 `beta4-` prefix, so Samat can look too.
 
-### Phase 1 again, on a real beta.4 install
+### Phase 1 again, on a real beta.4 install — done, all pass (see above)
 
 1. Samat double-clicks the beta.4 Setup. Confirm the real path (item 3 above).
 2. Setup window: its `GetWindowRect` fits in 672 logical px with the title bar on
