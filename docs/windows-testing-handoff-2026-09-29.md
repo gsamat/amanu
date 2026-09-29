@@ -38,7 +38,9 @@ Read first, in this order:
 | `transcribe-cli.exe --help` from the package | laptop | starts, exit 0, statically linked |
 | Phase 1 GUI checks on **beta.3** | laptop, but the install was inside Claude's MSIX container (see below) | findings below, fixed in beta.4 |
 | Phase 1 GUI checks on **beta.4**, all nine items | laptop, real install (Samat ran the Setup from Explorer) | pass — see "Phase 1 on beta.4" below |
-| Any recording, transcription, summary | — | **nothing yet** |
+| Phase 2.1–2.3: Parakeet download, a manual recording, local transcript, kept audio | laptop, beta.4 | works, with three bugs fixed for beta.6 and one open — see "Phase 2 on beta.4" |
+| Beta.6 (`45574de`), the first signed build from this branch | CI run 36617549549 | **waiting on signing** — see "Signing" |
+| Phase 2.4 (ten minutes, alignment across silence), phase 3 | — | **nothing yet** |
 
 ### Phase 1 on beta.4 (29 September, evening)
 
@@ -75,6 +77,68 @@ The beta.3 run left its files inside Claude's container, where the shell reads t
 `…\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\_amanu-beta3-container-leftovers`.
 To tell what is really on disk from inside the container, ask WMI
 (`CIM_DataFile`, and `StdRegProv` under `HKEY_USERS\<sid>` for the registry).
+
+### Phase 2 on beta.4 (29 September, evening)
+
+- **Parakeet** downloaded from Settings in about fifteen seconds with the
+  progress line moving (`models\parakeet-tdt-0.6b-v3-Q8_0.gguf.partial`, renamed
+  when done). The network was not interrupted, so resuming is unverified.
+- **Recording** `C:\Users\samat\Amanu Recordings\2026.09.29-2147`: manual, 142 s,
+  Samat speaking Russian over an English interview Edge played through the
+  speakers. `.recording.json` during, `meta.json` after (`stop_reason: manual`,
+  `system_audio: "all"` — a manual recording with no call app records everything).
+  `Get-ChildItem` showed both WAVs at 0 bytes until the stop: NTFS does not update
+  a directory entry's size while the file is open, so this neither proves nor
+  disproves that they grew. Next time read the size through a handle.
+- **Transcription** by Parakeet took about 90 s; the WAVs were removed and
+  `audio.m4a` kept: AAC, 48 kHz, stereo, 128 kbit/s, 141.87 s — the 48 kHz AAC
+  fix holds. Left is the mic (Samat's voice where the call channel is digital
+  silence), right the call. The mic is quiet: about −39 dBFS RMS while Samat
+  speaks, −55 to −70 between. The video barely reaches the mic channel (−65 dB
+  against −12), which looks like the Intel array's own echo cancellation — so
+  cross-correlating the two gave only a weak 4.6 ms (0.18); the ten-minute test
+  is still needed for alignment.
+- **Bug, fixed for beta.6 (`ed41c18`):** every Cyrillic word in `transcript.md`
+  and `transcript.json` was mojibake (UTF-8 read as Windows-1252). The CLI's
+  pipes were read without `StandardOutputEncoding`, which for a windowless app
+  means the ANSI code page. English was untouched, which is why no test caught it.
+- **Bug, fixed for beta.6 (`1434c53`):** switches and cards save in `Click`, and
+  UI Automation's Toggle/Select change them without one — the switch moves and
+  nothing is written. Found when a UIA toggle of keep_audio left the switch on
+  and `config.json` without it. Now a `ClickCheckBox`/`ClickRadioButton` routes
+  both through `OnClick`.
+- **Bug, fixed for beta.6 (`1d14c47`):** with summaries on `auto` and nothing
+  installed, the only backend is an Ollama nobody chose; its "could not be
+  reached" counted as an attempt, so after five one-minute retries the session
+  would have been marked failed, blaming Ollama. It now counts as no model: the
+  step waits (rescanned every ten minutes) and says "No model is set up…".
+- **Open — needs a decision:** a local transcript is **one segment per side**
+  (`them` 0:05–2:10, `me` 0:18), so `transcript.md` is two paragraphs, not a
+  conversation. `transcribe-cli` returns a single segment for Parakeet with
+  `--timestamps auto`, `segment` and `word` alike (checked on a TTS file with
+  3-second pauses). macOS gets token timings and breaks on sentences and pauses
+  (`ParakeetEngine.swift`). Options: cut each side at silences into pieces before
+  the CLI (one `--batch` run, so the model loads once — this also bounds how
+  much audio one call gets, which may matter for an hour-long meeting), or find a
+  transcribe.cpp that exposes Parakeet's timings.
+
+### Signing (29 September, evening)
+
+While this session worked, a Codex agent set up Azure Artifact Signing on
+`codex/signing-smoke`: the `windows-signing` environment, a tenant-scope Azure
+login, and a workflow that uploads the installer only when it is signed
+(`upload_artifact`, default off). Adding the last signing secret made this
+branch's old workflow try to sign too, and fail at the Azure login. Commit
+`34c2a22` takes that branch's workflow and its test; `BETA.md` says the test
+builds are signed as Fands Software LLC.
+
+That branch had already built a signed **0.6.0-beta.5** from code without this
+session's fixes, so this branch's next build is **0.6.0-beta.6** — two builds under
+one version would confuse testers and Velopack alike. Run 36617549549 got past
+the Azure login and failed installing the signing module ("Unable to find
+repository 'PSGallery'" on the runner); Samat asked to leave signing to the Codex
+agent and continue once it is done. Dispatch with
+`-f upload_artifact=true`, or there is nothing to download.
 
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
@@ -144,7 +208,8 @@ leaves one process. No `errors.log`, no Application-log errors.
   `windows/src/Amanu.App/Amanu.App.csproj` (and the default in
   `windows/scripts/Build-Beta.ps1`, `windows/README.md`,
   `.github/workflows/windows-beta.yml`), commit, push, then
-  `gh workflow run windows-beta.yml --repo gsamat/amanu --ref claude/windows-version-testing-11d877 -f version=0.6.0-beta.N -f publish_release=false`,
+  `gh workflow run windows-beta.yml --repo gsamat/amanu --ref claude/windows-version-testing-11d877 -f version=0.6.0-beta.N -f publish_release=false -f upload_artifact=true`
+  (the artifact is uploaded only when asked for, and only when signed),
   `gh run watch <id> --repo gsamat/amanu --exit-status`,
   `gh run download <id> --repo gsamat/amanu -D $env:TEMP\amanu-betaN`. About five
   minutes. Don't set `publish_release=true` (a public prerelease) without Samat.
