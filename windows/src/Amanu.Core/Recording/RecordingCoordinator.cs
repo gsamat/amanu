@@ -46,6 +46,7 @@ public sealed class RecordingCoordinator(
     private SessionHandle? current;
     private DateTimeOffset? pausedAt;
     private TimeSpan pausedFor;
+    private DateTimeOffset? lastTick;
 
     public RecordingState State { get; private set; } = RecordingState.Ready;
     public AutoRecordPolicy Policy => autoRecord;
@@ -102,16 +103,38 @@ public sealed class RecordingCoordinator(
     }
 
     /// <summary>
-    /// Stops a recording that has reached the duration ceiling. Checked on its own
-    /// clock, apart from the call monitor, so the ceiling holds for a manual
-    /// recording with auto-record off and even when the monitor keeps failing.
+    /// How long the once-a-second tick may go missing before the process is taken
+    /// to have been frozen rather than merely busy.
     /// </summary>
+    public static readonly TimeSpan FrozenGap = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// Stops a recording that has reached the duration ceiling, or that the
+    /// computer slept through. Checked on its own clock, apart from the call
+    /// monitor, so the ceiling holds for a manual recording with auto-record off
+    /// and even when the monitor keeps failing.
+    /// </summary>
+    /// <remarks>
+    /// Modern Standby freezes a desktop app without the suspend broadcast that
+    /// <c>PowerModeChanged</c> waits for: on the test laptop a recording went into
+    /// standby after 59 s, woke eleven minutes later and was stopped by the ceiling
+    /// as a 736-second meeting with a minute of audio. A tick that arrives long
+    /// after the last one is that sleep, seen from the far side; the recording ends
+    /// as <c>sleep</c> at the last moment it was known to be running.
+    /// </remarks>
     public async Task EnforceCeilingAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (current is not null && autoRecord.CeilingReached(now))
+            var previous = lastTick;
+            lastTick = now;
+            if (current is null) return;
+            // Only a gap inside this recording: one begun just after waking still
+            // has the tick from before the sleep behind it.
+            if (previous is { } alive && alive >= current.StartedAt && now - alive >= FrozenGap)
+                await StopCoreAsync(alive, "sleep", cancellationToken).ConfigureAwait(false);
+            else if (autoRecord.CeilingReached(now))
                 await StopCoreAsync(now, "max-duration", cancellationToken).ConfigureAwait(false);
         }
         finally

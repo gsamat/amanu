@@ -142,6 +142,37 @@ public sealed class RecordingCoordinatorTests
         Assert.Contains("max-duration", File.ReadAllText(Path.Combine(Directory.GetDirectories(root.Path)[0], "meta.json")));
     }
 
+    [Fact]
+    public async Task A_recording_slept_through_ends_as_sleep_where_the_ticks_stopped()
+    {
+        using var root = new TemporaryDirectory();
+        var coordinator = Coordinator(root.Path, new InspectableCapture());
+        await coordinator.StartManualAsync(Started);
+        for (var second = 1; second <= 59; second++) await coordinator.EnforceCeilingAsync(Started.AddSeconds(second));
+
+        // Modern Standby: no tick for eleven minutes, then one after waking.
+        await coordinator.EnforceCeilingAsync(Started.AddSeconds(736));
+
+        Assert.False(coordinator.State.IsRecording);
+        var meta = File.ReadAllText(Path.Combine(Directory.GetDirectories(root.Path)[0], "meta.json"));
+        Assert.Contains("\"sleep\"", meta);
+        Assert.Contains("\"duration_seconds\": 59", meta);
+    }
+
+    [Fact]
+    public async Task A_busy_second_or_a_start_after_waking_is_not_sleep()
+    {
+        using var root = new TemporaryDirectory();
+        var coordinator = Coordinator(root.Path, new InspectableCapture());
+        await coordinator.EnforceCeilingAsync(Started.AddMinutes(-30)); // the last tick before the lid closed
+        await coordinator.StartManualAsync(Started);
+
+        await coordinator.EnforceCeilingAsync(Started.AddSeconds(1));
+        await coordinator.EnforceCeilingAsync(Started.AddSeconds(20));
+
+        Assert.True(coordinator.State.IsRecording);
+    }
+
     private static AudioObservation Released(DateTimeOffset at) => new(at, false, null, false, false);
 
     private static RecordingCoordinator Coordinator(string root, InspectableCapture capture)
