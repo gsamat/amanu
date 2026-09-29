@@ -4,6 +4,17 @@ A beta for Windows 11 x64. Calendar integration is deliberately not part of the
 Windows product. Until a publisher and Azure Artifact Signing are set up, the
 build is unsigned and goes only to named testers.
 
+## Fixed in beta.4 and beta.5
+
+- The Setup and Settings windows fit a small screen, with their title bars on
+  it; opening Amanu again brings the running window forward.
+- Russian (and any other non-Latin) speech transcribed on this computer no
+  longer comes out as mojibake.
+- Switches and cards changed through Narrator, Voice Access or any other UI
+  Automation client now save, as a click does.
+- With nothing set up to write summaries, a meeting waits for a model and says
+  so, rather than using up its attempts on an Ollama nobody installed.
+
 ## New in beta.3
 
 - **Settings like the Mac's.** The setup form and Settings are one form with
