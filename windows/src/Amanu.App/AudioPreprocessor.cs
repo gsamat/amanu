@@ -87,6 +87,31 @@ public static class AudioPreprocessor
         WaveFileWriter.CreateWaveFile16(destination, Mono16k(reader));
     }
 
+    /// <summary>
+    /// A 16 kHz track cut into pieces of at most <paramref name="seconds"/>, as
+    /// `chunk-0000.wav`, `chunk-0001.wav`… in <paramref name="directory"/>, each with
+    /// where it starts and ends in the track.
+    /// </summary>
+    public static IReadOnlyList<(string Path, long StartMs, long EndMs)> Split(string wave, string directory, int seconds)
+    {
+        using var reader = new WaveFileReader(wave);
+        var format = reader.WaveFormat;
+        var bytesPerChunk = format.AverageBytesPerSecond * seconds / format.BlockAlign * format.BlockAlign;
+        var buffer = new byte[bytesPerChunk];
+        var pieces = new List<(string, long, long)>();
+        long bytesBefore = 0;
+        int read;
+        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            var path = Path.Combine(directory, $"chunk-{pieces.Count:0000}.wav");
+            using (var writer = new WaveFileWriter(path, format)) writer.Write(buffer, 0, read);
+            var start = bytesBefore * 1000 / format.AverageBytesPerSecond;
+            bytesBefore += read;
+            pieces.Add((path, start, bytesBefore * 1000 / format.AverageBytesPerSecond));
+        }
+        return pieces;
+    }
+
     private static ISampleProvider Mono16k(ISampleProvider samples)
     {
         if (samples.WaveFormat.Channels == 2)

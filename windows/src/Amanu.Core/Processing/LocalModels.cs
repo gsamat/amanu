@@ -31,20 +31,38 @@ public static class ModelCatalog
 
 public sealed record LocalCliResult(string File, string Text, IReadOnlyList<TranscriptSegment> Segments);
 
-public static class LocalCliResultParser
+public static partial class LocalCliResultParser
 {
-    public static LocalCliResult Parse(string jsonl)
+    public static LocalCliResult Parse(string jsonl) => ParseAll(jsonl).LastOrDefault()
+        ?? throw new JsonException("The local transcription result was empty.");
+
+    /// <summary>
+    /// Every line of a batch, one per file. <see cref="LocalCliResult.File"/> is the
+    /// file's name alone: transcribe.cpp 0.1.3 writes Windows backslashes in `file`
+    /// without JSON escaping, so the path is cut out before the line is parsed and
+    /// only its last part kept, which is what tells a batch's files apart.
+    /// </summary>
+    public static IReadOnlyList<LocalCliResult> ParseAll(string jsonl)
     {
-        var line = jsonl.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Last();
-        // transcribe.cpp 0.1.3 writes Windows backslashes in `file` without JSON escaping.
-        // Amanu does not use that field, so discard it before parsing the transcript.
-        line = Regex.Replace(line, "\"file\"\\s*:\\s*\"[^\"]*\"", "\"file\":\"\"");
-        var raw = JsonSerializer.Deserialize<RawResult>(line, new JsonSerializerOptions(JsonSerializerDefaults.Web))
-                  ?? throw new JsonException("The local transcription result was empty.");
-        return new LocalCliResult(raw.File ?? string.Empty, raw.Text ?? string.Empty,
-            raw.Segments?.Select(segment => new TranscriptSegment(
-                segment.StartMs, segment.EndMs, segment.Text ?? string.Empty, segment.Speaker)).ToArray() ?? []);
+        var results = new List<LocalCliResult>();
+        foreach (var raw in jsonl.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            // A batch opens with `{"type":"batch_header",…}`, which is about no file.
+            if (!line.StartsWith('{') || FileField().Match(line) is not { Success: true } match) continue;
+            var file = match.Groups[1].Value;
+            line = FileField().Replace(line, "\"file\":\"\"");
+            var parsed = JsonSerializer.Deserialize<RawResult>(line, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                         ?? throw new JsonException("The local transcription result was empty.");
+            results.Add(new LocalCliResult(file[(file.LastIndexOfAny(['\\', '/']) + 1)..], parsed.Text ?? string.Empty,
+                parsed.Segments?.Select(segment => new TranscriptSegment(
+                    segment.StartMs, segment.EndMs, segment.Text ?? string.Empty, segment.Speaker)).ToArray() ?? []));
+        }
+        return results;
     }
+
+    [GeneratedRegex("\"file\"\\s*:\\s*\"([^\"]*)\"")]
+    private static partial Regex FileField();
 
     private sealed record RawResult(
         string? File,

@@ -74,6 +74,22 @@ public sealed class ProcessingContractTests
         Assert.Equal(100, result.Segments[0].StartMs);
     }
 
+    [Fact]
+    public void LocalCliResultParser_reads_every_line_of_a_batch_by_file_name()
+    {
+        const string jsonl =
+            "{\"type\":\"batch_header\",\"load_ms\":279.6}\n" +
+            "{\"file\":\"C:\\Users\\tester\\AppData\\Local\\Temp\\Amanu\\x\\chunk-0000.wav\",\"text\":\"это очень прикольный разговор\",\"segments\":[]}\r\n" +
+            "{\"file\":\"C:\\Users\\tester\\AppData\\Local\\Temp\\Amanu\\x\\chunk-0001.wav\",\"text\":\"\",\"segments\":[]}\n";
+
+        var results = LocalCliResultParser.ParseAll(jsonl);
+
+        Assert.Equal(["chunk-0000.wav", "chunk-0001.wav"], results.Select(result => result.File));
+        Assert.Equal("это очень прикольный разговор", results[0].Text);
+        Assert.Equal("", results[1].Text);
+        Assert.Equal("", LocalCliResultParser.Parse(jsonl).Text);
+    }
+
     // What transcribe-cli v0.1.3 printed for the mic side of the first real
     // Windows recording, cut short; the lines before `words:` are its own.
     private const string CliWordOutput =

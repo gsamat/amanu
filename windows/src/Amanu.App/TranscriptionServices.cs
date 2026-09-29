@@ -93,6 +93,9 @@ internal static class Http
 /// <summary>transcribe.cpp on this computer, one call per track: mic is "me", the call is "them".</summary>
 public sealed class LocalTranscriptionEngine(ModelManager models, string model, string? languagePin) : ITranscriptionEngine
 {
+    /// <summary>The macOS GigaAMEngine's chunk.</summary>
+    private const int GigaAmChunkSeconds = 20;
+
     public string Name => model;
 
     public async Task<TranscriptDocument> TranscribeAsync(SessionAudio audio, CancellationToken cancellationToken)
@@ -126,11 +129,18 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
         {
             var wave = Path.Combine(temp, "input.wav");
             AudioPreprocessor.ConvertToMono16k(source, wave);
-            // Parakeet's text is grouped from its word timings, as on macOS: the
-            // batch JSONL gives one segment for the whole track, which made a
-            // transcript two paragraphs, all of one side and then all of the other.
-            // The words are only in the plain output for a single file.
+            // Each model is cut up as the macOS app cuts it. Parakeet's text is
+            // grouped from its word timings: the batch JSONL gives one segment for
+            // the whole track, which made a transcript two paragraphs, all of one
+            // side and then all of the other, and the words are only in the plain
+            // output for a single file. GigaAM hears twenty seconds at a time: given
+            // a whole track it drops letters past about half a minute and returns
+            // garbage for a two-minute one, in time that grows with the square of
+            // the length. Whisper finds its own segments.
             var byWord = model == "parakeet";
+            IReadOnlyList<(string Path, long StartMs, long EndMs)> pieces = model == "gigaam"
+                ? AudioPreprocessor.Split(wave, temp, GigaAmChunkSeconds)
+                : [(wave, 0L, 0L)];
             var arguments = new List<string> { "-m", modelPath };
             if (byWord)
             {
@@ -139,7 +149,7 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             else
             {
                 var batch = Path.Combine(temp, "batch.txt");
-                await File.WriteAllTextAsync(batch, wave + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+                await File.WriteAllLinesAsync(batch, pieces.Select(piece => piece.Path), cancellationToken).ConfigureAwait(false);
                 arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
             }
             if (!string.IsNullOrWhiteSpace(languagePin)) arguments.AddRange(["--language", languagePin]);
@@ -184,6 +194,23 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
                 // reads — in which case one paragraph beats losing the side.
                 var text = LocalCliWords.FullText(output);
                 return text.Length == 0 ? [] : [new TranscriptSegment(offsetMs, offsetMs, text, SpeakerLabels.Raw(side, ""))];
+            }
+            if (model == "gigaam")
+            {
+                // One segment per piece, as on the Mac: the piece's span, its text.
+                var byFile = LocalCliResultParser.ParseAll(output)
+                    .GroupBy(item => item.File, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.Last().Text, StringComparer.OrdinalIgnoreCase);
+                var answered = pieces.Count(piece => byFile.ContainsKey(Path.GetFileName(piece.Path)));
+                if (answered < pieces.Count)
+                    throw new ProcessingFailure(FailureKind.Recording, T(
+                        $"Local transcription answered for {answered} of {pieces.Count} pieces.",
+                        $"Локальная расшифровка ответила на {answered} из {pieces.Count} кусков."));
+                return pieces
+                    .Select(piece => (piece, text: byFile.GetValueOrDefault(Path.GetFileName(piece.Path), "").Trim()))
+                    .Where(item => item.text.Length > 0)
+                    .Select(item => new TranscriptSegment(item.piece.StartMs + offsetMs, item.piece.EndMs + offsetMs, item.text, SpeakerLabels.Raw(side, "")))
+                    .ToArray();
             }
             var result = LocalCliResultParser.Parse(output);
             if (result.Segments.Count > 0)
