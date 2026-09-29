@@ -134,6 +134,16 @@ internal sealed class StatusWindow : Window
         runtime.ProcessingStatusChanged += (_, status) => Dispatcher.InvokeAsync(() => ShowProcessing(status));
         runtime.LiveLineReady += (_, line) => Dispatcher.InvokeAsync(() => AppendLive(line));
         runtime.LiveStatusChanged += (_, text) => Dispatcher.InvokeAsync(() => liveStatus.Text = text);
+        // With no tray icon there is no balloon to show, so what it would have
+        // said is said here instead.
+        runtime.NotificationRequested += (_, notice) => Dispatcher.InvokeAsync(() =>
+        {
+            if (runtime.Settings.TrayIcon || notice.Kind == NotificationKind.Information) return;
+            processingFade.Stop();
+            processingLine.Visibility = Visibility.Visible;
+            processingLine.Text = $"{notice.Title}: {notice.Message}";
+            processingLine.SetResourceReference(TextBlock.ForegroundProperty, notice.Kind == NotificationKind.Error ? Ui.Critical : Ui.Caution);
+        });
         clock.Tick += (_, _) => Refresh();
         clock.Start();
         processingFade.Tick += (_, _) =>

@@ -121,10 +121,12 @@ public sealed class WindowsAudioCapture : IAudioCapture
     }
 
     private void OnMicrophoneData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition) =>
-        microphoneTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition);
+        microphoneTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition,
+            flags.HasFlag(AudioClientBufferFlags.TimestampError));
 
     private void OnSystemData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition) =>
-        systemTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition);
+        systemTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition,
+            flags.HasFlag(AudioClientBufferFlags.TimestampError));
 
     private static Process? FindTargetProcess(string processFamily)
     {
@@ -223,9 +225,17 @@ public sealed record LiveAudioChunk(string MicrophonePath, string SystemPath, lo
 /// One track's WAV file, kept on the recording's timeline. Loopback capture sends
 /// nothing at all while nothing plays, and a device change leaves a hole; either
 /// way the missing time is written as silence, measured from the packet's own QPC
-/// timestamp, so the two tracks stay aligned for the whole meeting. A single gap
-/// is padded up to a cap, so a clock that jumps cannot write gigabytes of zeros.
+/// timestamp — from the moment the recording started, so both files begin at the
+/// same instant and stay aligned even when a crash loses everything held in
+/// memory. A single gap is padded up to a cap, so a clock that jumps cannot write
+/// gigabytes of zeros.
 /// </summary>
+/// <remarks>
+/// The WASAPI callback only copies the packet into a queue. Writing — the gaps
+/// above all, which can be minutes of zeros — happens on a thread of its own, so
+/// the capture thread never stalls and the audio after a gap is not lost to a
+/// buffer overrun.
+/// </remarks>
 internal sealed class TrackWriter : IDisposable
 {
     private static readonly long MaximumGap100ns = TimeSpan.FromMinutes(30).Ticks;
@@ -234,54 +244,82 @@ internal sealed class TrackWriter : IDisposable
     private readonly WaveFormat format;
     private readonly long origin100ns;
     private readonly byte[] zeros;
+    private readonly System.Threading.Channels.Channel<Packet> packets =
+        System.Threading.Channels.Channel.CreateUnbounded<Packet>(new() { SingleReader = true, SingleWriter = true });
+    private readonly Task drain;
     private WaveFileWriter? side;
-    private long? first100ns;
     private long framesWritten;
     private long lastFlush100ns;
+
+    private readonly record struct Packet(byte[] Data, int Length, bool Silent, long At100ns);
 
     public TrackWriter(string path, WaveFormat format, long origin100ns)
     {
         this.format = format;
         this.origin100ns = origin100ns;
         writer = new WaveFileWriter(path, format);
-        zeros = new byte[format.AverageBytesPerSecond / 10 / format.BlockAlign * format.BlockAlign];
+        zeros = new byte[Math.Max(format.BlockAlign, format.AverageBytesPerSecond / 10 / format.BlockAlign * format.BlockAlign)];
+        drain = Task.Run(DrainAsync);
     }
 
-    /// <summary>How long after the recording started this track's first sound arrived.</summary>
-    public int OffsetMs => first100ns is { } first ? (int)Math.Max(0, (first - origin100ns) / 10_000) : 0;
+    /// <summary>Always zero: every track starts at the recording's start, padded with silence until its first sound.</summary>
+    public int OffsetMs => 0;
 
     public static long Now100ns() => (long)(Stopwatch.GetTimestamp() * (10_000_000.0 / Stopwatch.Frequency));
 
-    public void Write(ReadOnlySpan<byte> buffer, bool silent, long qpc100ns)
+    /// <summary>Called on the capture thread: copies and queues, nothing more.</summary>
+    public void Write(ReadOnlySpan<byte> buffer, bool silent, long qpc100ns, bool timestampError)
     {
-        lock (gate)
+        var copy = System.Buffers.ArrayPool<byte>.Shared.Rent(Math.Max(1, buffer.Length));
+        buffer.CopyTo(copy);
+        var at = qpc100ns > 0 && !timestampError ? qpc100ns : Now100ns();
+        packets.Writer.TryWrite(new Packet(copy, buffer.Length, silent, at));
+    }
+
+    private async Task DrainAsync()
+    {
+        await foreach (var packet in packets.Reader.ReadAllAsync().ConfigureAwait(false))
         {
-            var at = qpc100ns > 0 ? qpc100ns : Now100ns();
-            first100ns ??= at;
-            var expected = (at - first100ns.Value) * format.SampleRate / 10_000_000;
-            var missing = expected - framesWritten;
-            // Anything under 50 ms is the ordinary jitter of packet timestamps.
-            if (missing > format.SampleRate / 20)
+            try
             {
-                var cap = MaximumGap100ns * format.SampleRate / 10_000_000;
-                var gap = Math.Min(missing, cap);
-                WriteSilence(gap * format.BlockAlign);
-                framesWritten += gap;
+                lock (gate) WritePacket(packet);
             }
-            if (silent) WriteSilence(buffer.Length);
-            else
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
             {
-                writer.Write(buffer);
-                side?.Write(buffer);
+                // A full disk or a closed file: the rest of this track is lost, and
+                // the recording carries on with what was written.
             }
-            framesWritten += buffer.Length / format.BlockAlign;
-            // Flush rewrites the header's lengths, so a crash leaves a file every
-            // reader can open with all but the last few seconds in it.
-            if (at - lastFlush100ns > TimeSpan.FromSeconds(5).Ticks)
+            finally
             {
-                writer.Flush();
-                lastFlush100ns = at;
+                System.Buffers.ArrayPool<byte>.Shared.Return(packet.Data);
             }
+        }
+    }
+
+    private void WritePacket(Packet packet)
+    {
+        var expected = (packet.At100ns - origin100ns) * format.SampleRate / 10_000_000;
+        var missing = expected - framesWritten;
+        // Anything under 50 ms is the ordinary jitter of packet timestamps.
+        if (missing > format.SampleRate / 20)
+        {
+            var gap = Math.Min(missing, MaximumGap100ns * format.SampleRate / 10_000_000);
+            WriteSilence(gap * format.BlockAlign);
+            framesWritten += gap;
+        }
+        if (packet.Silent) WriteSilence(packet.Length);
+        else
+        {
+            writer.Write(packet.Data, 0, packet.Length);
+            side?.Write(packet.Data, 0, packet.Length);
+        }
+        framesWritten += packet.Length / format.BlockAlign;
+        // Flush rewrites the header's lengths, so a crash leaves a file every
+        // reader can open with all but the last few seconds in it.
+        if (packet.At100ns - lastFlush100ns > TimeSpan.FromSeconds(5).Ticks)
+        {
+            writer.Flush();
+            lastFlush100ns = packet.At100ns;
         }
     }
 
@@ -316,6 +354,8 @@ internal sealed class TrackWriter : IDisposable
 
     public void Dispose()
     {
+        packets.Writer.TryComplete();
+        drain.Wait(TimeSpan.FromSeconds(30));
         lock (gate)
         {
             side?.Dispose();

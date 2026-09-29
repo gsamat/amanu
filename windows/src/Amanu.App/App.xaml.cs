@@ -47,6 +47,20 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        // Whatever one click throws is said and survived: a recorder that dies on
+        // a button in the Recordings window takes the meeting in progress with it.
+        DispatcherUnhandledException += (_, args) =>
+        {
+            args.Handled = true;
+            Ui.ShowError(null, "Amanu", args.Exception.Message);
+            WriteCrashLog(args.Exception);
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            args.SetObserved();
+            WriteCrashLog(args.Exception);
+        };
+
 #pragma warning disable WPF0001 // The Fluent theme is marked for evaluation in .NET 10; it is the Windows 11 look for WPF.
         ThemeMode = ThemeMode.System;
 #pragma warning restore WPF0001
@@ -68,6 +82,16 @@ public partial class App : System.Windows.Application
             runtime.Notify("Amanu", T($"Recovered {runtime.RecoveredSessionCount} interrupted recording(s); they will be transcribed.",
                 $"Восстановлено прерванных записей: {runtime.RecoveredSessionCount}. Они будут расшифрованы."), NotificationKind.Information);
         _ = runtime.StartAsync();
+    }
+
+    private static void WriteCrashLog(Exception exception)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Amanu Data", "errors.log");
+            File.AppendAllText(path, $"{DateTimeOffset.Now:O} {exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (Exception logging) when (logging is IOException or UnauthorizedAccessException) { }
     }
 
     private void ListenForDoorbell()
@@ -179,8 +203,8 @@ public partial class App : System.Windows.Application
                 T("Update ready", "Обновление готово"), MessageBoxButton.YesNo, MessageBoxImage.Information);
             if (answer == MessageBoxResult.Yes)
             {
-                await current.StopForExitAsync();
-                UpdateService.RestartIntoUpdate(Busy);
+                await TearDownAsync();
+                UpdateService.RestartIntoUpdate(() => false);
             }
             return;
         }
@@ -189,29 +213,41 @@ public partial class App : System.Windows.Application
                 result.Outcome == UpdateOutcome.Failed ? MessageBoxImage.Warning : MessageBoxImage.Information);
     }
 
-    /// <summary>Stops a recording cleanly — its meta.json written, its session queued — and only then exits.</summary>
+    /// <summary>
+    /// Stops a recording cleanly — its meta.json written, its session queued —
+    /// and takes everything down, child processes included, before the process
+    /// exits. It is all awaited here: once Shutdown starts, the dispatcher no
+    /// longer runs what an async OnExit would leave for later.
+    /// </summary>
     public static async Task QuitAsync()
     {
-        if (runtime is not null)
-        {
-            try { await runtime.StopForExitAsync(); }
-            catch (Exception exception) when (exception is IOException or InvalidOperationException)
-            {
-                Ui.ShowError(null, T("Couldn’t stop the recording", "Не удалось остановить запись"), exception.Message);
-            }
-        }
+        await TearDownAsync();
         status?.AllowClose();
         Current.Shutdown();
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    private static async Task TearDownAsync()
     {
         tray?.Dispose();
-        if (runtime is not null)
+        tray = null;
+        if (runtime is { } current)
         {
-            await runtime.StopForExitAsync();
-            await runtime.DisposeAsync();
+            runtime = null;
+            try { await current.StopForExitAsync(); }
+            catch (Exception exception) when (exception is IOException or InvalidOperationException)
+            {
+                Ui.ShowError(null, T("Couldn’t stop the recording", "Не удалось остановить запись"), exception.Message);
+            }
+            await current.DisposeAsync();
         }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        // Reached without QuitAsync only when Windows ends the session.
+        tray?.Dispose();
+        tray = null;
+        if (runtime is not null) Task.Run(TearDownAsync).Wait(TimeSpan.FromSeconds(10));
         doorbell?.Dispose();
         instance?.Dispose();
         base.OnExit(e);

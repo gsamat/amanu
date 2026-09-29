@@ -150,8 +150,11 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
             var output = await outputTask.ConfigureAwait(false);
             var error = await errorTask.ConfigureAwait(false);
+            // A negative exit code is Windows ending the process — a missing DLL, a
+            // crash, no memory — which says nothing against the recording.
             if (process.ExitCode != 0)
-                throw new ProcessingFailure(FailureKind.Recording, T("Local transcription failed: ", "Локальная расшифровка не удалась: ") + error.Trim());
+                throw new ProcessingFailure(process.ExitCode < 0 ? FailureKind.Environmental : FailureKind.Recording,
+                    T("Local transcription failed: ", "Локальная расшифровка не удалась: ") + $"({process.ExitCode}) " + error.Trim());
             var result = LocalCliResultParser.Parse(output);
             if (result.Segments.Count > 0)
                 return result.Segments.Select(item => item with
@@ -212,6 +215,7 @@ public sealed class AssemblyAiTranscriptionEngine(
                 side = only.Side;
             }
             var multichannel = side == "*";
+            var shift = audio.BothSides ? Math.Min(audio.MicrophoneOffsetMs, audio.SystemOffsetMs) : audio.Only.OffsetMs;
             var cachePath = cache
                 ? ProviderCache.PathFor(audio.Directory, "assemblyai", Model, string.Join('+', expectedLanguages),
                     multichannel ? "multichannel" : "mono", side, new FileInfo(source).Length.ToString())
@@ -224,17 +228,23 @@ public sealed class AssemblyAiTranscriptionEngine(
             {
                 var id = await ResumableJobAsync(audio.Directory, cachePath)
                          ?? await SubmitAsync(source, multichannel, audio.Directory, cachePath, cancellationToken).ConfigureAwait(false);
-                result = await PollAsync(id, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    result = await PollAsync(id, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ProcessingFailure failure) when (failure.Kind == FailureKind.Recording)
+                {
+                    // A job that errored or is gone is not resumed: the next attempt submits afresh.
+                    File.Delete(Path.Combine(audio.Directory, ".assemblyai-job.json"));
+                    throw;
+                }
                 if (cachePath is not null)
                     await AtomicFiles.WriteTextAsync(cachePath, result.GetRawText(), cancellationToken).ConfigureAwait(false);
                 File.Delete(Path.Combine(audio.Directory, ".assemblyai-job.json"));
             }
             var segments = Segments(result, side);
-            if (audio.BothSides && audio.MicrophoneOffsetMs != audio.SystemOffsetMs)
-            {
-                var shift = Math.Min(audio.MicrophoneOffsetMs, audio.SystemOffsetMs);
+            if (shift != 0)
                 segments = segments.Select(segment => segment with { StartMs = segment.StartMs + shift, EndMs = segment.EndMs + shift }).ToArray();
-            }
             return new TranscriptDocument("assemblyai", Model, DateTimeOffset.UtcNow, SpeakerLabels.Assign(segments));
         }
         finally
@@ -329,7 +339,9 @@ public sealed class AssemblyAiTranscriptionEngine(
                 result = await response.Content.ReadFromJsonAsync<JsonElement>(cancellationToken).ConfigureAwait(false);
                 failures = 0;
             }
-            catch (ProcessingFailure failure) when (failure.Kind != FailureKind.Recording && ++failures < 60)
+            // Sat out: the network dropping or the service busy. Not a refused key,
+            // which no amount of waiting fixes.
+            catch (ProcessingFailure failure) when ((failure.Kind == FailureKind.Transient || failure.Unreachable) && ++failures < 60)
             {
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(60, 5 * failures)), cancellationToken).ConfigureAwait(false);
                 continue;

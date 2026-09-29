@@ -43,6 +43,12 @@ choice card (`App.xaml`). Nobody has seen any of it.
 
 ## 2. Settings take effect at once
 
+0. Where things live: settings, models and `errors.log` in
+   `%LOCALAPPDATA%\Amanu Data` (not `%LOCALAPPDATA%\Amanu`, which is Velopack's
+   install folder and goes on uninstall — uninstall once and check the data
+   survives); recordings by default in `%USERPROFILE%\Amanu Recordings`, outside
+   OneDrive's reach.
+
 There is no Save button any more. For each, change it and check it applies
 without a restart and that the other surfaces show the same value:
 
@@ -61,7 +67,7 @@ without a restart and that the other surfaces show the same value:
 
 ## 3. A broken config.json
 
-1. Put `{ broken` in `%LOCALAPPDATA%\Amanu\config.json` while Amanu runs: the
+1. Put `{ broken` in `%LOCALAPPDATA%\Amanu Data\config.json` while Amanu runs: the
    status window and Settings show the orange explanation, the tray shows a
    notification once, a finished recording is not transcribed ("waiting for
    config.json"), and any switch click says the setting was not saved. The file
@@ -78,7 +84,9 @@ without a restart and that the other surfaces show the same value:
 1. Manual recording, one minute, speaking and playing call audio: `mic.wav` and
    `system.wav` both non-silent while recording, `meta.json` at stop, the marker
    `.recording.json` gone only after `meta.json` exists.
-2. **Alignment across silence.** Record ten minutes where the call is silent for
+2. **Alignment across silence.** Both WAVs start at the moment recording
+   started (padded with silence until each side's first sound), so their lengths
+   match to within a second at stop. Record ten minutes where the call is silent for
    the middle five (mute the other side). Loopback capture delivers nothing while
    nothing plays; `TrackWriter` pads the gap from the packet timestamps. Open the
    kept `audio.m4a`: the far side's speech after the silence lines up with your

@@ -121,10 +121,18 @@ public sealed class AmanuRuntime : IAsyncDisposable
         models.DownloadFinished += (_, item) =>
         {
             _ = analytics.RecordAsync("model_download_finished", new Dictionary<string, object?> { ["asset"] = AnalyticsAsset(item) });
-            processing.Rescan();
+            Task.Run(processing.Rescan);
         };
         models.DownloadFailed += (_, item) => _ = analytics.RecordAsync("model_download_failed", new Dictionary<string, object?> { ["asset"] = AnalyticsAsset(item), ["reason"] = "unknown" });
         liveTranscription.LineReady += (_, line) => LiveLineReady?.Invoke(this, line);
+        capture.TrackLost += (_, track) => Notify(
+            T("A recording device went away", "Устройство записи пропало"),
+            track == "mic"
+                ? T("The microphone stopped delivering sound; the recording goes on with the call audio.",
+                    "Микрофон перестал давать звук; запись продолжается со звуком звонка.")
+                : T("The call audio stopped; the recording goes on with the microphone. Start a new recording to pick up the new device.",
+                    "Звук звонка пропал; запись продолжается с микрофоном. Чтобы подхватить новое устройство, начните запись заново."),
+            NotificationKind.Warning);
         liveTranscription.StatusChanged += (_, status) => LiveStatusChanged?.Invoke(this, status);
 
         try
@@ -192,15 +200,44 @@ public sealed class AmanuRuntime : IAsyncDisposable
     public static AmanuRuntime Create()
     {
         var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-        var dataDirectory = Path.Combine(localData, "Amanu");
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        // Not %LOCALAPPDATA%\Amanu: that is where Velopack installs the program,
+        // and uninstalling removes the folder with everything in it.
+        var dataDirectory = Path.Combine(localData, "Amanu Data");
+        MoveOutOfInstallFolder(Path.Combine(localData, "Amanu"), dataDirectory);
         Directory.CreateDirectory(dataDirectory);
-        var store = new AppSettingsStore(Path.Combine(dataDirectory, "config.json"), documents);
+        var store = new AppSettingsStore(Path.Combine(dataDirectory, "config.json"), home);
         Current = Choose(store.Load().Settings.InterfaceLanguage, CultureInfo.CurrentUICulture.Name);
         // Read again now the language is settled, so what the file's problems
         // say is said in it.
         var load = store.Load();
         return new AmanuRuntime(store, load, dataDirectory);
+    }
+
+    /// <summary>
+    /// The first betas kept their settings, keys' companions and models in the
+    /// install folder; they move out once, before anything reads them.
+    /// </summary>
+    private static void MoveOutOfInstallFolder(string installFolder, string dataDirectory)
+    {
+        if (Directory.Exists(dataDirectory) || !File.Exists(Path.Combine(installFolder, "config.json"))
+            && !File.Exists(Path.Combine(installFolder, "setup.json")) && !Directory.Exists(Path.Combine(installFolder, "models")))
+            return;
+        try
+        {
+            Directory.CreateDirectory(dataDirectory);
+            foreach (var name in new[] { "config.json", "setup.json", "analytics.json", "analytics-pending.json" })
+            {
+                var source = Path.Combine(installFolder, name);
+                if (File.Exists(source)) File.Move(source, Path.Combine(dataDirectory, name));
+            }
+            var models = Path.Combine(installFolder, "models");
+            if (Directory.Exists(models)) Directory.Move(models, Path.Combine(dataDirectory, "models"));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Left where it was, the old settings are simply not found; nothing is lost.
+        }
     }
 
     public async Task StartAsync()
@@ -215,8 +252,10 @@ public sealed class AmanuRuntime : IAsyncDisposable
         processing.Start();
         SystemEvents.PowerModeChanged += PowerModeChanged;
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailabilityChanged;
-        _ = ObserveCallsAsync(lifetime.Token);
-        _ = RescanPeriodicallyAsync(lifetime.Token);
+        // On the thread pool: a look at every audio session and process each
+        // second is no work for the thread that draws the windows.
+        _ = Task.Run(() => ObserveCallsAsync(lifetime.Token));
+        _ = Task.Run(() => RescanPeriodicallyAsync(lifetime.Token));
         _ = UpdateService.CheckAsync(() => State.IsRecording || IsProcessing, interactive: false, lifetime.Token);
         if (ConfigUnreadable)
             Notify("Amanu", ConfigProblems.First(problem => problem.Unreadable).Headline, NotificationKind.Warning);
@@ -243,11 +282,13 @@ public sealed class AmanuRuntime : IAsyncDisposable
 
     /// <summary>One setting by its path in the file; null puts its default back.</summary>
     public void SetValue(string path, JsonNode? value) =>
-        Update(target => Replace(target, SettingsDocument.With(target, path, value, store.DocumentsDirectory)));
+        Update(target => Replace(target, SettingsDocument.With(target, path, value, store.HomeDirectory)));
 
     public JsonNode? GetValue(string path) => SettingsDocument.Get(SettingsDocument.ToNode(Settings), path);
 
-    public string DescribeDefault(SettingEntry entry) => SettingsSchema.DescribeDefault(entry, store.DocumentsDirectory);
+    public JsonNode? DefaultFor(string path) => SettingsSchema.DefaultFor(path, store.HomeDirectory);
+
+    public string DescribeDefault(SettingEntry entry) => SettingsSchema.DescribeDefault(entry, store.HomeDirectory);
 
     private static void Replace(AppSettings target, AppSettings source)
     {
@@ -315,7 +356,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         _ = analytics.SetEnabledAsync(next.Analytics && !ConfigUnreadable);
         if (previous.Analytics != next.Analytics || previous.AutoRecord.Enabled != next.AutoRecord.Enabled)
             _ = analytics.RecordAsync("setting_changed");
-        processing.Rescan();
+        Task.Run(processing.Rescan);
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -335,7 +376,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
     public void SetSecret(string name, string? value)
     {
         secrets.Set(name, value);
-        processing.Rescan();
+        Task.Run(processing.Rescan);
         SettingsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -374,12 +415,12 @@ public sealed class AmanuRuntime : IAsyncDisposable
         if (e.Mode == PowerModes.Suspend && State.IsRecording)
             Task.Run(() => coordinator.StopAsync(DateTimeOffset.Now, "sleep")).Wait(TimeSpan.FromSeconds(10));
         else if (e.Mode == PowerModes.Resume)
-            processing.Rescan();
+            Task.Run(processing.Rescan);
     }
 
     private void NetworkAvailabilityChanged(object? sender, NetworkAvailabilityEventArgs e)
     {
-        if (e.IsAvailable) processing.Rescan();
+        if (e.IsAvailable) Task.Run(processing.Rescan);
     }
 
     private async Task ObserveCallsAsync(CancellationToken cancellationToken)
@@ -464,7 +505,18 @@ public sealed class AmanuRuntime : IAsyncDisposable
     public void Notify(string title, string message, NotificationKind kind) =>
         NotificationRequested?.Invoke(this, (title, message, kind));
 
-    public static void Open(string target) => Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+    /// <summary>Opens a file, folder or link the way Explorer would, and says so when Windows can't.</summary>
+    public static void Open(string target)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException or FileNotFoundException)
+        {
+            Ui.ShowError(null, T("Couldn’t open it", "Не удалось открыть"), $"{target}\n{exception.Message}");
+        }
+    }
 
     private static void TryCreateDirectory(string path)
     {

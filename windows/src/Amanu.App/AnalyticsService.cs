@@ -22,6 +22,8 @@ public sealed class AnalyticsService : IAsyncDisposable
     private List<PendingEvent> pending = [];
     private Identity identity = new(Guid.NewGuid().ToString(), DateTimeOffset.UtcNow, []);
     private Task? timer;
+    /// <summary>Set by the first start to get past the check, so two settings changes at once cannot start twice.</summary>
+    private int starting;
 
     /// <param name="permitted">
     /// False while config.json cannot be read: the file may well say analytics
@@ -49,7 +51,7 @@ public sealed class AnalyticsService : IAsyncDisposable
             File.Delete(pendingPath);
             return;
         }
-        if (timer is not null) return;
+        if (timer is not null || Interlocked.Exchange(ref starting, 1) == 1) return;
         var firstRun = !File.Exists(identityPath);
         identity = await LoadIdentityAsync(cancellationToken).ConfigureAwait(false);
         pending = await LoadPendingAsync(cancellationToken).ConfigureAwait(false);

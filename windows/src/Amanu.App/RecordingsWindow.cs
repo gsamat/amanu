@@ -45,6 +45,7 @@ internal sealed class RecordingsWindow : Window
     private readonly System.Windows.Controls.Button delete;
     private readonly Grid detail = new();
     private bool loading;
+    private int shown;
 
     public RecordingsWindow(AmanuRuntime runtime)
     {
@@ -175,13 +176,13 @@ internal sealed class RecordingsWindow : Window
             var rows = items.Select(item => new Row(item)).ToList();
             grid.ItemsSource = rows;
             grid.SelectedItem = rows.FirstOrDefault(row => row.Item.Directory == selected) ?? rows.FirstOrDefault();
+            // Setting the selection shows it: the rows are new, so the selection changes.
             empty.Text = rows.Count == 0
                 ? T("No recordings yet. A meeting recorded by hand or by itself shows up here, and so does a file you import.",
                     "Записей пока нет. Здесь появится встреча, записанная вручную или сама, и файл, который вы импортируете.")
                 : "";
             empty.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             detail.Visibility = rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            if (grid.SelectedItem is not null) await ShowSelectedAsync();
         }
         finally
         {
@@ -191,6 +192,8 @@ internal sealed class RecordingsWindow : Window
 
     private async Task ShowSelectedAsync()
     {
+        // Each showing counts; one overtaken by a newer while it read files draws nothing.
+        var version = ++shown;
         speakers.Children.Clear();
         if (Selected is not { } row)
         {
@@ -203,12 +206,15 @@ internal sealed class RecordingsWindow : Window
         title.Text = item.Title;
         problem.Text = item.Problem ?? "";
         problem.Visibility = item.Problem is null ? Visibility.Collapsed : Visibility.Visible;
-        summary.Text = await ReadAsync(Path.Combine(item.Directory, "summary.md"))
+        var summaryText = await ReadAsync(Path.Combine(item.Directory, "summary.md"));
+        var transcriptText = await ReadAsync(Path.Combine(item.Directory, "transcript.md"));
+        if (version != shown) return;
+        summary.Text = summaryText
                        ?? (item.Summary == ProcessingStep.Off ? T("Summaries are off.", "Саммари выключены.") : T("No summary yet.", "Саммари пока нет."));
         if (item.Summary == ProcessingStep.Stale)
             summary.Text = T("This summary is of the previous transcript; a new one is on its way.\n\n", "Это саммари прежней расшифровки; новое на подходе.\n\n") + summary.Text;
-        transcript.Text = await ReadAsync(Path.Combine(item.Directory, "transcript.md")) ?? T("No transcript yet.", "Расшифровки пока нет.");
-        await ShowSpeakersAsync(item);
+        transcript.Text = transcriptText ?? T("No transcript yet.", "Расшифровки пока нет.");
+        await ShowSpeakersAsync(item, version);
 
         var recording = item.Transcript == ProcessingStep.Recording;
         finish.IsEnabled = !recording && (item.Transcript is ProcessingStep.Failed or ProcessingStep.Deferred
@@ -219,7 +225,7 @@ internal sealed class RecordingsWindow : Window
         delete.IsEnabled = !recording;
     }
 
-    private async Task ShowSpeakersAsync(SessionListItem item)
+    private async Task ShowSpeakersAsync(SessionListItem item, int version)
     {
         var transcriptPath = Path.Combine(item.Directory, "transcript.json");
         if (!File.Exists(transcriptPath))
@@ -232,6 +238,7 @@ internal sealed class RecordingsWindow : Window
         catch (JsonException) { return; }
         if (document is null) return;
         var file = await SpeakerFile.ReadAsync(item.Directory, CancellationToken.None);
+        if (version != shown) return;
         foreach (var group in document.Segments.Where(segment => segment.Speaker is not null).GroupBy(segment => segment.Speaker!))
         {
             var label = group.Key;
@@ -350,7 +357,18 @@ internal sealed class RecordingsWindow : Window
         }
     }
 
-    private static async Task<string?> ReadAsync(string path) => File.Exists(path) ? await File.ReadAllTextAsync(path) : null;
+    private static async Task<string?> ReadAsync(string path)
+    {
+        try
+        {
+            return await File.ReadAllTextAsync(path);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+        {
+            // Gone between the list and the click — a re-transcription clears it.
+            return null;
+        }
+    }
 
     /// <summary>One line of the list, in words.</summary>
     private sealed class Row(SessionListItem item)

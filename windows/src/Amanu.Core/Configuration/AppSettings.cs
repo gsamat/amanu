@@ -73,12 +73,17 @@ public sealed class AppSettings
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? Unknown { get; set; }
 
-    public static string DefaultRecordingsDirectory(string documentsDirectory) =>
-        Path.Combine(documentsDirectory, "Amanu Recordings");
+    /// <summary>
+    /// In the home folder rather than in Documents: on most Windows 11 machines
+    /// OneDrive backs Documents up, and recordings of meetings should not start
+    /// travelling to a cloud nobody chose for them.
+    /// </summary>
+    public static string DefaultRecordingsDirectory(string homeDirectory) =>
+        Path.Combine(homeDirectory, "Amanu Recordings");
 
-    public static AppSettings CreateDefault(string documentsDirectory) => new()
+    public static AppSettings CreateDefault(string homeDirectory) => new()
     {
-        RecordingsDirectory = DefaultRecordingsDirectory(documentsDirectory),
+        RecordingsDirectory = DefaultRecordingsDirectory(homeDirectory),
     };
 
     /// <summary>
@@ -86,9 +91,9 @@ public sealed class AppSettings
     /// readable in this process: nothing starts by itself and nothing leaves the
     /// machine, because the file may well say so and nobody can tell.
     /// </summary>
-    public static AppSettings CreateConservative(string documentsDirectory)
+    public static AppSettings CreateConservative(string homeDirectory)
     {
-        var settings = CreateDefault(documentsDirectory);
+        var settings = CreateDefault(homeDirectory);
         settings.AutoRecord.Enabled = false;
         settings.Analytics = false;
         settings.Transcription.Engine = "local";

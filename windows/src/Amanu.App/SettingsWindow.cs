@@ -116,7 +116,6 @@ internal sealed class SetupWindow : Window
             await runtime.CompleteSetupAsync();
             Close();
         }, accent: true);
-        done.IsDefault = true;
         var later = Ui.Button(T("Later", "Позже"), Close);
         later.Margin = new Thickness(8, 0, 0, 0);
         done.Margin = new Thickness(8, 0, 0, 0);

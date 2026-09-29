@@ -480,7 +480,9 @@ internal sealed class SetupForm
         {
             if (refreshing) return;
             var text = box.Text.Trim();
-            var stored = runtime.GetValue(path)?.ToString() ?? "";
+            var value = runtime.GetValue(path);
+            // The field shows nothing when the value is the default; leaving it so changes nothing.
+            var stored = value is null || JsonNode.DeepEquals(value, runtime.DefaultFor(path)) ? "" : value.ToString();
             if (text == stored) return;
             if (server && text.Length > 0 && !KeyRouting.AcceptableServer(text))
             {
@@ -513,7 +515,8 @@ internal sealed class SetupForm
             : FolderAdvice;
     }
 
-    private static string FolderAdvice => T("Recordings, transcripts and summaries live here.", "Здесь лежат записи, расшифровки и саммари.");
+    private static string FolderAdvice => T("Outside Documents, so OneDrive doesn’t copy meetings anywhere by itself.",
+        "Вне «Документов» — OneDrive не унесёт встречи в облако сам.");
 
     private async Task DownloadAsync(string model)
     {

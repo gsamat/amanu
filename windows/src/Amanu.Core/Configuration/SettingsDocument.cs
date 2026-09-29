@@ -27,7 +27,7 @@ public static class SettingsDocument
     /// A copy of <paramref name="settings"/> with one value replaced. A null
     /// value puts the default back, which is how a field is cleared.
     /// </summary>
-    public static AppSettings With(AppSettings settings, string path, JsonNode? value, string documentsDirectory)
+    public static AppSettings With(AppSettings settings, string path, JsonNode? value, string homeDirectory)
     {
         var root = ToNode(settings);
         var keys = path.Split('.');
@@ -41,7 +41,7 @@ public static class SettingsDocument
             }
             parent = child;
         }
-        var replacement = value ?? SettingsSchema.DefaultFor(path, documentsDirectory);
+        var replacement = value ?? SettingsSchema.DefaultFor(path, homeDirectory);
         parent[keys[^1]] = replacement?.DeepClone();
         return FromNode(root);
     }

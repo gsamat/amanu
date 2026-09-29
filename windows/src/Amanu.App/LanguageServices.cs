@@ -244,8 +244,16 @@ public static class CommandLineTools
         using var registration = timeout.Token.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
         var output = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
         var error = process.StandardError.ReadToEndAsync(CancellationToken.None);
-        await process.StandardInput.WriteAsync(input).ConfigureAwait(false);
-        process.StandardInput.Close();
+        try
+        {
+            await process.StandardInput.WriteAsync(input).ConfigureAwait(false);
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // It exited before reading — not signed in, a flag it refuses. The
+            // exit code and what it printed say why, below.
+        }
         await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         var stdout = await output.ConfigureAwait(false);

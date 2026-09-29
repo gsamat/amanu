@@ -298,14 +298,14 @@ public static class SettingsSchema
     public static SettingEntry? Find(string path) => Entries.FirstOrDefault(entry => entry.Path == path);
 
     /// <summary>What a setting is when the file does not say.</summary>
-    public static JsonNode? DefaultFor(string path, string documentsDirectory) =>
-        SettingsDocument.Get(SettingsDocument.ToNode(AppSettings.CreateDefault(documentsDirectory)), path);
+    public static JsonNode? DefaultFor(string path, string homeDirectory) =>
+        SettingsDocument.Get(SettingsDocument.ToNode(AppSettings.CreateDefault(homeDirectory)), path);
 
     /// <summary>The default in words, for the grey of an empty field.</summary>
-    public static string DescribeDefault(SettingEntry entry, string documentsDirectory)
+    public static string DescribeDefault(SettingEntry entry, string homeDirectory)
     {
         if (entry.DescribedAs is { } words) return words;
-        var value = DefaultFor(entry.Path, documentsDirectory);
+        var value = DefaultFor(entry.Path, homeDirectory);
         return entry.Kind switch
         {
             SettingKind.Toggle => value?.GetValue<bool>() == true ? T("on", "включено") : T("off", "выключено"),

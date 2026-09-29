@@ -42,12 +42,12 @@ public sealed record SettingsLoad(AppSettings Settings, IReadOnlyList<ConfigProb
 /// silently traded for defaults: the last settings read stay in force, and the
 /// file waits for the person to fix it.
 /// </summary>
-public sealed class AppSettingsStore(string configPath, string documentsDirectory)
+public sealed class AppSettingsStore(string configPath, string homeDirectory)
 {
     public string ConfigPath => configPath;
-    public string DocumentsDirectory => documentsDirectory;
+    public string HomeDirectory => homeDirectory;
 
-    public AppSettings Defaults => AppSettings.CreateDefault(documentsDirectory);
+    public AppSettings Defaults => AppSettings.CreateDefault(homeDirectory);
 
     /// <param name="lastGood">
     /// What was read before, which stays in force if the file cannot be read now.
@@ -86,7 +86,7 @@ public sealed class AppSettingsStore(string configPath, string documentsDirector
             return Unreadable(Reason(exception), lastGood);
         }
         if (string.IsNullOrWhiteSpace(settings.RecordingsDirectory))
-            settings.RecordingsDirectory = AppSettings.DefaultRecordingsDirectory(documentsDirectory);
+            settings.RecordingsDirectory = AppSettings.DefaultRecordingsDirectory(homeDirectory);
         return new(settings, problems);
     }
 
@@ -123,7 +123,7 @@ public sealed class AppSettingsStore(string configPath, string documentsDirector
     }
 
     private SettingsLoad Unreadable(string reason, AppSettings? lastGood) =>
-        new(lastGood?.Clone() ?? AppSettings.CreateConservative(documentsDirectory), [ConfigProblem.UnreadableFile(reason)]);
+        new(lastGood?.Clone() ?? AppSettings.CreateConservative(homeDirectory), [ConfigProblem.UnreadableFile(reason)]);
 
     private static string Reason(JsonException exception) =>
         exception.LineNumber is { } line

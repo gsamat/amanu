@@ -180,6 +180,17 @@ through there.
 | 19 | Core tests use temporary directories only; nothing in Core reads `%LOCALAPPDATA%` or Credential Manager. |
 | 20 | Failure paths tested in Core: invalid config, wrong-kind values, failing starts, short joins, ceiling, HTTP 401/429/5xx and no network. The processing coordinator itself lives in the WPF project and has no tests. |
 
+A review of the rework (static, by a second agent) found and got fixed: a
+processing worker that died on any unexpected exception; AAC archiving that
+could never work (Windows' encoder takes 44.1/48 kHz only — now resampled to
+48 kHz); data in Velopack's install folder (`%LOCALAPPDATA%\Amanu`, removed on
+uninstall — now `%LOCALAPPDATA%\Amanu Data`, moved once); recordings under
+OneDrive-backed Documents (now `%USERPROFILE%\Amanu Recordings`); gap padding on
+the WASAPI callback thread (now a writer thread); offsets lost on crash (tracks
+now padded from the recording's start); loops on the UI thread; an async
+`OnExit` that never finished; naming re-sent on every pass; a dead AssemblyAI
+job resumed forever; no global exception handler.
+
 The config keys now follow the macOS names (`transcript_echo_filter`,
 `summary.model`, `summary.ollama_base_url`, `transcription.openai.model`, …).
 No tester had the beta, so nothing migrates old Windows keys.

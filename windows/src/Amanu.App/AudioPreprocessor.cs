@@ -54,14 +54,22 @@ public static class AudioPreprocessor
         using var writer = new BinaryWriter(stream);
         if (stream.Length < 44 || new string(reader.ReadChars(4)) != "RIFF") return;
         stream.Position = 12;
+        var blockAlign = 1;
         while (stream.Position + 8 <= stream.Length)
         {
             var id = new string(reader.ReadChars(4));
             var sizePosition = stream.Position;
             var size = reader.ReadUInt32();
+            if (id == "fmt " && size >= 14)
+            {
+                stream.Position = sizePosition + 4 + 12;
+                blockAlign = Math.Max(1, (int)reader.ReadUInt16());
+            }
             if (id == "data")
             {
-                var actual = (uint)Math.Min(uint.MaxValue - 8, stream.Length - (sizePosition + 4));
+                // Whole frames only: a write cut off mid-frame leaves a tail no reader wants.
+                var remaining = Math.Min(uint.MaxValue - 8, stream.Length - (sizePosition + 4));
+                var actual = (uint)(remaining - remaining % blockAlign);
                 if (actual == size) return;
                 stream.Position = sizePosition;
                 writer.Write(actual);
@@ -215,9 +223,14 @@ public static class AudioPreprocessor
         return parts;
     }
 
+    /// <summary>
+    /// AAC at 48 kHz: Windows' own AAC encoder takes only 44.1 and 48 kHz input,
+    /// and refuses the 16 kHz the transcription files are made at.
+    /// </summary>
     public static void EncodeAac(string wavePath, string destination)
     {
         using var reader = new WaveFileReader(wavePath);
-        MediaFoundationEncoder.EncodeToAac(reader, destination, 128_000);
+        var resampled = new WdlResamplingSampleProvider(reader.ToSampleProvider(), 48_000);
+        MediaFoundationEncoder.EncodeToAac(new SampleToWaveProvider16(resampled), destination, 128_000);
     }
 }

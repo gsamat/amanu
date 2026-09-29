@@ -183,7 +183,7 @@ internal sealed class AdvancedSettings
     /// <summary>What the field shows: nothing when the value is the default, so the grey default can be read.</summary>
     private string Display(SettingEntry entry, JsonNode? value)
     {
-        var fallback = SettingsDocument.Get(SettingsDocument.ToNode(AppSettings.CreateDefault(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments))), entry.Path);
+        var fallback = runtime.DefaultFor(entry.Path);
         if (value is null || JsonNode.DeepEquals(value, fallback)) return "";
         return entry.Kind == SettingKind.List && value is JsonArray list
             ? string.Join(Environment.NewLine, list.Select(item => item?.ToString()))

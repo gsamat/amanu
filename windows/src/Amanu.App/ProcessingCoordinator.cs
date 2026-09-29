@@ -18,6 +18,7 @@ public sealed record ProcessingLedger(
     int NamesAttempts = 0,
     int SummaryAttempts = 0,
     bool HookRan = false,
+    bool NamesAsked = false,
     string? LastError = null);
 
 /// <summary>
@@ -48,6 +49,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly HashSet<string> queued = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock queueLock = new();
+    private readonly HashSet<string> again = new(StringComparer.OrdinalIgnoreCase);
+    private string? current;
     private Task? worker;
 
     public ProcessingCoordinator(
@@ -91,9 +94,22 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     public void Rescan()
     {
         var root = settings().RecordingsDirectory;
-        if (!Directory.Exists(root)) return;
-        foreach (var directory in Directory.EnumerateDirectories(root))
-            if (NeedsWork(directory)) Enqueue(directory);
+        try
+        {
+            if (!Directory.Exists(root)) return;
+            foreach (var directory in Directory.EnumerateDirectories(root))
+            {
+                try
+                {
+                    if (NeedsWork(directory)) Enqueue(directory);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A recordings folder on a share that just went away; the next rescan tries again.
+        }
     }
 
     private bool NeedsWork(string directory)
@@ -118,7 +134,13 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         var directory = Path.GetFullPath(sessionDirectory).TrimEnd(Path.DirectorySeparatorChar);
         lock (queueLock)
         {
-            if (!queued.Add(directory)) return;
+            if (!queued.Add(directory))
+            {
+                // Asked for while it is being worked on: go round once more after,
+                // so a change made mid-pass is not lost to the pass that missed it.
+                if (string.Equals(current, directory, StringComparison.OrdinalIgnoreCase)) again.Add(directory);
+                return;
+            }
         }
         queue.Writer.TryWrite(directory);
         Publish(directory, "queued", T("Queued for processing", "В очереди на обработку"), true);
@@ -183,6 +205,13 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     /// </summary>
     public async Task RetranscribeAsync(string directory, string? engine, CancellationToken cancellationToken = default)
     {
+        lock (queueLock)
+        {
+            if (string.Equals(current, Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(T(
+                    "This recording is being processed right now; try again when it finishes.",
+                    "Эта запись сейчас обрабатывается — попробуйте, когда закончится."));
+        }
         var audio = await LoadAudioAsync(directory, cancellationToken).ConfigureAwait(false);
         if (!audio.HasAudio)
             throw new InvalidOperationException(T(
@@ -201,7 +230,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         var choice = Path.Combine(directory, "transcribe.engine");
         if (engine is null) File.Delete(choice);
         else await AtomicFiles.WriteTextAsync(choice, engine, cancellationToken).ConfigureAwait(false);
-        WriteLedger(directory, new ProcessingLedger());
+        // on_stop has had its run for this session; a new transcript does not earn another.
+        WriteLedger(directory, new ProcessingLedger(HookRan: ReadLedger(directory).HookRan));
         Enqueue(directory);
     }
 
@@ -233,6 +263,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         {
             await foreach (var directory in queue.Reader.ReadAllAsync(cancellationToken))
             {
+                lock (queueLock) current = directory;
                 try
                 {
                     await ProcessAsync(directory, cancellationToken).ConfigureAwait(false);
@@ -241,14 +272,30 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
                 {
                     return;
                 }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+                catch (Exception exception)
                 {
+                    // Nothing one session does may stop the queue for the others:
+                    // it is written down, and the session waits for the next pass.
+                    try
+                    {
+                        await File.AppendAllTextAsync(Path.Combine(directory, "transcribe.log"),
+                            $"{DateTimeOffset.UtcNow:O} {exception}{Environment.NewLine}", CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception logging) when (logging is IOException or UnauthorizedAccessException) { }
                     Publish(directory, "deferred", exception.Message, false);
+                    ScheduleRetry(directory, TimeSpan.FromMinutes(10));
                 }
                 finally
                 {
-                    lock (queueLock) queued.Remove(directory);
+                    bool repeat;
+                    lock (queueLock)
+                    {
+                        queued.Remove(directory);
+                        current = null;
+                        repeat = again.Remove(directory);
+                    }
                     SessionsChanged?.Invoke(this, EventArgs.Empty);
+                    if (repeat) Enqueue(directory);
                 }
             }
         }
@@ -334,7 +381,16 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
                 ["engine"] = transcript.Engine,
                 ["model"] = KnownModel(transcript.Engine, transcript.Model),
             });
-            await SettleAudioAsync(audio, current.KeepAudio, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await SettleAudioAsync(audio, current.KeepAudio, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The transcript is safe; the raw tracks stay rather than be lost to a failed archive.
+                await File.AppendAllTextAsync(Path.Combine(directory, "transcribe.log"),
+                    $"{DateTimeOffset.UtcNow:O} archive: {exception.Message}{Environment.NewLine}", cancellationToken).ConfigureAwait(false);
+            }
             return true;
         }
         catch (ProcessingFailure failure)
@@ -433,6 +489,9 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         if (Has(directory, "speakers.failed") || Has(directory, "speakers.off")) return true;
         if (Has(directory, "speakers.json") && !Has(directory, "speakers.deferred"))
         {
+            // Asked once and answered: labels the model could not name stay
+            // unnamed rather than send the transcript again at every pass.
+            if (ReadLedger(directory).NamesAsked) return true;
             var labels = transcript.Segments.Select(segment => segment.Speaker).OfType<string>().Distinct();
             var known = (await SpeakerFile.ReadAsync(directory, cancellationToken).ConfigureAwait(false)).Names;
             if (labels.All(known.ContainsKey) || MeetingEgress.Route(EgressPurpose.SpeakerNames, current) is null) return true;
@@ -443,6 +502,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
             var result = await new SpeakerNamingService(languageModels, settings).ResolveAsync(directory, transcript, cancellationToken).ConfigureAwait(false);
             await TranscriptWriter.WriteAsync(directory, title, transcript, result.Names, cancellationToken).ConfigureAwait(false);
             File.Delete(Path.Combine(directory, "speakers.deferred"));
+            if (result.AskedModel) WriteLedger(directory, ReadLedger(directory) with { NamesAsked = true });
             if (result.AskedModel)
                 _ = analytics.RecordAsync("speaker_names_finished", new Dictionary<string, object?> { ["backend"] = current.SpeakerNames.Backend });
             return true;
@@ -543,7 +603,10 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         if (audio.HasAudio)
         {
             try { await SettleAudioAsync(audio, keep: true, cancellationToken).ConfigureAwait(false); }
-            catch (Exception exception) when (exception is IOException or InvalidDataException or System.Runtime.InteropServices.COMException) { }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The raw tracks stay; a failed compression costs space, not the meeting.
+            }
         }
         Publish(directory, "failed", message, false);
     }
