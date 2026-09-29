@@ -38,7 +38,7 @@ the Azure subscription.
 
 ## Signed test builds without a release
 
-Create a short-lived branch named `windows/<change>` from the Windows development
+Create a short-lived branch from the Windows development
 branch (or from `master` once Windows is merged). Run **Windows beta** in GitHub
 Actions, choose the branch and a new beta version, enable `upload_artifact`, and
 leave `publish_release` disabled. Both options are disabled by default.
@@ -56,10 +56,9 @@ build manually. The installer and Amanu payload have production-trusted
 signatures identifying **Fands Software LLC**.
 
 Azure trusts the `windows-signing` environment rather than a particular branch.
-The environment allows `master`, `windows/*`, and the two existing Windows
-testing branches. New `windows/<change>` branches need no Azure changes.
-Other naming patterns require updating the environment's deployment branch
-policy in GitHub. The Azure trust is bound to immutable repository IDs:
+The environment allows any branch in this repository, so new testing branches
+need no Azure or GitHub policy changes. Forks do not match the Azure trust,
+which is bound to immutable repository IDs:
 
 ```text
 repo:gsamat@705006/amanu@1338189078:environment:windows-signing
