@@ -43,8 +43,9 @@ the Azure subscription.
 
 Create a short-lived branch from the Windows development
 branch (or from `master` once Windows is merged). Run **Windows beta** in GitHub
-Actions, choose the branch and a new beta version, enable `upload_artifact`, and
-leave `publish_release` disabled. Both options are disabled by default.
+Actions, choose the branch and a new beta version, and leave `publish_release`
+disabled. `upload_artifact` is enabled by default, while `publish_release` is
+disabled. Disable artifact upload explicitly for a build-only smoke test.
 
 ```sh
 gh workflow run windows-beta.yml -R gsamat/amanu --ref windows/my-change \

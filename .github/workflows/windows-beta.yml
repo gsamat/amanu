@@ -16,7 +16,7 @@ on:
         description: Upload the installer as a publicly accessible Actions artifact
         required: true
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
