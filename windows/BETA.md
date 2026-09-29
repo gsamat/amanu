@@ -14,6 +14,8 @@ without publishing a GitHub Release; see [README.md](README.md).
 - A Parakeet transcript reads as a conversation: it is cut into sentences and
   turns from the model's word timings, as on the Mac, instead of one paragraph
   per side.
+- GigaAM hears twenty seconds at a time, as on the Mac. Given a whole meeting
+  it dropped letters and, past a couple of minutes, returned garbage slowly.
 - Switches and cards changed through Narrator, Voice Access or any other UI
   Automation client now save, as a click does.
 - From the second launch on, meetings are transcribed again: the statistics
