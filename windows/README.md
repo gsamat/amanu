@@ -49,7 +49,7 @@ disabled. Disable artifact upload explicitly for a build-only smoke test.
 
 ```sh
 gh workflow run windows-beta.yml -R gsamat/amanu --ref windows/my-change \
-  -f version=0.6.0-beta.5 -f upload_artifact=true -f publish_release=false
+  -f version=0.6.0-beta.8 -f upload_artifact=true -f publish_release=false
 ```
 
 After the run succeeds, download `Amanu-Windows-<version>-x64` from its Artifacts
