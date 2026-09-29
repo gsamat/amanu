@@ -221,6 +221,41 @@ whether loopback stopped delivering during those pauses (so `TrackWriter` padded
 them) or kept delivering silent packets, and §4.2's case is five minutes of
 silence.
 
+### Whisper and GigaAM (29 September, late evening)
+
+Both downloaded from Settings (GigaAM 271 MB in seconds, Whisper 886 MB in
+about 35 s). Only one download runs at a time — the other buttons grey out.
+"Download…" also selects that card, as `downloadLocalClicked` does on the Mac;
+the local engine was put back to Parakeet afterwards.
+
+Each run through `transcribe-cli` on the two sides of `2026.09.29-2147`
+(142 s, 16 kHz):
+
+- **GigaAM, whole track (as beta.9 and earlier did it): broken.** 100 s per side,
+  and the mic side came back as `это очень прикольный разговорна английском
+  языкепрсериал сейчас о говомирофгово тепеьв а буду г` — letters dropped, words
+  run together, cut off. On 15 s and 22 s pieces it is clean and takes 2–3 s; at
+  42 s letters start to go. The macOS `GigaAMEngine` feeds it 20 s chunks. Fixed
+  in `e1e5d16`: the 16 kHz track is cut into 20 s pieces, all sent in one
+  `--batch` (the model loads once; 8 pieces took 14 s), one segment per piece as
+  on the Mac, matched to its piece by file name. Words cut at a piece boundary
+  come out as fragments (`ю`, `поговорилркинбт`) — the Mac has the same seams.
+  The English side is empty, as it should be for a Russian-only model.
+- **Whisper large-v3-turbo:** the best Russian of the three, 19 and 27 segments
+  of its own — but slower than real time on this CPU (173 s for the 142 s mic
+  side, 121 s for the call side; a one-hour meeting would take hours), and it
+  wrote `Продолжение следует...` over the trailing silence, the classic Whisper
+  hallucination. Nothing on either platform filters that. `--timestamps word`
+  makes the CLI exit 1 for Whisper, which is why only Parakeet uses it.
+- Beta.10 (`d2fd61a`) carries the GigaAM change; not yet installed.
+
+### Deferred by Samat: alignment across long silence
+
+Checklist §4.2 (ten minutes, far side silent for five) is postponed — Samat asked
+for it to be remembered and done later. Proposed: first add a `transcribe.log`
+line whenever `TrackWriter` pads a gap, so a recording shows whether padding ran
+at all; then about three minutes with the call paused for one and a half.
+
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
 launch" while the release notes promise no restarts.
