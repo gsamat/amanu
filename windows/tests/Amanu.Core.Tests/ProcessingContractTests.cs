@@ -74,6 +74,78 @@ public sealed class ProcessingContractTests
         Assert.Equal(100, result.Segments[0].StartMs);
     }
 
+    // What transcribe-cli v0.1.3 printed for the mic side of the first real
+    // Windows recording, cut short; the lines before `words:` are its own.
+    private const string CliWordOutput =
+        "audio: C:\\Users\\tester\\AppData\\Local\\Temp\\Amanu\\input.wav\n" +
+        "  duration:   141.867 s\r\n" +
+        "run: ok\n" +
+        "text: На английском языке про сериал Breaking Bad. А я сейчас вот говорю\n" +
+        "segments: 1\n" +
+        "  [  20.72 ->  122.88] На английском языке про сериал Breaking Bad. А я сейчас вот говорю\n" +
+        "words: 11\n" +
+        "  [  20.72 ->   20.96] На\n" +
+        "  [  20.96 ->   21.52] английском\n" +
+        "  [  21.52 ->   22.00] языке\n" +
+        "  [  22.32 ->   22.64] про\n" +
+        "  [  22.64 ->   23.04] сериал\n" +
+        "  [  23.28 ->   23.84] Breaking\n" +
+        "  [  23.84 ->   24.64] Bad.\r\n" +
+        "  [  24.64 ->   24.88] А\n" +
+        "  [  24.88 ->   25.04] я\n" +
+        "  [  34.40 ->   34.72] сейчас\n" +
+        "  [  34.88 ->   35.20] говорю\n" +
+        "  [ timings ]  mel 12 ms\n";
+
+    [Fact]
+    public void LocalCliWords_reads_the_word_block_of_the_plain_output()
+    {
+        var words = LocalCliWords.Parse(CliWordOutput);
+
+        Assert.Equal(11, words.Count);
+        Assert.Equal(new TimedWord(20_720, 20_960, "На"), words[0]);
+        Assert.Equal("Bad.", words[6].Text);
+        Assert.Equal(new TimedWord(34_880, 35_200, "говорю"), words[^1]);
+    }
+
+    [Fact]
+    public void LocalCliWords_is_empty_without_a_word_block()
+    {
+        Assert.Empty(LocalCliWords.Parse("run: ok\ntext: hello\nsegments: 1\n  [   0.00 ->    1.00] hello\n"));
+        Assert.Equal("hello", LocalCliWords.FullText("run: ok\ntext: hello\r\n"));
+        Assert.Equal("", LocalCliWords.FullText("run: ok\ntext: (empty)\n"));
+    }
+
+    [Fact]
+    public void LocalCliWords_break_on_sentence_ends_and_on_pauses_over_a_second()
+    {
+        var segments = LocalCliWords.Segments(LocalCliWords.Parse(CliWordOutput));
+
+        Assert.Collection(segments,
+            first =>
+            {
+                Assert.Equal(20_720, first.StartMs);
+                Assert.Equal(24_640, first.EndMs);
+                Assert.Equal("На английском языке про сериал Breaking Bad.", first.Text);
+            },
+            second => Assert.Equal("А я", second.Text),
+            third =>
+            {
+                Assert.Equal(34_400, third.StartMs);
+                Assert.Equal("сейчас говорю", third.Text);
+            });
+    }
+
+    [Fact]
+    public void LocalCliWords_wrap_a_run_on_speaker_every_sixty_words()
+    {
+        var words = Enumerable.Range(0, 130).Select(index => new TimedWord(index * 300, index * 300 + 250, "слово")).ToArray();
+
+        var segments = LocalCliWords.Segments(words);
+
+        Assert.Equal([60, 60, 10], segments.Select(segment => segment.Text.Split(' ').Length));
+    }
+
     [Fact]
     public void ModelCatalog_pins_verified_local_models()
     {

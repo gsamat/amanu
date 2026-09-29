@@ -126,8 +126,24 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
         {
             var wave = Path.Combine(temp, "input.wav");
             AudioPreprocessor.ConvertToMono16k(source, wave);
-            var batch = Path.Combine(temp, "batch.txt");
-            await File.WriteAllTextAsync(batch, wave + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+            // Parakeet's text is grouped from its word timings, as on macOS: the
+            // batch JSONL gives one segment for the whole track, which made a
+            // transcript two paragraphs, all of one side and then all of the other.
+            // The words are only in the plain output for a single file.
+            var byWord = model == "parakeet";
+            var arguments = new List<string> { "-m", modelPath };
+            if (byWord)
+            {
+                arguments.AddRange(["-q", "--timestamps", "word"]);
+            }
+            else
+            {
+                var batch = Path.Combine(temp, "batch.txt");
+                await File.WriteAllTextAsync(batch, wave + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+                arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
+            }
+            if (!string.IsNullOrWhiteSpace(languagePin)) arguments.AddRange(["--language", languagePin]);
+            if (byWord) arguments.Add(wave);
             // The CLI writes UTF-8. Left unsaid, .NET reads a windowless app's pipes
             // in the ANSI code page, and every Cyrillic word comes back as mojibake
             // while English survives — which is how the first real recording found it.
@@ -140,13 +156,7 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
                 StandardOutputEncoding = Encoding.UTF8,
                 StandardErrorEncoding = Encoding.UTF8,
             };
-            foreach (var argument in new[] { "-m", modelPath, "--batch", batch, "--batch-jsonl", "--timestamps", "auto" })
-                start.ArgumentList.Add(argument);
-            if (!string.IsNullOrWhiteSpace(languagePin))
-            {
-                start.ArgumentList.Add("--language");
-                start.ArgumentList.Add(languagePin);
-            }
+            foreach (var argument in arguments) start.ArgumentList.Add(argument);
             using var process = Process.Start(start) ?? throw new ProcessingFailure(FailureKind.Environmental,
                 T("Could not launch local transcription.", "Не удалось запустить локальную расшифровку."));
             using var registration = cancellationToken.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
@@ -160,6 +170,21 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             if (process.ExitCode != 0)
                 throw new ProcessingFailure(process.ExitCode < 0 ? FailureKind.Environmental : FailureKind.Recording,
                     T("Local transcription failed: ", "Локальная расшифровка не удалась: ") + $"({process.ExitCode}) " + error.Trim());
+            if (byWord)
+            {
+                var words = LocalCliWords.Parse(output);
+                if (words.Count > 0)
+                    return LocalCliWords.Segments(words).Select(item => item with
+                    {
+                        StartMs = item.StartMs + offsetMs,
+                        EndMs = item.EndMs + offsetMs,
+                        Speaker = SpeakerLabels.Raw(side, ""),
+                    }).ToArray();
+                // No words: a silent track, or an output this parser no longer
+                // reads — in which case one paragraph beats losing the side.
+                var text = LocalCliWords.FullText(output);
+                return text.Length == 0 ? [] : [new TranscriptSegment(offsetMs, offsetMs, text, SpeakerLabels.Raw(side, ""))];
+            }
             var result = LocalCliResultParser.Parse(output);
             if (result.Segments.Count > 0)
                 return result.Segments.Select(item => item with

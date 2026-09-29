@@ -57,3 +57,70 @@ public static class LocalCliResultParser
         [property: JsonPropertyName("speaker_id")] string? Speaker,
         string? Text);
 }
+
+public sealed record TimedWord(long StartMs, long EndMs, string Text);
+
+/// <summary>
+/// Parakeet's words, as the macOS app gets them from FluidAudio's token timings.
+/// transcribe.cpp computes them too but its `--batch-jsonl` leaves them out (as of
+/// v0.2.4), so they are read from the CLI's plain output for one file: a
+/// `words: N` line and then N lines of `  [ 20.72 ->  20.96] word`.
+/// </summary>
+public static partial class LocalCliWords
+{
+    public static IReadOnlyList<TimedWord> Parse(string output)
+    {
+        var lines = output.Split('\n');
+        var header = Array.FindIndex(lines, line => line.StartsWith("words: ", StringComparison.Ordinal));
+        if (header < 0 || !int.TryParse(lines[header]["words: ".Length..].Trim(), out var count)) return [];
+        var words = new List<TimedWord>(count);
+        for (var index = header + 1; index < lines.Length && words.Count < count; index++)
+        {
+            var match = WordLine().Match(lines[index].TrimEnd('\r'));
+            if (!match.Success) break;
+            var text = match.Groups[3].Value.Trim();
+            if (text.Length == 0) continue;
+            words.Add(new TimedWord(Milliseconds(match.Groups[1].Value), Milliseconds(match.Groups[2].Value), text));
+        }
+        return words;
+    }
+
+    /// <summary>
+    /// Readable segments, grouped as macOS groups them (ParakeetEngine.segments):
+    /// a new one after sentence-ending punctuation, before a gap of more than a
+    /// second, and after sixty words so a run-on speaker still wraps.
+    /// </summary>
+    public static IReadOnlyList<TranscriptSegment> Segments(IReadOnlyList<TimedWord> words)
+    {
+        var segments = new List<TranscriptSegment>();
+        var current = new List<TimedWord>();
+        void Flush()
+        {
+            if (current.Count == 0) return;
+            segments.Add(new TranscriptSegment(current[0].StartMs, current[^1].EndMs, string.Join(' ', current.Select(word => word.Text)), null));
+            current.Clear();
+        }
+        foreach (var word in words)
+        {
+            if (current.Count > 0 && word.StartMs - current[^1].EndMs > 1000) Flush();
+            current.Add(word);
+            if (word.Text.EndsWith('.') || word.Text.EndsWith('?') || word.Text.EndsWith('!') || current.Count >= 60) Flush();
+        }
+        Flush();
+        return segments;
+    }
+
+    /// <summary>The `text:` line, empty when the CLI says `(empty)` or printed none.</summary>
+    public static string FullText(string output)
+    {
+        var line = output.Split('\n').FirstOrDefault(line => line.StartsWith("text: ", StringComparison.Ordinal));
+        var text = line?["text: ".Length..].Trim() ?? string.Empty;
+        return text == "(empty)" ? string.Empty : text;
+    }
+
+    private static long Milliseconds(string seconds) =>
+        (long)Math.Round(double.Parse(seconds, System.Globalization.CultureInfo.InvariantCulture) * 1000);
+
+    [GeneratedRegex(@"^\s*\[\s*(-?\d+(?:\.\d+)?)\s*->\s*(-?\d+(?:\.\d+)?)\]\s?(.*)$")]
+    private static partial Regex WordLine();
+}
