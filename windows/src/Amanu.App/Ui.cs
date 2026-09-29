@@ -76,7 +76,7 @@ internal static class Ui
 
     public static CheckBox Switch(string accessibleName)
     {
-        var toggle = new CheckBox();
+        var toggle = new ClickCheckBox();
         toggle.SetResourceReference(FrameworkElement.StyleProperty, "Toggle");
         System.Windows.Automation.AutomationProperties.SetName(toggle, accessibleName);
         return toggle;
@@ -206,7 +206,7 @@ internal static class Ui
             .Brush(TextBlock.ForegroundProperty, Primary));
         top.Children.Add(Detail(detail));
         content.Children.Add(top);
-        var card = new RadioButton { Tag = id, Content = content };
+        var card = new ClickRadioButton { Tag = id, Content = content };
         card.SetResourceReference(FrameworkElement.StyleProperty, "ChoiceCard");
         System.Windows.Automation.AutomationProperties.SetName(card, title);
         return card;
