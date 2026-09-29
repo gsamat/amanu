@@ -314,6 +314,23 @@ internal static class Ui
         window.Top = area.Top + Math.Max(0, (area.Height - window.Height) / 2);
     }
 
+    /// <summary>
+    /// Keeps a window that grows with its content on the screen: the status
+    /// window, sized to fit, gained the live transcript's 240 pixels below where it
+    /// stood and ran under the taskbar. It moves up as far as it must, and is
+    /// never taller than the work area.
+    /// </summary>
+    public static void KeepOnScreen(Window window)
+    {
+        window.MaxHeight = SystemParameters.WorkArea.Height;
+        window.SizeChanged += (_, _) =>
+        {
+            var area = SystemParameters.WorkArea;
+            if (window.Top + window.ActualHeight > area.Bottom)
+                window.Top = Math.Max(area.Top, area.Bottom - window.ActualHeight);
+        };
+    }
+
     public static ScrollViewer Scroll(UIElement content) => new()
     {
         Content = content,

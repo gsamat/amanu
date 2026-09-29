@@ -67,7 +67,9 @@ internal sealed class StatusWindow : Window
 
         record = Ui.Button(T("Start recording", "Начать запись"), () => _ = ToggleRecordingAsync(), accent: true);
         pause = Ui.Button(T("Pause", "Пауза"), () => _ = TogglePauseAsync());
-        liveText.Document = new FlowDocument { PagePadding = new Thickness(6) };
+        // A FlowDocument keeps its own serif default rather than the window's font.
+        liveText.Document = new FlowDocument { PagePadding = new Thickness(6), FontFamily = SystemFonts.MessageFontFamily, FontSize = 13 };
+        Ui.KeepOnScreen(this);
 
         var stack = new StackPanel { Margin = new Thickness(20, 16, 20, 18) };
         var header = new StackPanel { Orientation = Orientation.Horizontal };
