@@ -39,7 +39,9 @@ Read first, in this order:
 | Phase 1 GUI checks on **beta.3** | laptop, but the install was inside Claude's MSIX container (see below) | findings below, fixed in beta.4 |
 | Phase 1 GUI checks on **beta.4**, all nine items | laptop, real install (Samat ran the Setup from Explorer) | pass — see "Phase 1 on beta.4" below |
 | Phase 2.1–2.3: Parakeet download, a manual recording, local transcript, kept audio | laptop, beta.4 | works, with three bugs fixed for beta.6 and one open — see "Phase 2 on beta.4" |
-| Signed beta.7 (`8723ccc`), including this session's fixes | [Windows CI run 36618675823](https://github.com/gsamat/amanu/actions/runs/36618675823) | 110 tests pass; valid Fands Software LLC signatures and timestamps on the installer, payload and packaged Velopack helpers; no GitHub Release. Not installed on the laptop yet. |
+| Signed beta.7 (`8723ccc`), including the fixes above | [Windows CI run 36618675823](https://github.com/gsamat/amanu/actions/runs/36618675823) | 110 tests pass; valid Fands Software LLC signatures and timestamps on the installer, payload and packaged Velopack helpers; no GitHub Release. Never installed on the laptop. |
+| This branch's signed beta.6 (`45574de`, run 36617549549) | laptop, installed over beta.4 by Samat | installs, signatures valid, settings kept — but **the processing queue never starts on a second launch**; see "Beta.6 on the laptop". beta.7 has the same bug. |
+| Beta.8 (`cdc86b9` and after) | — | fixes that; **not yet built** |
 | Phase 2.4 (ten minutes, alignment across silence), phase 3 | — | **nothing yet** |
 
 ### Phase 1 on beta.4 (29 September, evening)
@@ -144,6 +146,37 @@ build; `publish_release` defaults to **false**. No GitHub Release or automatic
 update was published. Use a fresh version for subsequent builds; do not replace
 beta.7 with different application code.
 
+Two agents building from two branches used the same numbers: there are two
+different signed beta.6 builds (this branch's `45574de`, installed on the laptop,
+and the signing branch's). Before dispatching, look at the latest runs on both
+branches and take a number neither has used.
+
+### Beta.6 on the laptop (29 September, late evening)
+
+Samat installed this branch's beta.6 over beta.4; the real path, ProductVersion
+`0.6.0-beta.6+45574de` and valid signatures on `Amanu.exe` and
+`transcribe-cli.exe` checked out, and `config.json` was kept. "Done" in Setup
+(never pressed before; it had only ever been "Later") closed it.
+
+"Transcribe again → Parakeet" on `2026.09.29-2147` unpacked `audio.m4a` into
+`.archive-mic.wav`/`.archive-system.wav`, wrote `transcribe.engine`, deleted the
+old transcript — and nothing more happened for four minutes: no CLI process, and
+the Recordings list still said "done (parakeet)". `errors.log` had the reason,
+an unobserved `ArgumentNullException` from `AnalyticsService.StartAsync`.
+`AtomicFiles.WriteJsonAsync` writes camelCase and the analytics files were read
+back with System.Text.Json's defaults, PascalCase and case-sensitive, so
+`analytics.json` read as `Id = null, VersionsSeen = null` (checked against the
+real file). The first launch of an installation has no file and never sees it;
+**every later launch threw in `AmanuRuntime.StartAsync` before
+`processing.Start()`, the call watcher and the rescans**, and the exception
+filter there only caught I/O and JSON errors. Fixed in `cdc86b9`: the files are
+read with the options they are written with, a half-empty identity counts as none,
+and whatever statistics throw is logged and passed over. beta.7 predates it.
+
+Also seen, not yet looked into: after "Transcribe again" the Recordings list kept
+showing the old status. It may only be that no processing event was published
+because the queue was not running; re-check on beta.8.
+
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
 launch" while the release notes promise no restarts.
@@ -206,8 +239,10 @@ leaves one process. No `errors.log`, no Application-log errors.
 
 ## The installers
 
-- beta.4 (currently installed on the laptop): `C:\Users\samat\AppData\Local\Temp\amanu-beta4\Amanu-Windows-0.6.0-beta.4-x64\Amanu-beta-Setup.exe`
-  (unsigned, per-user, no UAC; ProductVersion 0.6.0-beta.4, commit `061a34c`).
+- Installed on the laptop: this branch's beta.6 from
+  `C:\Users\samat\AppData\Local\Temp\amanu-beta6\Amanu-Windows-0.6.0-beta.6-x64\Amanu-beta-Setup.exe`
+  (signed, per-user, no UAC; ProductVersion 0.6.0-beta.6, commit `45574de`).
+  beta.4, unsigned, is still at `C:\Users\samat\AppData\Local\Temp\amanu-beta4\…`.
 - To build a new one after a fix: bump `<Version>` in
   `windows/src/Amanu.App/Amanu.App.csproj` (and the default in
   `windows/scripts/Build-Beta.ps1`, `windows/README.md`,

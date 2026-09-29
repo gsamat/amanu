@@ -13,7 +13,7 @@ GitHub Actions signs Windows betas with Azure Artifact Signing as Fands Software
 On Windows with the .NET 10 SDK:
 
 ```powershell
-.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.6
+.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.8
 ```
 
 The script runs the tests, builds the local transcribe.cpp CLI from a pinned

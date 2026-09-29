@@ -13,6 +13,9 @@ without publishing a GitHub Release; see [README.md](README.md).
   longer comes out as mojibake.
 - Switches and cards changed through Narrator, Voice Access or any other UI
   Automation client now save, as a click does.
+- From the second launch on, meetings are transcribed again: the statistics
+  files were read back wrong, and the failure stopped Amanu's startup before
+  its processing queue and call watcher began.
 - With nothing set up to write summaries, a meeting waits for a model and says
   so, rather than using up its attempts on an Ollama nobody installed.
 
