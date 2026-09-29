@@ -121,7 +121,7 @@ jobs:
           "path=$certificatePath" >> $env:GITHUB_OUTPUT
 
       - name: Package unsigned beta installer
-        if: steps.certificate.outputs.available != 'true' || steps.artifact_signing.outputs.available == 'true'
+        if: steps.certificate.outputs.available != 'true' && steps.artifact_signing.outputs.available != 'true'
         shell: pwsh
         run: >-
           & "${{ runner.temp }}/velopack/vpk.exe" pack
@@ -136,6 +136,32 @@ jobs:
           --runtime win-x64
           --releaseNotes windows/BETA.md
           --outputDir "${{ runner.temp }}/amanu-release"
+
+      - name: Package beta with Azure Artifact Signing
+        if: steps.artifact_signing.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $metadataPath = Join-Path $env:RUNNER_TEMP "amanu-artifact-signing.json"
+          $metadata = @{
+            Endpoint = $env:ARTIFACT_SIGNING_ENDPOINT
+            CodeSigningAccountName = $env:ARTIFACT_SIGNING_ACCOUNT
+            CertificateProfileName = $env:ARTIFACT_SIGNING_PROFILE
+          } | ConvertTo-Json
+          [IO.File]::WriteAllText($metadataPath, $metadata, [Text.UTF8Encoding]::new($false))
+          $packArgs = @(
+            'pack', '--packId', 'Amanu', '--packVersion', '${{ inputs.version }}',
+            '--packDir', '${{ runner.temp }}/amanu-publish', '--mainExe', 'Amanu.exe',
+            '--packTitle', 'Amanu Beta', '--packAuthors', 'Amanu',
+            '--icon', 'windows/src/Amanu.App/Assets/Amanu.ico',
+            '--channel', 'beta', '--runtime', 'win-x64',
+            '--releaseNotes', 'windows/BETA.md',
+            '--outputDir', '${{ runner.temp }}/amanu-release',
+            '--azureTrustedSignFile', $metadataPath,
+            # First-party DLLs are signed above. Leave third-party DLLs untouched.
+            '--signExclude', '(?i)\.dll$'
+          )
+          & '${{ runner.temp }}/velopack/vpk.exe' @packArgs
+          if ($LASTEXITCODE -ne 0) { throw "Velopack Azure signing failed: $LASTEXITCODE" }
 
       - name: Package signed beta installer
         if: steps.certificate.outputs.available == 'true' && steps.artifact_signing.outputs.available != 'true'
@@ -155,42 +181,13 @@ jobs:
           --outputDir "${{ runner.temp }}/amanu-release"
           --signParams "/td sha256 /fd sha256 /f `"${{ steps.certificate.outputs.path }}`" /p `"$env:BETA_CERTIFICATE_PASSWORD`" /tr http://timestamp.digicert.com"
 
-      - name: Sign installer with Azure Artifact Signing
-        if: steps.artifact_signing.outputs.available == 'true'
-        uses: azure/artifact-signing-action@v2
-        with:
-          endpoint: ${{ env.ARTIFACT_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ env.ARTIFACT_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ env.ARTIFACT_SIGNING_PROFILE }}
-          files: ${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
       - name: Verify Azure signatures
         if: steps.artifact_signing.outputs.available == 'true'
         shell: pwsh
-        run: |
-          $files = @(
-            "${{ runner.temp }}\amanu-publish\Amanu.exe",
-            "${{ runner.temp }}\amanu-publish\Amanu.dll",
-            "${{ runner.temp }}\amanu-publish\Amanu.Core.dll",
-            "${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe",
-            "${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe"
-          )
-          foreach ($file in $files) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for ${file}: $($signature.Status)"
-            }
-            if ($signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Fands Software LLC(,|$)') {
-              throw "Unexpected publisher for ${file}: $($signature.SignerCertificate.Subject)"
-            }
-            if ($null -eq $signature.TimeStamperCertificate) {
-              throw "Missing Authenticode timestamp for ${file}"
-            }
-            Write-Host "Verified $(Split-Path -Leaf $file): $($signature.SignerCertificate.Subject), timestamp present"
-          }
+        run: >-
+          & windows/scripts/Test-ReleaseSignatures.ps1
+          -PublishDirectory '${{ runner.temp }}/amanu-publish'
+          -ReleaseDirectory '${{ runner.temp }}/amanu-release'
 
       - name: Upload installer and update feed
         if: inputs.upload_artifact

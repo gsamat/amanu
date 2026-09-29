@@ -28,7 +28,10 @@ The GitHub Actions workflow uses Azure Artifact Signing via OIDC and the
 `AZURE_TENANT_ID`,
 `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, and
 `AZURE_ARTIFACT_SIGNING_PROFILE`. Downloadable Actions artifacts require Azure
-signing; the workflow verifies the publisher and timestamp before uploading.
+signing; the workflow verifies the publisher and timestamp before uploading,
+including files extracted from the update package and portable ZIP. Velopack
+also signs its generated launcher and updater during packaging. First-party
+DLLs are signed before packaging; third-party DLLs are left untouched.
 Local builds can still be unsigned. A PFX fallback remains available through
 `WINDOWS_BETA_CERTIFICATE_BASE64` and `WINDOWS_BETA_CERTIFICATE_PASSWORD`.
 
