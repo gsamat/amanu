@@ -476,6 +476,12 @@ internal sealed class SetupForm
         return true;
     }
 
+    /// <summary>Said wherever a server address is typed: here and in Advanced.</summary>
+    internal static void RefuseServer(Window? owner) =>
+        Ui.ShowError(owner, T("This address can’t be used", "Этот адрес не подходит"),
+            T("Anything not on this computer must be reached over https, because it will see the meeting.",
+              "Всё, что не на этом компьютере, должно быть по https: этот сервер увидит содержимое встречи."));
+
     private void CommitOnLeave(TextBox box, string path, bool server = false)
     {
         void Commit()
@@ -488,9 +494,7 @@ internal sealed class SetupForm
             if (text == stored) return;
             if (server && text.Length > 0 && !KeyRouting.AcceptableServer(text))
             {
-                Ui.ShowError(Owner, T("This address can’t be used", "Этот адрес не подходит"),
-                    T("Anything not on this computer must be reached over https, because it will see the meeting.",
-                      "Всё, что не на этом компьютере, должно быть по https: этот сервер увидит содержимое встречи."));
+                RefuseServer(Owner);
                 box.Text = stored;
                 return;
             }

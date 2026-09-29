@@ -92,6 +92,14 @@ public static class KeyRouting
     /// Whether a server may be sent a meeting: https anywhere, plain http only on
     /// this computer, where nothing crosses a network to be read on the way.
     /// </summary>
+    /// <summary>
+    /// The settings that name a server meeting content is sent to. Wherever one is
+    /// typed — the setup form or Advanced — it must pass <see cref="AcceptableServer"/>
+    /// before it is written; Advanced once let a plain-http LAN address through.
+    /// </summary>
+    public static IReadOnlySet<string> ServerSettings { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { "summary.openai_base_url", "summary.ollama_base_url" };
+
     public static bool AcceptableServer(string url) =>
         Uri.TryCreate(url, UriKind.Absolute, out var uri)
         && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && IsLocal(uri)));

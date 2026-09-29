@@ -69,6 +69,14 @@ public sealed class EgressTests
     {
         Assert.Equal(acceptable, KeyRouting.AcceptableServer(url));
     }
+
+    [Fact]
+    public void Every_server_setting_is_one_advanced_can_edit()
+    {
+        var advanced = SettingsSchema.AdvancedSections.SelectMany(section => section.Entries).Select(entry => entry.Path).ToHashSet();
+        Assert.Equal(["summary.ollama_base_url", "summary.openai_base_url"], KeyRouting.ServerSettings.Order());
+        Assert.All(KeyRouting.ServerSettings, path => Assert.Contains(path, advanced));
+    }
 }
 
 public sealed class CliArgumentsTests

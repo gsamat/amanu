@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Amanu.Core.Configuration;
+using Amanu.Core.Processing;
 using static Amanu.Core.Localization.Localized;
 using CheckBox = System.Windows.Controls.CheckBox;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -136,6 +137,11 @@ internal sealed class AdvancedSettings
             if (box.Text == stored) return;
             switch (Resolve(entry, box.Text))
             {
+                case (true, JsonValue { } server) when KeyRouting.ServerSettings.Contains(entry.Path)
+                                                     && !KeyRouting.AcceptableServer(server.ToString()):
+                    SetupForm.RefuseServer(Ui.OwnerOf(View));
+                    box.Text = stored;
+                    break;
                 case (true, var value):
                     Commit(entry, value);
                     break;
