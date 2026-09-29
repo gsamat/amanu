@@ -75,6 +75,13 @@ jobs:
             -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_PROFILE)
           "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
+      - name: Require Azure signing for artifact upload
+        if: inputs.upload_artifact && steps.artifact_signing.outputs.available != 'true'
+        shell: pwsh
+        run: |
+          Write-Error "Azure Artifact Signing is required for downloadable Windows beta artifacts."
+          exit 1
+
       - name: Azure login for Artifact Signing
         if: steps.artifact_signing.outputs.available == 'true'
         uses: azure/login@v3

@@ -20,6 +20,22 @@ class WindowsBetaWorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(upload["if"], "inputs.upload_artifact")
         self.assertEqual(release["if"], "inputs.publish_release")
 
+    def test_artifact_upload_requires_azure_signing_configuration(self):
+        workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
+        steps = workflow["jobs"]["build"]["steps"]
+        guard = next(step for step in steps if step.get("name") == "Require Azure signing for artifact upload")
+        detect_index = next(i for i, step in enumerate(steps) if step.get("id") == "artifact_signing")
+        guard_index = steps.index(guard)
+        upload_index = next(i for i, step in enumerate(steps) if step.get("name") == "Upload installer and update feed")
+
+        self.assertLess(detect_index, guard_index)
+        self.assertLess(guard_index, upload_index)
+        self.assertEqual(
+            guard["if"],
+            "inputs.upload_artifact && steps.artifact_signing.outputs.available != 'true'",
+        )
+        self.assertIn("exit 1", guard["run"])
+
 
 if __name__ == "__main__":
     unittest.main()
