@@ -14,7 +14,7 @@ selected.
 On Windows with the .NET 10 SDK:
 
 ```powershell
-.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.5
+.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.6
 ```
 
 The script runs the tests, builds the local transcribe.cpp CLI from a pinned
