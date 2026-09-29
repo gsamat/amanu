@@ -6,9 +6,14 @@ on:
       version:
         description: SemVer package version
         required: true
-        default: 0.6.0-beta.5
+        default: 0.6.0-beta.6
       publish_release:
         description: Publish/update a GitHub prerelease so installed betas can auto-update
+        required: true
+        type: boolean
+        default: false
+      upload_artifact:
+        description: Upload the installer as a publicly accessible Actions artifact
         required: true
         type: boolean
         default: false
@@ -20,6 +25,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-2025
+    environment: windows-signing
     env:
       BETA_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_BETA_CERTIFICATE_BASE64 }}
       BETA_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_BETA_CERTIFICATE_PASSWORD }}
@@ -70,13 +76,20 @@ jobs:
             -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_PROFILE)
           "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
+      - name: Require Azure signing for artifact upload
+        if: inputs.upload_artifact && steps.artifact_signing.outputs.available != 'true'
+        shell: pwsh
+        run: |
+          Write-Error "Azure Artifact Signing is required for downloadable Windows beta artifacts."
+          exit 1
+
       - name: Azure login for Artifact Signing
         if: steps.artifact_signing.outputs.available == 'true'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
 
       - name: Sign Amanu payload with Azure Artifact Signing
         if: steps.artifact_signing.outputs.available == 'true'
@@ -160,17 +173,27 @@ jobs:
         run: |
           $files = @(
             "${{ runner.temp }}\amanu-publish\Amanu.exe",
+            "${{ runner.temp }}\amanu-publish\Amanu.dll",
+            "${{ runner.temp }}\amanu-publish\Amanu.Core.dll",
             "${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe",
             "${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe"
           )
           foreach ($file in $files) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file
             if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $file: $($signature.Status)"
+              throw "Invalid Authenticode signature for ${file}: $($signature.Status)"
             }
+            if ($signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Fands Software LLC(,|$)') {
+              throw "Unexpected publisher for ${file}: $($signature.SignerCertificate.Subject)"
+            }
+            if ($null -eq $signature.TimeStamperCertificate) {
+              throw "Missing Authenticode timestamp for ${file}"
+            }
+            Write-Host "Verified $(Split-Path -Leaf $file): $($signature.SignerCertificate.Subject), timestamp present"
           }
 
       - name: Upload installer and update feed
+        if: inputs.upload_artifact
         uses: actions/upload-artifact@v5
         with:
           name: Amanu-Windows-${{ inputs.version }}-x64
