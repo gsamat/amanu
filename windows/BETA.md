@@ -14,6 +14,11 @@ without publishing a GitHub Release; see [README.md](README.md).
 - A Parakeet transcript reads as a conversation: it is cut into sentences and
   turns from the model's word timings, as on the Mac, instead of one paragraph
   per side.
+- A recording the laptop sleeps through (Modern Standby freezes Amanu without
+  telling it) ends as `sleep` where the audio stopped, not as a long meeting
+  stopped by the duration ceiling after waking.
+- Advanced refuses a plain-http summary server on another machine, as Setup
+  does; the status window stays on screen when the live transcript opens.
 - GigaAM hears twenty seconds at a time, as on the Mac. Given a whole meeting
   it dropped letters and, past a couple of minutes, returned garbage slowly.
 - Switches and cards changed through Narrator, Voice Access or any other UI

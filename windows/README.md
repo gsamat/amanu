@@ -13,7 +13,7 @@ GitHub Actions signs Windows betas with Azure Artifact Signing as Fands Software
 On Windows with the .NET 10 SDK:
 
 ```powershell
-.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.10
+.\scripts\Build-Beta.ps1 -Version 0.6.0-beta.11
 ```
 
 The script runs the tests, builds the local transcribe.cpp CLI from a pinned
@@ -49,7 +49,7 @@ disabled. Disable artifact upload explicitly for a build-only smoke test.
 
 ```sh
 gh workflow run windows-beta.yml -R gsamat/amanu --ref windows/my-change \
-  -f version=0.6.0-beta.10 -f upload_artifact=true -f publish_release=false
+  -f version=0.6.0-beta.11 -f upload_artifact=true -f publish_release=false
 ```
 
 After the run succeeds, download `Amanu-Windows-<version>-x64` from its Artifacts

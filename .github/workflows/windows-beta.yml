@@ -6,7 +6,7 @@ on:
       version:
         description: SemVer package version
         required: true
-        default: 0.6.0-beta.10
+        default: 0.6.0-beta.11
       publish_release:
         description: Publish/update a GitHub prerelease so installed betas can auto-update
         required: true
