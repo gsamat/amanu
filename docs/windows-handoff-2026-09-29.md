@@ -149,3 +149,37 @@ Each item is a failure class that existed on macOS, with the fixed contract.
   verified").
 - The audit itself was done in a chat session and is not saved as a
   document; the commit messages from `69e8170` onward explain each fix.
+
+## Status after the 0.6.0-beta.3 rework (29 September 2026)
+
+Done in code on the Mac, compiled with `EnableWindowsTargeting` and covered by
+the core tests where the logic lives in `Amanu.Core`; **none of it has run on
+Windows yet** — `docs/testing/windows-hardware-checklist.md` is the list to go
+through there.
+
+| # | Status |
+|---|---|
+| 1 | `MeetingEgress` in Core: `speaker_names.backend` defaults to `summary`, `none` asks no model. Tested. |
+| 2 | `EngineResolver` plans per session; `transcribe.engine` in the session folder pins a re-transcription's engine; cloud→local fallback only for that session. A named local engine never uploads (the old `EngineSelector` did). Tested. |
+| 3 | `KeyRouting`: OpenAI key only to api.openai.com or this computer; `openai-compatible` slot for other servers; http only on this computer. Tested. |
+| 4 | `CliArguments` mirror the macOS lists (claude via `--system-prompt-file`, see the checklist; codex with MCP servers switched off by name). Tested. |
+| 5 | `AppSettingsStore`: an unreadable file is never replaced; last good settings in memory, conservative ones if never read; transcription waits; `FileSystemWatcher` recovers. Unusable single values fall back and are named. Tested. |
+| 6 | `AmanuRuntime.Update` is the one applier; no Save button anywhere. |
+| 7 | `AutoRecordPolicy` is an explicit state machine (watching / recording / standing down / backing off). Tested. |
+| 8 | Backoff 30 s doubling to 10 min; a failed start leaves no folder; one notification at a time. Tested (policy and coordinator). |
+| 9 | Ceiling enforced on its own clock for every recording. Tested. |
+| 10 | Marker kept when `meta.json` cannot be written; the session stays out of the queue for recovery. |
+| 11 | Archive is aligned stereo, both channels of the call mixed, a missing side silent. No read-modify-write of `meta.json` after the fact. |
+| 12 | Sleep and sign-out stop the recording; loopback silence and device gaps are padded from QPC timestamps, capped at 30 min per gap; WAV headers flushed every 5 s and repaired on recovery. **Needs the hardware check most.** |
+| 13 | Re-transcription clears `.cache-*` and the AssemblyAI job file, marks `summary.stale`. |
+| 14 | `ProcessingFailure` kinds: environmental and transient failures use no attempts. |
+| 15 | A track without samples is a silent side. |
+| 16 | No offline echo cancellation exists on Windows, so the setting was removed rather than left to lie; the transcript echo filter remains. |
+| 17 | Names and summaries give up after five tries that reached a model. |
+| 18 | `on_stop` runs once, recorded in `processing.json` (`hook_ran`), never while the config is unreadable. |
+| 19 | Core tests use temporary directories only; nothing in Core reads `%LOCALAPPDATA%` or Credential Manager. |
+| 20 | Failure paths tested in Core: invalid config, wrong-kind values, failing starts, short joins, ceiling, HTTP 401/429/5xx and no network. The processing coordinator itself lives in the WPF project and has no tests. |
+
+The config keys now follow the macOS names (`transcript_echo_filter`,
+`summary.model`, `summary.ollama_base_url`, `transcription.openai.model`, …).
+No tester had the beta, so nothing migrates old Windows keys.

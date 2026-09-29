@@ -1,70 +1,65 @@
 # Amanu for Windows — beta 0.6.0
 
-This is a feature-complete beta for Windows 11 25H2 x64. Calendar integration
-is intentionally excluded from the Windows product. The publisher and Azure
-Artifact Signing profile will be selected separately; until then, distribute
-the unsigned build only to named testers.
+A beta for Windows 11 x64. Calendar integration is deliberately not part of the
+Windows product. Until a publisher and Azure Artifact Signing are set up, the
+build is unsigned and goes only to named testers.
 
-## Included in this build
+## New in beta.3
 
-- first-run setup, manual and automatic two-track recording of the microphone
-  and a call app, plus pause/resume with timeline-preserving silence;
-- Zoom, Teams, Telegram, WhatsApp, Discord, Webex, Slack, and browser process
-  detection, with configurable delays, limits, app lists, and ignore lists;
-- crash-safe sessions, interrupted-recording recovery, start at sign-in,
-  notification-area operation, and single-instance protection;
-- recordings browser, audio/video import, transcript and summary viewer,
-  audio playback, manual speaker renaming, retry, and full retranscription;
-- AssemblyAI and OpenAI cloud transcription;
-- downloadable, SHA-256-pinned local Parakeet v3, GigaAM v3, and Whisper
-  models through a bundled transcribe.cpp Windows CLI built from a pinned source commit;
-- opt-in rolling live transcription with timestamps;
-- speaker-name inference with evidence validation and manual-name precedence;
-- meeting summaries through OpenAI, Anthropic, or Ollama, including long
-  transcript chunking and the same default summary template as macOS;
-- cloud-to-local fallback, durable processing queue, three-attempt recovery,
-  atomic completion files, transcript echo filtering, audio cleanup or final
-  AAC archive, and the configurable post-processing hook;
-- Windows Credential Manager storage for API keys;
-- the same opt-out, allow-listed technical analytics as macOS, with no audio,
-  transcript text, names, paths, keys, or raw error messages;
-- Velopack installer, beta update channel, and settings that survive updates.
+- **Settings like the Mac's.** The setup form and Settings are one form with
+  the macOS sections, order and wording; every switch takes effect at once — no
+  Save button, no "after a restart". The Advanced tab lists every other setting
+  with a line saying what it does and its default shown in the empty field.
+- **Windows 11 look.** The Fluent theme: Mica, the system accent colour, light
+  and dark following Windows; a tray menu in the same style; a left click on the
+  tray icon opens the window; opening Amanu again brings back the running one.
+- **English and Russian**, following the Windows display language, or
+  `interface_language` in Settings.
+- **Where meeting content goes is decided in one place.** Naming speakers follows
+  the summary's choice and asks no model when summaries are off; a local engine
+  never uploads; the OpenAI key is only sent to OpenAI and a compatible server
+  (OpenRouter, Groq) has a key of its own; plain http is only accepted on this
+  computer.
+- **Summaries through Claude Code or Codex** on an existing subscription, run as
+  text completions with no tools, settings or MCP servers.
+- **ElevenLabs Scribe** as a third cloud engine; remote voices are told apart
+  (them A, them B).
+- **A broken config.json no longer resets settings.** The last good settings stay
+  in force, nothing is written over the file, transcription waits, and it
+  recovers the moment the file is fixed.
+- **Recording**: the call track stays aligned through silence and device changes;
+  short automatic joins are discarded; a backstop stop no longer re-arms while
+  the app still holds the mic; failing starts back off; the duration ceiling
+  applies to manual recordings; sleep and sign-out end a recording cleanly; a
+  killed recording's WAV headers are repaired on recovery.
+- **Processing**: a missing key, model or network never uses up a session's
+  attempts; an empty track is a silent side; re-transcription can pick the
+  engine, drops cached results and keeps the old summary marked out of date;
+  names and summaries give up after five tries; `on_stop` runs once.
+- **Recordings window**: status per meeting, summary, transcript and speakers in
+  one place, names editable, Finish / Transcribe again / Listen / Delete (to the
+  Recycle Bin).
 
 ## Windows-specific notes
 
-- Browser audio is isolated by process tree, not by tab. Other tabs in the
-  same browser process tree can be included.
-- Live text is produced from completed 20-second fragments. It is deliberately
-  behind the conversation rather than claiming word-by-word streaming.
-- The local transcription CLI is included in the installer. Models are large
-  (about 270–887 MB) and download from Settings when a tester chooses one.
-- The app is currently packaged for x64. The code is structured for ARM64,
-  but the local transcription runtime used by this beta is x64.
-- This source build is cross-compiled and must pass the Windows hardware matrix
-  below before wider distribution.
-- Until signing is configured, Windows SmartScreen will warn about Setup. Do
-  not distribute an unsigned build outside the named tester group.
+- Browser audio is isolated by process tree, not by tab.
+- Live text comes from completed 20-second pieces, transcribed by the local model
+  when one is downloaded and by the configured cloud engine otherwise.
+- The local transcription CLI ships in the installer; models (270–890 MB) download
+  from Settings and resume if interrupted.
+- x64 only for now; the code is architecture-neutral.
+- API keys live in Windows Credential Manager (`Amanu/…`).
 
 ## Tester checklist
 
-1. Install `Amanu-beta-Setup.exe`, permit microphone access, and leave
-   start-at-sign-in enabled. In Windows light and dark app modes, check that
-   setup and Settings show the same cards and readable closed/open dropdowns.
-2. In Settings, either add an AssemblyAI/OpenAI key or install Parakeet. Add an
-   OpenAI/Anthropic key or configure Ollama if speaker names and summaries are
-   expected.
-3. Make a manual one-minute recording while speaking and playing remote audio.
-   Verify that the session appears, transcribes, resolves names when evidence
-   exists, and produces a summary.
-4. Repeat in Zoom or Teams. Verify start after the configured delay, stop after
-   microphone release, and that both sides are present.
-5. Enable live transcription and verify that text appears in roughly
-   20–40 seconds without interrupting the final transcript.
-6. Import one audio or video file, then test retry, full retranscription,
-   speaker rename, playback, and opening the session folder.
-7. Test with built-in audio, a USB headset, Bluetooth headphones, device change
-   during a call, sleep/wake, loss of network, and an app kill followed by
-   restart.
-8. Send `meta.json`, `transcribe.log` when present, Windows build number,
-   headset model, selected providers/models, and a description of any failure.
-   Never send meeting audio without participant permission.
+[`docs/testing/windows-hardware-checklist.md`](../docs/testing/windows-hardware-checklist.md)
+is the full list. The short version:
+
+1. Install, allow the microphone, look at Setup in light and dark.
+2. Add an AssemblyAI/OpenAI/ElevenLabs key or download Parakeet; pick a summary
+   route (Claude Code, Codex, a key, or Ollama).
+3. A manual one-minute recording, then a Zoom or Teams call: both sides present
+   and aligned, transcript, names, summary.
+4. A device change, sleep, and killing Amanu mid-recording.
+5. Send `meta.json`, `processing.json`, `transcribe.log`, the Windows build,
+   the headset, engines and backends. Never meeting audio without permission.
