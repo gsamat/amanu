@@ -8,7 +8,7 @@ WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/windows-beta
 
 
 class WindowsBetaWorkflowSafetyTests(unittest.TestCase):
-    def test_manual_build_does_not_publish_or_upload_by_default(self):
+    def test_manual_build_uploads_artifact_without_publishing_release_by_default(self):
         workflow = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
         steps = workflow["jobs"]["build"]["steps"]
@@ -16,7 +16,7 @@ class WindowsBetaWorkflowSafetyTests(unittest.TestCase):
         release = next(step for step in steps if step.get("name") == "Publish GitHub beta release and update feed")
 
         self.assertEqual(inputs["publish_release"]["default"], "false")
-        self.assertEqual(inputs["upload_artifact"]["default"], "false")
+        self.assertEqual(inputs["upload_artifact"]["default"], "true")
         self.assertEqual(upload["if"], "inputs.upload_artifact")
         self.assertEqual(release["if"], "inputs.publish_release")
 
