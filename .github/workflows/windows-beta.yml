@@ -12,6 +12,11 @@ on:
         required: true
         type: boolean
         default: false
+      upload_artifact:
+        description: Upload the installer as a publicly accessible Actions artifact
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -171,6 +176,7 @@ jobs:
           }
 
       - name: Upload installer and update feed
+        if: inputs.upload_artifact
         uses: actions/upload-artifact@v5
         with:
           name: Amanu-Windows-${{ inputs.version }}-x64
