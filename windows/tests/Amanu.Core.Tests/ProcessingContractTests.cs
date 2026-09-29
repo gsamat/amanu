@@ -30,17 +30,20 @@ public sealed class ProcessingContractTests
     }
 
     [Theory]
-    [InlineData("cloud", true, true, "cloud")]
-    [InlineData("cloud", false, true, "unavailable")]
-    [InlineData("local", true, true, "local")]
-    [InlineData("local", true, false, "cloud")]
-    [InlineData("local", false, false, "unavailable")]
-    [InlineData("auto", true, true, "cloud-or-local")]
-    [InlineData("auto", false, true, "local")]
-    public void EngineSelector_matches_the_product_fallback_contract(
-        string preference, bool hasCloudKey, bool localSupported, string expected)
+    [InlineData("assemblyai", true, true, "assemblyai", null)]
+    [InlineData("assemblyai", false, true, null, null)]
+    [InlineData("parakeet", true, true, null, "parakeet")]
+    [InlineData("parakeet", true, false, null, null)]
+    [InlineData("auto", true, true, "assemblyai", "parakeet")]
+    [InlineData("auto", false, true, null, "parakeet")]
+    [InlineData("auto", true, false, "assemblyai", null)]
+    public void A_named_engine_never_falls_back_and_a_local_one_never_uploads(
+        string engine, bool hasKey, bool modelReady, string? cloud, string? local)
     {
-        Assert.Equal(expected, EngineSelector.Select(preference, hasCloudKey, localSupported));
+        var plan = EngineResolver.Plan(engine, "assemblyai", "parakeet", _ => hasKey, _ => modelReady);
+        Assert.Equal(cloud, plan.Cloud);
+        Assert.Equal(local, plan.Local);
+        Assert.Equal(cloud is null && local is null, plan.Missing is not null);
     }
 
     [Fact]

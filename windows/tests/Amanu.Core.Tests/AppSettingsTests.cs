@@ -10,7 +10,8 @@ public sealed class AppSettingsTests
     {
         var settings = AppSettings.CreateDefault(@"C:\Users\Samat\Documents");
 
-        Assert.Equal(@"C:\Users\Samat\Documents\Amanu Recordings", settings.RecordingsDirectory);
+        Assert.Equal(Path.Combine(@"C:\Users\Samat\Documents", "Amanu Recordings"), settings.RecordingsDirectory);
+        Assert.Equal("summary", settings.SpeakerNames.Backend);
         Assert.True(settings.AutoRecord.Enabled);
         Assert.True(settings.AutoRecord.MicrophoneActivity);
         Assert.Contains("Zoom.exe", settings.AutoRecord.CallProcesses);

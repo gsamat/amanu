@@ -6,6 +6,7 @@ public sealed record CaptureStopResult(int MicrophoneOffsetMs, int SystemOffsetM
 
 public interface IAudioCapture : IAsyncDisposable
 {
+    /// <param name="processFamily">The call app whose audio to capture, or null for everything Windows plays.</param>
     Task StartAsync(
         SessionHandle session,
         string? processFamily,
@@ -21,16 +22,25 @@ public sealed record RecordingState(
     DateTimeOffset? StartedAt,
     string? SessionDirectory,
     SessionTrigger? Trigger,
-    string Status)
+    string? ProcessFamily)
 {
-    public static RecordingState Ready { get; } = new(
-        false, false, null, null, null, "Ready");
+    public static RecordingState Ready { get; } = new(false, false, null, null, null, null);
 }
+
+/// <summary>A recording that ended, and what became of it.</summary>
+/// <param name="Discarded">Too short to have been a meeting, and deleted.</param>
+/// <param name="Settled">
+/// False when meta.json could not be written. The session then keeps its
+/// in-progress marker and stays out of the queue, for recovery to adopt at the
+/// next launch rather than a "transcription failed" banner now.
+/// </param>
+public sealed record CompletedRecording(SessionHandle Session, string Reason, bool Discarded, bool Settled);
 
 public sealed class RecordingCoordinator(
     SessionStore sessions,
     AutoRecordPolicy autoRecord,
-    IAudioCapture capture) : IAsyncDisposable
+    IAudioCapture capture,
+    Func<bool>? wholeSystemAudio = null) : IAsyncDisposable
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private SessionHandle? current;
@@ -38,25 +48,22 @@ public sealed class RecordingCoordinator(
     private TimeSpan pausedFor;
 
     public RecordingState State { get; private set; } = RecordingState.Ready;
+    public AutoRecordPolicy Policy => autoRecord;
 
     public event EventHandler<RecordingState>? StateChanged;
-    public event EventHandler<SessionHandle>? SessionCompleted;
+    public event EventHandler<CompletedRecording>? RecordingCompleted;
+    /// <summary>An automatic start failed; the argument is how long until the next try.</summary>
+    public event EventHandler<(Exception Error, TimeSpan RetryIn)>? AutomaticStartFailed;
 
-    public void SetAutoRecordEnabled(bool enabled) => autoRecord.SetEnabled(enabled);
+    public void SetSessionsRoot(string rootDirectory) => sessions.RootDirectory = rootDirectory;
 
-    public async Task StartManualAsync(
-        DateTimeOffset now,
-        CancellationToken cancellationToken = default)
+    public async Task StartManualAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (current is not null)
-            {
-                return;
-            }
-            await StartCoreAsync(now, SessionTrigger.Manual, null, cancellationToken)
-                .ConfigureAwait(false);
+            if (current is not null) return;
+            await StartCoreAsync(now, SessionTrigger.Manual, null, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -64,26 +71,28 @@ public sealed class RecordingCoordinator(
         }
     }
 
-    public async Task ObserveAsync(
-        AudioObservation observation,
-        CancellationToken cancellationToken = default)
+    public async Task ObserveAsync(AudioObservation observation, CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             var decision = autoRecord.Observe(observation);
-            if (decision == AutoRecordDecision.Start && current is null)
+            if (decision.Action == AutoRecordAction.Start && current is null)
             {
-                await StartCoreAsync(
-                    observation.At,
-                    SessionTrigger.MicrophoneActivity,
-                    observation.MicrophoneOwner,
-                    cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await StartCoreAsync(observation.At, SessionTrigger.MicrophoneActivity,
+                        observation.MicrophoneOwner, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    var wait = autoRecord.StartFailed(observation.At);
+                    AutomaticStartFailed?.Invoke(this, (exception, wait));
+                }
             }
-            else if (decision == AutoRecordDecision.Stop && current is not null)
+            else if (decision.Action == AutoRecordAction.Stop && current is not null)
             {
-                await StopCoreAsync(observation.At, "automatic", cancellationToken)
-                    .ConfigureAwait(false);
+                await StopCoreAsync(observation.At, decision.StopReason!, cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -92,23 +101,32 @@ public sealed class RecordingCoordinator(
         }
     }
 
-    public async Task StopAsync(
-        DateTimeOffset now,
-        string reason,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Stops a recording that has reached the duration ceiling. Checked on its own
+    /// clock, apart from the call monitor, so the ceiling holds for a manual
+    /// recording with auto-record off and even when the monitor keeps failing.
+    /// </summary>
+    public async Task EnforceCeilingAsync(DateTimeOffset now, CancellationToken cancellationToken = default)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (current is null)
-            {
-                return;
-            }
+            if (current is not null && autoRecord.CeilingReached(now))
+                await StopCoreAsync(now, "max-duration", cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    public async Task StopAsync(DateTimeOffset now, string reason, CancellationToken cancellationToken = default)
+    {
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (current is null) return;
             await StopCoreAsync(now, reason, cancellationToken).ConfigureAwait(false);
-            if (reason == "manual")
-            {
-                autoRecord.ManualStop(now);
-            }
         }
         finally
         {
@@ -125,10 +143,17 @@ public sealed class RecordingCoordinator(
             var paused = !State.IsPaused;
             await capture.SetPausedAsync(paused, cancellationToken).ConfigureAwait(false);
             if (paused) pausedAt = DateTimeOffset.UtcNow;
-            else if (pausedAt is { } started) { pausedFor += DateTimeOffset.UtcNow - started; pausedAt = null; }
-            Publish(State with { IsPaused = paused, Status = paused ? "Recording paused" : "Recording" });
+            else if (pausedAt is { } started)
+            {
+                pausedFor += DateTimeOffset.UtcNow - started;
+                pausedAt = null;
+            }
+            Publish(State with { IsPaused = paused });
         }
-        finally { gate.Release(); }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     private async Task StartCoreAsync(
@@ -138,13 +163,16 @@ public sealed class RecordingCoordinator(
         CancellationToken cancellationToken)
     {
         var session = sessions.Start(now, null, trigger, processFamily);
+        var captured = wholeSystemAudio?.Invoke() == true ? null : processFamily;
         try
         {
-            await capture.StartAsync(session, processFamily, cancellationToken).ConfigureAwait(false);
+            await capture.StartAsync(session, captured, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            sessions.Complete(session, DateTimeOffset.Now, "capture-error", 0, 0);
+            // Nothing was recorded, so there is nothing to keep: a folder left
+            // behind would be queued, fail to transcribe, and say so.
+            SessionStore.Discard(session);
             Publish(RecordingState.Ready);
             throw;
         }
@@ -152,28 +180,49 @@ public sealed class RecordingCoordinator(
         pausedAt = null;
         pausedFor = TimeSpan.Zero;
         autoRecord.RecordingStarted(now, trigger == SessionTrigger.Manual);
-        Publish(new RecordingState(
-            true, false, now, session.Directory, trigger,
-            trigger == SessionTrigger.Manual ? "Recording manually" : $"Recording {processFamily}"));
+        Publish(new RecordingState(true, false, now, session.Directory, trigger, processFamily));
     }
 
-    private async Task StopCoreAsync(
-        DateTimeOffset now,
-        string reason,
-        CancellationToken cancellationToken)
+    private async Task StopCoreAsync(DateTimeOffset now, string reason, CancellationToken cancellationToken)
     {
         var session = current!;
-        var result = await capture.StopAsync(cancellationToken).ConfigureAwait(false);
+        CaptureStopResult result;
+        try
+        {
+            result = await capture.StopAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // The tracks are on disk whatever the device did on the way out.
+            result = new CaptureStopResult(0, 0);
+        }
         if (pausedAt is { } pausedSince) pausedFor += DateTimeOffset.UtcNow - pausedSince;
-        sessions.Complete(
-            session, now, reason, result.MicrophoneOffsetMs, result.SystemOffsetMs,
-            Math.Max(0, (int)pausedFor.TotalSeconds));
-        SessionCompleted?.Invoke(this, session);
         current = null;
         pausedAt = null;
+        var paused = pausedFor;
         pausedFor = TimeSpan.Zero;
-        autoRecord.RecordingStopped();
+        autoRecord.RecordingStopped(reason);
         Publish(RecordingState.Ready);
+
+        var manual = session.Trigger == SessionTrigger.Manual;
+        if (AutoRecordPolicy.ShouldDiscard(manual, reason, now - session.StartedAt, autoRecord.Options))
+        {
+            SessionStore.Discard(session);
+            RecordingCompleted?.Invoke(this, new CompletedRecording(session, reason, Discarded: true, Settled: true));
+            return;
+        }
+
+        var settled = true;
+        try
+        {
+            sessions.Complete(session, now, reason, result.MicrophoneOffsetMs, result.SystemOffsetMs,
+                Math.Max(0, (int)paused.TotalSeconds));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            settled = false;
+        }
+        RecordingCompleted?.Invoke(this, new CompletedRecording(session, reason, Discarded: false, settled));
     }
 
     private void Publish(RecordingState state)

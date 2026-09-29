@@ -21,6 +21,16 @@ public sealed record SessionHandle(
 
 public sealed partial class SessionStore(string rootDirectory, int processId)
 {
+    /// <summary>
+    /// Where the next recording starts. A recording in progress finishes in the
+    /// folder it started in; the change applies from the next one.
+    /// </summary>
+    public string RootDirectory
+    {
+        get => rootDirectory;
+        set => rootDirectory = value;
+    }
+
     private const string MarkerName = ".recording.json";
     private const string MetaName = "meta.json";
 
@@ -62,6 +72,23 @@ public sealed partial class SessionStore(string rootDirectory, int processId)
             Path.Combine(session.Directory, MetaName),
             Meta(session, endedAt, stopReason, micOffsetMs, systemOffsetMs, pausedSeconds));
         File.Delete(Path.Combine(session.Directory, MarkerName));
+    }
+
+    /// <summary>
+    /// Removes a session that should never have been one: a start that captured
+    /// nothing, or an automatic recording too short to have been a meeting.
+    /// </summary>
+    public static void Discard(SessionHandle session)
+    {
+        try
+        {
+            if (Directory.Exists(session.Directory)) Directory.Delete(session.Directory, recursive: true);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A file still held by a closing device; the empty folder is harmless
+            // and the marker in it keeps it out of the queue.
+        }
     }
 
     public IReadOnlyList<string> RecoverInterrupted(

@@ -12,7 +12,8 @@ public sealed class AnalyticsService : IAsyncDisposable
 {
     private const string Endpoint = "https://stats.amanu.me/api/batch";
     private const string WebsiteId = "8ece1241-c45f-4976-9b20-d7004b2359b8";
-    private readonly AppSettings settings;
+    private readonly Func<AppSettings> current;
+    private readonly Func<bool> permitted;
     private readonly HttpClient httpClient;
     private readonly string identityPath;
     private readonly string pendingPath;
@@ -22,18 +23,27 @@ public sealed class AnalyticsService : IAsyncDisposable
     private Identity identity = new(Guid.NewGuid().ToString(), DateTimeOffset.UtcNow, []);
     private Task? timer;
 
-    public AnalyticsService(string dataDirectory, AppSettings settings, HttpClient httpClient)
+    /// <param name="permitted">
+    /// False while config.json cannot be read: the file may well say analytics
+    /// are off, and nobody can tell, so nothing is sent until it is readable.
+    /// </param>
+    public AnalyticsService(string dataDirectory, Func<AppSettings> settings, Func<bool> permitted, HttpClient httpClient)
     {
-        this.settings = settings;
+        current = settings;
+        this.permitted = permitted;
         this.httpClient = httpClient;
         identityPath = Path.Combine(dataDirectory, "analytics.json");
         pendingPath = Path.Combine(dataDirectory, "analytics-pending.json");
     }
 
+    private AppSettings settings => current();
+
+    private bool Allowed => current().Analytics && permitted();
+
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(identityPath)!);
-        if (!settings.Analytics)
+        if (!Allowed)
         {
             pending.Clear();
             File.Delete(pendingPath);
@@ -74,7 +84,7 @@ public sealed class AnalyticsService : IAsyncDisposable
         IReadOnlyDictionary<string, object?>? properties = null,
         CancellationToken cancellationToken = default)
     {
-        if (!settings.Analytics || !AnalyticsPolicy.Events.Contains(eventName)) return;
+        if (!Allowed || !AnalyticsPolicy.Events.Contains(eventName)) return;
         var data = new Dictionary<string, object?>(PersonProperties(), StringComparer.Ordinal);
         if (properties is not null) foreach (var pair in properties) data[pair.Key] = pair.Value;
         var sanitized = AnalyticsPolicy.Sanitize(data);
@@ -128,7 +138,7 @@ public sealed class AnalyticsService : IAsyncDisposable
 
     public async Task FlushAsync(CancellationToken cancellationToken)
     {
-        if (!settings.Analytics) return;
+        if (!Allowed) return;
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

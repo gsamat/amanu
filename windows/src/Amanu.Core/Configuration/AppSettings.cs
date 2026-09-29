@@ -3,6 +3,12 @@ using System.Text.Json.Serialization;
 
 namespace Amanu.Core.Configuration;
 
+/// <summary>
+/// Everything in <c>config.json</c>. Key names and meanings follow the macOS
+/// app's config reference wherever the two platforms do the same thing, so one
+/// README describes both; the Windows-only settings (the tray and taskbar icons,
+/// the hook as an executable plus arguments) are named for what they are here.
+/// </summary>
 public sealed class AppSettings
 {
     public static JsonSerializerOptions JsonOptions { get; } = new(JsonSerializerDefaults.Web)
@@ -11,6 +17,7 @@ public sealed class AppSettings
         PropertyNameCaseInsensitive = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
         AllowTrailingCommas = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     [JsonPropertyName("recordings_dir")]
@@ -27,6 +34,13 @@ public sealed class AppSettings
 
     [JsonPropertyName("user_name")]
     public string? UserName { get; set; }
+
+    /// <summary><c>app</c>: only the call app's process tree. <c>all</c>: everything Windows plays.</summary>
+    [JsonPropertyName("system_audio")]
+    public string SystemAudio { get; set; } = "app";
+
+    [JsonPropertyName("transcript_echo_filter")]
+    public bool TranscriptEchoFilter { get; set; } = true;
 
     [JsonPropertyName("auto_record")]
     public AutoRecordSettings AutoRecord { get; set; } = new();
@@ -55,10 +69,38 @@ public sealed class AppSettings
     [JsonPropertyName("on_stop")]
     public CommandHook? OnStop { get; set; }
 
+    /// <summary>Everything the file held that no property above reads — kept so a save never drops it.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? Unknown { get; set; }
+
+    public static string DefaultRecordingsDirectory(string documentsDirectory) =>
+        Path.Combine(documentsDirectory, "Amanu Recordings");
+
     public static AppSettings CreateDefault(string documentsDirectory) => new()
     {
-        RecordingsDirectory = documentsDirectory.TrimEnd('\\', '/') + "\\Amanu Recordings",
+        RecordingsDirectory = DefaultRecordingsDirectory(documentsDirectory),
     };
+
+    /// <summary>
+    /// What Amanu runs on when the config file exists and has never been
+    /// readable in this process: nothing starts by itself and nothing leaves the
+    /// machine, because the file may well say so and nobody can tell.
+    /// </summary>
+    public static AppSettings CreateConservative(string documentsDirectory)
+    {
+        var settings = CreateDefault(documentsDirectory);
+        settings.AutoRecord.Enabled = false;
+        settings.Analytics = false;
+        settings.Transcription.Engine = "local";
+        settings.Summary.Backend = "none";
+        settings.SpeakerNames.Backend = "none";
+        settings.LiveTranscription.Enabled = false;
+        settings.OnStop = null;
+        return settings;
+    }
+
+    public AppSettings Clone() =>
+        JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this, JsonOptions), JsonOptions)!;
 }
 
 public sealed class AutoRecordSettings
@@ -85,7 +127,12 @@ public sealed class AutoRecordSettings
     public int MaximumDurationMinutes { get; set; } = 300;
 
     [JsonPropertyName("apps")]
-    public List<string> CallProcesses { get; set; } =
+    public List<string> CallProcesses { get; set; } = [.. DefaultCallProcesses];
+
+    [JsonPropertyName("ignore_apps")]
+    public List<string> IgnoreProcesses { get; set; } = [];
+
+    public static readonly IReadOnlyList<string> DefaultCallProcesses =
     [
         "Zoom.exe",
         "ms-teams.exe",
@@ -94,21 +141,32 @@ public sealed class AutoRecordSettings
         "WhatsApp.exe",
         "Discord.exe",
         "WebexHost.exe",
+        "CiscoCollabHost.exe",
         "slack.exe",
         "chrome.exe",
         "msedge.exe",
         "firefox.exe",
+        "brave.exe",
+        "opera.exe",
+        "vivaldi.exe",
+        "arc.exe",
+        "Yandex.exe",
     ];
-
-    [JsonPropertyName("ignore_apps")]
-    public List<string> IgnoreProcesses { get; set; } = [];
 }
 
 public sealed class TranscriptionSettings
 {
+    public static readonly IReadOnlyList<string> CloudEngines = ["assemblyai", "openai", "elevenlabs"];
+    public static readonly IReadOnlyList<string> LocalEngines = ["parakeet", "whisper", "gigaam"];
+
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// <c>auto</c>: the cloud engine when there is a key and the network answers,
+    /// the local one otherwise. A cloud engine's name means that service and
+    /// nothing else; a local engine's name means nothing leaves the machine.
+    /// </summary>
     [JsonPropertyName("engine")]
     public string Engine { get; set; } = "auto";
 
@@ -121,17 +179,23 @@ public sealed class TranscriptionSettings
     [JsonPropertyName("language")]
     public string? Language { get; set; }
 
-    [JsonPropertyName("openai_model")]
-    public string OpenAiModel { get; set; } = "gpt-4o-transcribe-diarize";
+    [JsonPropertyName("openai")]
+    public OpenAiTranscriptionSettings OpenAi { get; set; } = new();
 
-    [JsonPropertyName("local_model_directory")]
-    public string? LocalModelDirectory { get; set; }
+    [JsonPropertyName("assemblyai")]
+    public AssemblyAiTranscriptionSettings AssemblyAi { get; set; } = new();
+}
 
-    [JsonPropertyName("echo_filter")]
-    public bool EchoFilter { get; set; } = true;
+public sealed class OpenAiTranscriptionSettings
+{
+    [JsonPropertyName("model")]
+    public string Model { get; set; } = "gpt-4o-transcribe-diarize";
+}
 
-    [JsonPropertyName("offline_echo_cancellation")]
-    public bool OfflineEchoCancellation { get; set; } = true;
+public sealed class AssemblyAiTranscriptionSettings
+{
+    [JsonPropertyName("speech_model")]
+    public string? SpeechModel { get; set; }
 }
 
 public sealed class LiveTranscriptionSettings
@@ -142,6 +206,9 @@ public sealed class LiveTranscriptionSettings
 
 public sealed class SummarySettings
 {
+    public static readonly IReadOnlyList<string> Backends =
+        ["auto", "claude-cli", "anthropic-api", "codex-cli", "openai-api", "ollama", "none"];
+
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
 
@@ -154,29 +221,42 @@ public sealed class SummarySettings
     [JsonPropertyName("template")]
     public string? Template { get; set; }
 
+    /// <summary>The Anthropic model, for the API and for the claude CLI once set.</summary>
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
     [JsonPropertyName("openai_model")]
     public string OpenAiModel { get; set; } = "gpt-5";
 
     [JsonPropertyName("openai_base_url")]
     public string OpenAiBaseUrl { get; set; } = "https://api.openai.com/v1";
 
-    [JsonPropertyName("anthropic_model")]
-    public string AnthropicModel { get; set; } = "claude-opus-5";
-
     [JsonPropertyName("ollama_model")]
     public string OllamaModel { get; set; } = "qwen3:8b";
 
-    [JsonPropertyName("ollama_url")]
-    public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
+    [JsonPropertyName("ollama_base_url")]
+    public string OllamaBaseUrl { get; set; } = "http://127.0.0.1:11434";
+
+    public const string DefaultAnthropicModel = "claude-opus-5";
+
+    [JsonIgnore]
+    public string AnthropicModel => string.IsNullOrWhiteSpace(Model) ? DefaultAnthropicModel : Model;
 }
 
 public sealed class SpeakerNameSettings
 {
+    public static readonly IReadOnlyList<string> Backends =
+        ["summary", "auto", "claude-cli", "anthropic-api", "codex-cli", "openai-api", "ollama", "none"];
+
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// <c>summary</c> sends the transcript wherever summaries go, and nowhere when
+    /// they are off. Anything else is a choice for naming alone; <c>none</c> asks no model.
+    /// </summary>
     [JsonPropertyName("backend")]
-    public string Backend { get; set; } = "auto";
+    public string Backend { get; set; } = "summary";
 
     [JsonPropertyName("model")]
     public string? Model { get; set; }

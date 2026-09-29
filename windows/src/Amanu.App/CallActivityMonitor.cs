@@ -8,12 +8,19 @@ namespace Amanu.App;
 public sealed class CallActivityMonitor : IDisposable
 {
     private const float SoundThreshold = 0.0025f;
-    private readonly CallProcessMatcher matcher;
     private readonly MMDeviceEnumerator devices = new();
+    private volatile CallProcessMatcher matcher;
 
     public CallActivityMonitor(CallProcessMatcher matcher)
     {
         this.matcher = matcher;
+    }
+
+    /// <summary>Replaced when the lists of call apps change; takes effect on the next look.</summary>
+    public CallProcessMatcher Matcher
+    {
+        get => matcher;
+        set => matcher = value;
     }
 
     public AudioObservation Observe(DateTimeOffset now)
@@ -80,6 +87,7 @@ public sealed class CallActivityMonitor : IDisposable
 
     private static string? ProcessName(uint processId)
     {
+        if (processId == 0 || processId == (uint)Environment.ProcessId) return null;
         try
         {
             return Process.GetProcessById(checked((int)processId)).ProcessName + ".exe";

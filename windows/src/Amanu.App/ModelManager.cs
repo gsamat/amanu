@@ -28,7 +28,19 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
     }
 
     public string ModelPath(string model) => Path.Combine(ModelDirectory, ModelCatalog.Models[model].FileName);
-    public bool IsReady(string model) => CliPath is not null && File.Exists(ModelPath(model));
+    public bool IsReady(string model) =>
+        CliPath is not null && ModelCatalog.Models.ContainsKey(model) && File.Exists(ModelPath(model));
+
+    /// <summary>What the model weighs on this computer, measured rather than quoted; null when it isn't here.</summary>
+    public long? DownloadedBytes(string model) =>
+        ModelCatalog.Models.ContainsKey(model) && File.Exists(ModelPath(model)) ? new FileInfo(ModelPath(model)).Length : null;
+
+    private readonly HashSet<string> downloading = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsDownloading(string model)
+    {
+        lock (downloading) return downloading.Contains(model);
+    }
 
     public async Task EnsureReadyAsync(string model, CancellationToken cancellationToken = default)
     {
@@ -37,7 +49,20 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
         if (CliPath is null)
             throw new InvalidOperationException("The local transcription runtime is missing from this Amanu installation.");
         Directory.CreateDirectory(ModelDirectory);
-        await DownloadVerifiedAsync($"Model {model}", artifact, ModelPath(model), cancellationToken).ConfigureAwait(false);
+        lock (downloading)
+        {
+            // A second click while the first download runs would fetch the same
+            // file into the same place twice.
+            if (!downloading.Add(model)) return;
+        }
+        try
+        {
+            await DownloadVerifiedAsync($"Model {model}", artifact, ModelPath(model), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (downloading) downloading.Remove(model);
+        }
     }
 
     private async Task DownloadVerifiedAsync(
@@ -49,15 +74,23 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
         {
             Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
             var partial = destination + ".partial";
-            using var response = await httpClient.GetAsync(artifact.Url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            // A download that stopped halfway resumes where it stopped, rather than
+            // starting the better part of a gigabyte again.
+            var have = File.Exists(partial) ? new FileInfo(partial).Length : 0;
+            if (have >= artifact.Size) { File.Delete(partial); have = 0; }
+            using var request = new HttpRequestMessage(HttpMethod.Get, artifact.Url);
+            if (have > 0) request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(have, null);
+            using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
             response.EnsureSuccessStatusCode();
-            var total = response.Content.Headers.ContentLength ?? artifact.Size;
+            var resumed = have > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent;
+            if (!resumed) have = 0;
+            var total = artifact.Size;
             await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-            await using (var output = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 128, true))
+            await using (var output = new FileStream(partial, resumed ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 128, true))
             {
                 var buffer = new byte[1024 * 128];
-                long received = 0;
+                var received = have;
                 int read;
                 while ((read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) > 0)
                 {
@@ -67,7 +100,10 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
                 }
             }
             if (!await MatchesHashAsync(partial, artifact.Sha256, cancellationToken).ConfigureAwait(false))
+            {
+                File.Delete(partial);
                 throw new InvalidDataException($"Downloaded {item} did not match its pinned SHA-256 checksum.");
+            }
             File.Move(partial, destination, overwrite: true);
             DownloadFinished?.Invoke(this, item);
         }

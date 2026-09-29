@@ -31,3 +31,16 @@ public sealed class CallProcessMatcherTests
         Assert.Null(matcher.Match("notepad.exe"));
     }
 }
+
+public sealed class CallProcessMatcherEdgeTests
+{
+    [Fact]
+    public void An_empty_list_means_any_app_but_never_amanu_itself()
+    {
+        var matcher = new CallProcessMatcher([], ["obs64.exe"]);
+
+        Assert.Equal("anything.exe", matcher.Match("anything.exe"));
+        Assert.Null(matcher.Match("Amanu.exe"));
+        Assert.Null(matcher.Match("obs64"));
+    }
+}

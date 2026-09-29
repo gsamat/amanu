@@ -3,7 +3,7 @@
   <assemblyIdentity version="1.0.0.0" name="Amanu.Windows"/>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
     <application>
-      <supportedOS Id="{4f476546-937d-4b9a-8c35-4f8fc6c58bf3}"/>
+      <supportedOS Id="{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}"/>
     </application>
   </compatibility>
   <application xmlns="urn:schemas-microsoft-com:asm.v3">

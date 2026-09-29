@@ -37,10 +37,11 @@ public sealed class RecordingCoordinatorTests
         var capture = new InspectableCapture();
         var coordinator = Coordinator(root.Path, capture);
         SessionHandle? completed = null;
-        coordinator.SessionCompleted += (_, session) =>
+        coordinator.RecordingCompleted += (_, recording) =>
         {
-            Assert.True(File.Exists(Path.Combine(session.Directory, "meta.json")));
-            completed = session;
+            Assert.True(File.Exists(Path.Combine(recording.Session.Directory, "meta.json")));
+            Assert.True(recording.Settled);
+            completed = recording.Session;
         };
 
         await coordinator.StartManualAsync(Started);
@@ -82,7 +83,7 @@ public sealed class RecordingCoordinatorTests
     }
 
     [Fact]
-    public async Task Capture_start_failure_settles_marker_and_returns_to_ready()
+    public async Task Capture_start_failure_leaves_no_folder_behind()
     {
         using var root = new TemporaryDirectory();
         var capture = new InspectableCapture { StartException = new InvalidOperationException("no microphone") };
@@ -91,10 +92,57 @@ public sealed class RecordingCoordinatorTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.StartManualAsync(Started));
 
         Assert.False(coordinator.State.IsRecording);
-        var sessionDirectory = Assert.Single(Directory.GetDirectories(root.Path));
-        Assert.False(File.Exists(Path.Combine(sessionDirectory, ".recording.json")));
-        Assert.Contains("capture-error", File.ReadAllText(Path.Combine(sessionDirectory, "meta.json")));
+        Assert.Empty(Directory.GetDirectories(root.Path));
     }
+
+    [Fact]
+    public async Task A_failing_automatic_start_backs_off_instead_of_retrying_every_second()
+    {
+        using var root = new TemporaryDirectory();
+        var capture = new InspectableCapture { StartException = new InvalidOperationException("device busy") };
+        var coordinator = Coordinator(root.Path, capture);
+        var failures = 0;
+        coordinator.AutomaticStartFailed += (_, _) => failures++;
+
+        for (var second = 0; second <= 40; second++)
+            await coordinator.ObserveAsync(Observation(Started.AddSeconds(second), "Zoom.exe"));
+
+        Assert.Equal(1, failures);
+        Assert.Equal(AutoRecordPhase.BackingOff, coordinator.Policy.Phase);
+        Assert.Empty(Directory.GetDirectories(root.Path));
+    }
+
+    [Fact]
+    public async Task A_short_automatic_recording_is_discarded()
+    {
+        using var root = new TemporaryDirectory();
+        var coordinator = Coordinator(root.Path, new InspectableCapture());
+        CompletedRecording? completed = null;
+        coordinator.RecordingCompleted += (_, recording) => completed = recording;
+
+        await coordinator.ObserveAsync(Observation(Started, "Zoom.exe"));
+        await coordinator.ObserveAsync(Observation(Started.AddSeconds(12), "Zoom.exe"));
+        await coordinator.ObserveAsync(Released(Started.AddSeconds(20)));
+        await coordinator.ObserveAsync(Released(Started.AddSeconds(35)));
+
+        Assert.True(completed!.Discarded);
+        Assert.Empty(Directory.GetDirectories(root.Path));
+    }
+
+    [Fact]
+    public async Task The_ceiling_stops_a_manual_recording_without_the_call_monitor()
+    {
+        using var root = new TemporaryDirectory();
+        var coordinator = Coordinator(root.Path, new InspectableCapture());
+        await coordinator.StartManualAsync(Started);
+
+        await coordinator.EnforceCeilingAsync(Started.AddHours(5));
+
+        Assert.False(coordinator.State.IsRecording);
+        Assert.Contains("max-duration", File.ReadAllText(Path.Combine(Directory.GetDirectories(root.Path)[0], "meta.json")));
+    }
+
+    private static AudioObservation Released(DateTimeOffset at) => new(at, false, null, false, false);
 
     private static RecordingCoordinator Coordinator(string root, InspectableCapture capture)
     {
