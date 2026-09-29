@@ -79,6 +79,7 @@ internal sealed class SetupForm
     private readonly TextBox openAiModel;
     private readonly TextBox ollamaBaseUrl;
     private readonly TextBox ollamaModel;
+    private readonly TextBlock summaryAuto = Ui.Status();
 
     private readonly CheckBox tray = Ui.Switch(T("In the notification area", "В области уведомлений"));
     private readonly CheckBox taskbar = Ui.Switch(T("On the taskbar", "На панели задач"));
@@ -98,7 +99,7 @@ internal sealed class SetupForm
         this.showsConfigProblems = showsConfigProblems;
         micSettings = Ui.Button(T("Open settings", "Открыть параметры"), MicrophoneAccess.OpenSettings);
         (var cloudKeyView, cloudKey) = Ui.Secret(T("paste key", "вставьте ключ"), 260);
-        (summaryKeyView, summaryKey) = Ui.Secret("sk-…", 260);
+        (summaryKeyView, summaryKey) = Ui.Secret("sk-…");
         (var openAiBaseView, openAiBaseUrl) = Ui.Field("https://api.openai.com/v1");
         (var openAiModelView, openAiModel) = Ui.Field("gpt-5");
         (var ollamaBaseView, ollamaBaseUrl) = Ui.Field("http://127.0.0.1:11434");
@@ -302,6 +303,7 @@ internal sealed class SetupForm
         var disclosure = Ui.Detail(T("Claude, Codex and API models receive meeting content. Ollama stays on this computer only with a localhost URL.",
             "Claude, Codex и API-модели получают данные встречи. Ollama остаётся на этом компьютере только с адресом localhost."));
         return Ui.Group(Ui.CardGap,
+            summaryAuto,
             Ui.Cards(summaryCards["claude-cli"], summaryCards["codex-cli"], summaryCards["api-key"]),
             summaryCards["ollama"],
             disclosure);
@@ -661,6 +663,16 @@ internal sealed class SetupForm
                 item.IsChecked = id == chosen;
                 item.IsEnabled = settings.Summary.Enabled;
             }
+            // "auto" is no card: it is the whole row, in order. Said, so that no
+            // card being picked does not read as summaries going nowhere.
+            summaryAuto.Text = backend switch
+            {
+                "auto" => T("No card chosen: the first that works of Claude Code, an Anthropic key, Codex, an OpenAI key and Ollama writes the summary. Pick a card to keep to one.",
+                    "Карточка не выбрана: саммари пишет первое, что работает, из Claude Code, ключа Anthropic, Codex, ключа OpenAI и Ollama. Выберите карточку, чтобы держаться одного."),
+                "none" => T("Summaries are skipped (backend none in Advanced).", "Саммари пропускаются (в «Дополнительно» выбрано none)."),
+                _ => "",
+            };
+            summaryAuto.Visibility = summaryAuto.Text.Length > 0 && settings.Summary.Enabled ? Visibility.Visible : Visibility.Collapsed;
             if (backend is "anthropic-api" or "openai-api")
                 keyProvider.SelectedItem = keyProvider.Items.OfType<ComboBoxItem>().First(item => (string)item.Tag == backend);
             else keyProvider.SelectedIndex = keyProvider.SelectedIndex < 0 ? 0 : keyProvider.SelectedIndex;

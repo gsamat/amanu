@@ -51,11 +51,9 @@ internal sealed class RecordingsWindow : Window
     {
         this.runtime = runtime;
         Title = T("Recordings", "Записи");
-        Width = 1040;
-        Height = 760;
         MinWidth = 760;
         MinHeight = 520;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Ui.FitToWorkArea(this, 1040, 760);
         Icon = App.WindowIcon;
 
         grid.Columns.Add(Column(T("When", "Когда"), nameof(Row.When), 140));

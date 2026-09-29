@@ -42,6 +42,11 @@ public partial class App : System.Windows.Application
         doorbell = new EventWaitHandle(false, EventResetMode.AutoReset, DoorbellName);
         if (!first)
         {
+            // Opened from Start or Explorer, this process may bring a window to
+            // the front; the running one, in the background, may not. Handing
+            // the right over first is what lets its window come forward rather
+            // than only flash on the taskbar.
+            AllowSetForegroundWindow(-1);
             doorbell.Set();
             Shutdown();
             return;
@@ -83,6 +88,9 @@ public partial class App : System.Windows.Application
                 $"Восстановлено прерванных записей: {runtime.RecoveredSessionCount}. Они будут расшифрованы."), NotificationKind.Information);
         _ = runtime.StartAsync();
     }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
 
     private static void WriteCrashLog(Exception exception)
     {

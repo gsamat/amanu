@@ -185,17 +185,27 @@ internal static class Ui
         TextAlignment = TextAlignment.Center,
     }.Brush(TextBlock.ForegroundProperty, Secondary);
 
+    /// <remarks>
+    /// The title and description sit at the top and everything else at the
+    /// bottom, so cards side by side — all as tall as the tallest — line their
+    /// buttons and statuses up whatever length their descriptions are.
+    /// </remarks>
     public static RadioButton Card(string id, string title, string detail, params UIElement[] accessories)
     {
-        var content = new StackPanel();
-        content.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap }
-            .Brush(TextBlock.ForegroundProperty, Primary));
-        content.Children.Add(Detail(detail));
+        var content = new DockPanel { LastChildFill = true };
+        var bottom = new StackPanel();
         foreach (var accessory in accessories)
         {
             if (accessory is FrameworkElement element) element.Margin = new Thickness(0, 6, 0, 0);
-            content.Children.Add(accessory);
+            bottom.Children.Add(accessory);
         }
+        DockPanel.SetDock(bottom, Dock.Bottom);
+        content.Children.Add(bottom);
+        var top = new StackPanel();
+        top.Children.Add(new TextBlock { Text = title, FontSize = 14, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap }
+            .Brush(TextBlock.ForegroundProperty, Primary));
+        top.Children.Add(Detail(detail));
+        content.Children.Add(top);
         var card = new RadioButton { Tag = id, Content = content };
         card.SetResourceReference(FrameworkElement.StyleProperty, "ChoiceCard");
         System.Windows.Automation.AutomationProperties.SetName(card, title);
@@ -264,7 +274,7 @@ internal static class Ui
         return (grid, box);
     }
 
-    public static (Grid View, PasswordBox Box) Secret(string placeholder, double width)
+    public static (Grid View, PasswordBox Box) Secret(string placeholder, double width = double.NaN)
     {
         var box = new PasswordBox { Width = width };
         System.Windows.Automation.AutomationProperties.SetHelpText(box, placeholder);
@@ -276,13 +286,32 @@ internal static class Ui
             VerticalAlignment = VerticalAlignment.Center,
             FontSize = 14,
         }.Brush(TextBlock.ForegroundProperty, Tertiary);
-        var grid = new Grid { Width = width, HorizontalAlignment = HorizontalAlignment.Left };
+        var grid = new Grid { Width = width, HorizontalAlignment = double.IsNaN(width) ? HorizontalAlignment.Stretch : HorizontalAlignment.Left };
         grid.Children.Add(box);
         grid.Children.Add(hint);
         void Update() => hint.Visibility = box.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         box.PasswordChanged += (_, _) => Update();
         Update();
         return (grid, box);
+    }
+
+    /// <summary>
+    /// Sizes a window to what it wants, but never past the screen it opens on:
+    /// at 150% on a 1080p panel the work area is about 670 logical pixels tall,
+    /// and a window taller than that opens with its title bar above the screen,
+    /// where it cannot be dragged back.
+    /// </summary>
+    public static void FitToWorkArea(Window window, double width, double height)
+    {
+        var area = SystemParameters.WorkArea;
+        window.Width = Math.Min(width, area.Width - 24);
+        window.Height = Math.Min(height, area.Height - 24);
+        window.MinWidth = Math.Min(window.MinWidth, window.Width);
+        window.MinHeight = Math.Min(window.MinHeight, window.Height);
+        window.MaxHeight = area.Height;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.Left = area.Left + (area.Width - window.Width) / 2;
+        window.Top = area.Top + Math.Max(0, (area.Height - window.Height) / 2);
     }
 
     public static ScrollViewer Scroll(UIElement content) => new()

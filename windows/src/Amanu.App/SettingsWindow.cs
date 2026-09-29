@@ -22,11 +22,9 @@ internal sealed class SettingsWindow : Window
     {
         this.runtime = runtime;
         Title = T("Amanu Settings", "Настройки Amanu");
-        Width = 860;
-        Height = 820;
         MinWidth = 700;
         MinHeight = 480;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Ui.FitToWorkArea(this, 860, 820);
         Icon = App.WindowIcon;
 
         form = new SetupForm(runtime, showsConfigProblems: false);
@@ -102,11 +100,9 @@ internal sealed class SetupWindow : Window
     public SetupWindow(AmanuRuntime runtime)
     {
         Title = T("Setting up Amanu", "Первая настройка Amanu");
-        Width = 860;
-        Height = 820;
         MinWidth = 700;
         MinHeight = 480;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        Ui.FitToWorkArea(this, 860, 820);
         Icon = App.WindowIcon;
 
         form = new SetupForm(runtime);

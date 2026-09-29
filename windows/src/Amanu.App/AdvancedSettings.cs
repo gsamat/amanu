@@ -70,7 +70,7 @@ internal sealed class AdvancedSettings
         grid.Children.Add(label);
 
         var control = Control(entry);
-        control.HorizontalAlignment = HorizontalAlignment.Left;
+        if (entry.Kind is SettingKind.Toggle or SettingKind.Choice) control.HorizontalAlignment = HorizontalAlignment.Left;
         Grid.SetColumn(control, 1);
         grid.Children.Add(control);
 
@@ -117,7 +117,10 @@ internal sealed class AdvancedSettings
     private FrameworkElement Text(SettingEntry entry)
     {
         var multiline = entry.Kind is SettingKind.MultilineText or SettingKind.List;
-        var (view, box) = Ui.Field(Placeholder(entry), entry.Kind == SettingKind.Number ? 140 : multiline ? 520 : 380, multiline);
+        var (view, box) = Ui.Field(Placeholder(entry), entry.Kind == SettingKind.Number ? 140 : double.NaN, multiline);
+        // Wide enough for a path or a URL, never wider than the column: a fixed
+        // width ran past the window's right edge at 150% scaling.
+        if (entry.Kind != SettingKind.Number) view.MaxWidth = multiline ? 520 : 420;
         if (entry.Kind == SettingKind.List) box.MinHeight = 90;
         System.Windows.Automation.AutomationProperties.SetName(box, entry.Label);
         refreshers.Add(() =>
@@ -149,11 +152,11 @@ internal sealed class AdvancedSettings
     /// <summary>The Windows shape of <c>on_stop</c>: a program, and its arguments one per line.</summary>
     private FrameworkElement Command(SettingEntry entry)
     {
-        var (programView, program) = Ui.Field(T("program, e.g. C:\\Tools\\sync.exe", "программа, например C:\\Tools\\sync.exe"), 380);
-        var (argumentsView, arguments) = Ui.Field(T("arguments, one per line — {session} is the folder", "аргументы по строке — {session} это папка"), 380, multiline: true);
+        var (programView, program) = Ui.Field(T("program, e.g. C:\\Tools\\sync.exe", "программа, например C:\\Tools\\sync.exe"));
+        var (argumentsView, arguments) = Ui.Field(T("arguments, one per line — {session} is the folder", "аргументы по строке — {session} это папка"), multiline: true);
         arguments.MinHeight = 70;
         argumentsView.Margin = new Thickness(0, 6, 0, 0);
-        var stack = new StackPanel();
+        var stack = new StackPanel { MaxWidth = 420 };
         stack.Children.Add(programView);
         stack.Children.Add(argumentsView);
         refreshers.Add(() =>
