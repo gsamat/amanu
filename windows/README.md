@@ -25,12 +25,16 @@ certificate.
 
 The GitHub Actions workflow uses Azure Artifact Signing via OIDC and the
 `windows-signing` GitHub Environment. Its configuration uses `AZURE_CLIENT_ID`,
-`AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`,
+`AZURE_TENANT_ID`,
 `AZURE_ARTIFACT_SIGNING_ENDPOINT`, `AZURE_ARTIFACT_SIGNING_ACCOUNT`, and
 `AZURE_ARTIFACT_SIGNING_PROFILE`. Downloadable Actions artifacts require Azure
 signing; the workflow verifies the publisher and timestamp before uploading.
 Local builds can still be unsigned. A PFX fallback remains available through
 `WINDOWS_BETA_CERTIFICATE_BASE64` and `WINDOWS_BETA_CERTIFICATE_PASSWORD`.
+
+Azure login is tenant-only (`allow-no-subscriptions: true`): the signing app
+needs the Certificate Profile Signer role on the profile, not access to manage
+the Azure subscription.
 
 ## Signed test builds without a release
 
