@@ -11,6 +11,9 @@ without publishing a GitHub Release; see [README.md](README.md).
   it; opening Amanu again brings the running window forward.
 - Russian (and any other non-Latin) speech transcribed on this computer no
   longer comes out as mojibake.
+- A Parakeet transcript reads as a conversation: it is cut into sentences and
+  turns from the model's word timings, as on the Mac, instead of one paragraph
+  per side.
 - Switches and cards changed through Narrator, Voice Access or any other UI
   Automation client now save, as a click does.
 - From the second launch on, meetings are transcribed again: the statistics

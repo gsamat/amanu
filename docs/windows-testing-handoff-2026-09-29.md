@@ -114,7 +114,7 @@ To tell what is really on disk from inside the container, ask WMI
   reached" counted as an attempt, so after five one-minute retries the session
   would have been marked failed, blaming Ollama. It now counts as no model: the
   step waits (rescanned every ten minutes) and says "No model is set up…".
-- **Open — needs a decision:** a local transcript is **one segment per side**
+- **Fixed for beta.9, see below:** a local transcript was **one segment per side**
   (`them` 0:05–2:10, `me` 0:18), so `transcript.md` is two paragraphs, not a
   conversation. `transcribe-cli` returns a single segment for Parakeet with
   `--timestamps auto`, `segment` and `word` alike (checked on a TTS file with
@@ -196,6 +196,30 @@ installation's first launch, so it exercised the fix:
 
 Not fixed: the Transcript tab shows the Markdown source (`**[0:05] them:**`)
 rather than rendering it; still one segment per side (see Phase 2).
+
+### One segment per side — fixed for beta.9 (`7cab7d6`)
+
+Samat asked for it to work as on the Mac. There, Parakeet's token timings are
+grouped into words and the words into segments: a break at `.`, `?` or `!`, before
+a pause of more than a second, and at sixty words (`ParakeetEngine.swift`).
+transcribe.cpp computes the same word timings; its `--batch-jsonl` just leaves
+them out (v0.1.3 and v0.2.4 alike), while its plain output for a single file
+prints `words: N` and N lines of `[t0 -> t1] word`. So Parakeet now runs once per
+track with `-q --timestamps word <file>`, `LocalCliWords` reads that block and
+groups it by the macOS rule, and a track with text but no readable words still
+keeps its text as one paragraph. Whisper and GigaAM keep the batch JSONL path
+(on the Mac they are cut by fixed-length chunks instead; neither was downloaded
+here to check). The CLI also reports `max audio: unbounded (long audio chunked
+internally)`, so an hour-long track is not a concern for it.
+
+Run on both sides of `2026.09.29-2147` through the new code, the transcript
+interleaves: `[0:17] them: I'm guessing` / `[0:20] me: …` / `[0:30] them: I can
+say that it did not top breaking bad.` — one sentence of the video split exactly
+around Samat's turn while he had it paused. That is the far side's timeline
+surviving 10–20 s pauses. It does not settle checklist §4.2: nothing records
+whether loopback stopped delivering during those pauses (so `TrackWriter` padded
+them) or kept delivering silent packets, and §4.2's case is five minutes of
+silence.
 
 Small notes, not fixed: Advanced puts "Run after each session" under the
 "Interface" heading, and the interface language says it "takes effect at the next
