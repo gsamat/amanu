@@ -25,6 +25,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-2025
+    environment: windows-signing
     env:
       BETA_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_BETA_CERTIFICATE_BASE64 }}
       BETA_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_BETA_CERTIFICATE_PASSWORD }}
@@ -172,14 +173,23 @@ jobs:
         run: |
           $files = @(
             "${{ runner.temp }}\amanu-publish\Amanu.exe",
+            "${{ runner.temp }}\amanu-publish\Amanu.dll",
+            "${{ runner.temp }}\amanu-publish\Amanu.Core.dll",
             "${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe",
             "${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe"
           )
           foreach ($file in $files) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file
             if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $file: $($signature.Status)"
+              throw "Invalid Authenticode signature for ${file}: $($signature.Status)"
             }
+            if ($signature.SignerCertificate.Subject -notmatch '(^|,\s*)CN=Fands Software LLC(,|$)') {
+              throw "Unexpected publisher for ${file}: $($signature.SignerCertificate.Subject)"
+            }
+            if ($null -eq $signature.TimeStamperCertificate) {
+              throw "Missing Authenticode timestamp for ${file}"
+            }
+            Write-Host "Verified $(Split-Path -Leaf $file): $($signature.SignerCertificate.Subject), timestamp present"
           }
 
       - name: Upload installer and update feed

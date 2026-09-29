@@ -1,8 +1,9 @@
 # Amanu for Windows — beta 0.6.0
 
 A beta for Windows 11 x64. Calendar integration is deliberately not part of the
-Windows product. Until a publisher and Azure Artifact Signing are set up, the
-build is unsigned and goes only to named testers.
+Windows product. GitHub Actions test builds are signed as Fands Software LLC
+through Azure Artifact Signing. They can be downloaded as Actions artifacts
+without publishing a GitHub Release; see [README.md](README.md).
 
 ## New in beta.3
 
