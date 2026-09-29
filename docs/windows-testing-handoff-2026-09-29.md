@@ -249,6 +249,77 @@ Each run through `transcribe-cli` on the two sides of `2026.09.29-2147`
   makes the CLI exit 1 for Whisper, which is why only Parakeet uses it.
 - Beta.10 (`d2fd61a`) carries the GigaAM change; not yet installed.
 
+### A pass over the whole app on beta.10 (30 September, after midnight)
+
+Samat installed beta.10 (`d2fd61a`); driven through UI Automation and by hand.
+
+**Confirmed working**
+
+- UIA `SelectionItem.Select()` on a card and `Toggle()` on a switch now save
+  (the beta.6 fix): Parakeet re-selected, keep_audio off and on, each in
+  `config.json` at once.
+- Transcribe again with each engine, in the app: GigaAM ~50 s (20 s pieces,
+  clean Russian, the English side transliterated as a Russian-only model does),
+  Parakeet ~80 s (turns, as on the Mac), Whisper ~4 min 45 s (turns of its own;
+  "Продолжение следует..." hallucinated over the trailing silence).
+- §2.5 number fields: letters restore the old value, `20` is written, `12` (the
+  default) and empty remove the key.
+- §3.1–3.2 broken `config.json`: the explanation with line and column in
+  Settings, "transcription and summaries are waiting" in the status window, a
+  changed setting refused with "The setting wasn't saved", the file untouched;
+  fixed, the warnings go within two seconds. §3.4 names the key.
+- §4.7 ceiling: a manual recording stopped as `max-duration` at exactly 120 s;
+  §4.8 pause: `paused_seconds: 20`, the mic track kept growing (silence) while
+  paused. The mic WAV grows while recording when read through a handle.
+- §5.6 model missing: "Add a cloud key or download a local model in Settings.",
+  no attempts used, the engine greyed out in Transcribe again.
+- §5.10 live transcript: `me` lines every ~20 s with Parakeet.
+- §6.5 the setup form refuses `http://192.168.1.51:11434` with the https
+  explanation.
+- §7.2 the red dot in the status window; Windows' own microphone icon in the tray.
+
+**Found and fixed for beta.11**
+
+- **Sleep (§4.10), by accident:** the laptop went into Modern Standby 59 s into a
+  recording (Kernel-Power 506 at 00:03:46, 507 at 00:15:03). Amanu got no
+  suspend broadcast — `SystemEvents.PowerModeChanged` never fired — so the session
+  stayed "recording" through the standby, and on waking the ceiling stopped it as
+  `max-duration`, `duration_seconds: 736`, with 59.2 s of audio. `1bfdbd1`: the
+  one-second tick that enforces the ceiling now notices a gap of a minute or more
+  inside a recording and ends it as `sleep` at the last tick before the gap.
+  Tested in Core; needs a real lid-close on beta.11.
+- Advanced wrote `http://192.168.1.50:11434` as the Ollama URL without a word
+  (§6.5 passed only in Setup). `d8a3006`: both use `KeyRouting.ServerSettings`.
+- The status window grew 240 px downwards when the live transcript opened and
+  ran under the taskbar; the transcript was in FlowDocument's serif. `Ui.KeepOnScreen`
+  and the message font.
+
+**Open, for Samat to decide**
+
+- **on_stop never runs on a machine with no model** (§6.7): the hook waits for
+  names and summary to settle, and since `1d14c47` a summary with no model waits
+  instead of failing. On the Mac, `ChainAttempt` gives up at once when nothing was
+  reachable and offers the pass again when the configuration changes — so the hook
+  runs. Either follow the Mac (give up, re-offer on change) or let a "no model"
+  wait count as settled for the hook only.
+- **`"auto_record": {"enabled": "false"}` turns auto-record on**: the string is
+  unusable, so the default applies, and the default is on — the status window
+  said "waiting for a call". A wholly broken file turns it off; an unusable value
+  for this one key probably should too.
+- Speaker naming fills in the account name when no backend is configured at all,
+  but not while one is configured and unreachable (the pass waits), so the same
+  "no model" state gives `me` in one session and `Samat Galimov` in another.
+- Whisper is slower than real time on this CPU and hallucinates over silence;
+  nothing filters that on either platform.
+- The `2026.09.29-2358` session's call track got no packets at all
+  (`system.wav` 80 bytes) while the mic clearly heard a video — probably played on
+  another device; worth asking.
+
+**Accessibility details (not fixed):** two Advanced fields are both "OpenAI model"
+and two combos both "Which model to ask"; the two "Run after each session" fields,
+the key fields and the Ollama fields in Setup have no name; Recordings rows read as
+`Amanu.App.RecordingsWindow+Row`. The Transcript tab shows Markdown source.
+
 ### Deferred by Samat: alignment across long silence
 
 Checklist §4.2 (ten minutes, far side silent for five) is postponed — Samat asked
