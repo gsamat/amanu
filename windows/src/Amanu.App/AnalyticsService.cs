@@ -198,8 +198,12 @@ public sealed class AnalyticsService : IAsyncDisposable
     {
         try
         {
-            if (File.Exists(identityPath))
-                return JsonSerializer.Deserialize<Identity>(await File.ReadAllTextAsync(identityPath, cancellationToken).ConfigureAwait(false)) ?? identity;
+            // A file missing either field is treated as no file, rather than
+            // carried into a start that trips over the null.
+            if (File.Exists(identityPath)
+                && JsonSerializer.Deserialize<Identity>(await File.ReadAllTextAsync(identityPath, cancellationToken).ConfigureAwait(false), AtomicFiles.JsonOptions)
+                    is { Id: not null, VersionsSeen: not null } loaded)
+                return loaded;
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException) { }
         try { await AtomicFiles.WriteJsonAsync(identityPath, identity, cancellationToken).ConfigureAwait(false); }
@@ -212,7 +216,8 @@ public sealed class AnalyticsService : IAsyncDisposable
         try
         {
             if (File.Exists(pendingPath))
-                return JsonSerializer.Deserialize<List<PendingEvent>>(await File.ReadAllTextAsync(pendingPath, cancellationToken).ConfigureAwait(false)) ?? [];
+                return JsonSerializer.Deserialize<List<PendingEvent>>(await File.ReadAllTextAsync(pendingPath, cancellationToken).ConfigureAwait(false), AtomicFiles.JsonOptions)?
+                    .Where(item => item is { QueueId: not null, Name: not null, Data: not null }).ToList() ?? [];
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException) { }
         return [];

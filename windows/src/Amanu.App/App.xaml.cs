@@ -92,7 +92,7 @@ public partial class App : System.Windows.Application
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     private static extern bool AllowSetForegroundWindow(int processId);
 
-    private static void WriteCrashLog(Exception exception)
+    internal static void WriteCrashLog(Exception exception)
     {
         try
         {

@@ -247,8 +247,15 @@ public sealed class AmanuRuntime : IAsyncDisposable
             try { StartupRegistration.SetEnabled(Settings.StartAtLogin); }
             catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or System.Security.SecurityException) { }
         }
+        // Before the queue, which records events into the pending file this
+        // loads, and whatever it throws: statistics once stopped this method
+        // short of the queue, the call watcher and the rescans, and a meeting
+        // waited for a transcript that never came. Nothing may wait on them.
         try { await analytics.StartAsync(lifetime.Token); }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException) { }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            App.WriteCrashLog(exception);
+        }
         processing.Start();
         SystemEvents.PowerModeChanged += PowerModeChanged;
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailabilityChanged;

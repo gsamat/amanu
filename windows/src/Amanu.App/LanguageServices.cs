@@ -434,10 +434,15 @@ public sealed class SummaryService(LanguageModels models, Func<AppSettings> sett
 
 public static class AtomicFiles
 {
-    private static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    /// <summary>
+    /// camelCase, as <see cref="WriteJsonAsync"/> writes it — and what must read
+    /// it back: System.Text.Json's own default is PascalCase and case-sensitive,
+    /// and reads every field of these files as null.
+    /// </summary>
+    public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
     public static Task WriteJsonAsync(string path, object value, CancellationToken cancellationToken) =>
-        WriteTextAsync(path, JsonSerializer.Serialize(value, Options), cancellationToken);
+        WriteTextAsync(path, JsonSerializer.Serialize(value, JsonOptions), cancellationToken);
 
     public static async Task WriteTextAsync(string path, string value, CancellationToken cancellationToken)
     {
