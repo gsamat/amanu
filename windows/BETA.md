@@ -5,6 +5,17 @@ Windows product. GitHub Actions test builds are signed as Fands Software LLC
 through Azure Artifact Signing. They can be downloaded as Actions artifacts
 without publishing a GitHub Release; see [README.md](README.md).
 
+## Fixed since beta.3
+
+- The Setup and Settings windows fit a small screen, with their title bars on
+  it; opening Amanu again brings the running window forward.
+- Russian (and any other non-Latin) speech transcribed on this computer no
+  longer comes out as mojibake.
+- Switches and cards changed through Narrator, Voice Access or any other UI
+  Automation client now save, as a click does.
+- With nothing set up to write summaries, a meeting waits for a model and says
+  so, rather than using up its attempts on an Ollama nobody installed.
+
 ## New in beta.3
 
 - **Settings like the Mac's.** The setup form and Settings are one form with

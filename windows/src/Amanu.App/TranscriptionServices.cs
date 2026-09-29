@@ -128,12 +128,17 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             AudioPreprocessor.ConvertToMono16k(source, wave);
             var batch = Path.Combine(temp, "batch.txt");
             await File.WriteAllTextAsync(batch, wave + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+            // The CLI writes UTF-8. Left unsaid, .NET reads a windowless app's pipes
+            // in the ANSI code page, and every Cyrillic word comes back as mojibake
+            // while English survives — which is how the first real recording found it.
             var start = new ProcessStartInfo(cli)
             {
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
             };
             foreach (var argument in new[] { "-m", modelPath, "--batch", batch, "--batch-jsonl", "--timestamps", "auto" })
                 start.ArgumentList.Add(argument);
