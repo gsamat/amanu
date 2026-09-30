@@ -70,6 +70,7 @@ internal sealed class SetupForm
     private readonly CheckBox summaries = Ui.Switch(T("Write summaries", "Писать саммари"));
     private readonly Dictionary<string, RadioButton> summaryCards = [];
     private readonly Dictionary<string, TextBlock> summaryStatus = [];
+    private readonly Dictionary<string, (TextBlock Install, Button SignIn)> cliActions = [];
     private readonly ComboBox keyProvider = new() { Width = 150, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly PasswordBox summaryKey;
     private readonly FrameworkElement summaryKeyView;
@@ -278,10 +279,10 @@ internal sealed class SetupForm
         foreach (var id in new[] { "claude-cli", "codex-cli", "api-key", "ollama" }) summaryStatus[id] = Ui.Status();
         summaryCards["claude-cli"] = Ui.Card("claude-cli", "Claude Code",
             T("On the subscription you’re already signed into. No key.", "По подписке, в которую вы уже вошли. Ключ не нужен."),
-            summaryStatus["claude-cli"], Ui.Link(T("Install it", "Установить"), "https://claude.com/product/claude-code"));
+            summaryStatus["claude-cli"], CliActions("claude-cli", "claude", "https://claude.com/product/claude-code"));
         summaryCards["codex-cli"] = Ui.Card("codex-cli", "Codex",
             T("Same deal, on your OpenAI subscription.", "То же самое, но по подписке OpenAI."),
-            summaryStatus["codex-cli"], Ui.Link(T("Install it", "Установить"), "https://developers.openai.com/codex/cli/"));
+            summaryStatus["codex-cli"], CliActions("codex-cli", "codex", "https://developers.openai.com/codex/cli/"));
 
         keyProvider.Items.Add(new ComboBoxItem { Content = "Anthropic", Tag = "anthropic-api" });
         keyProvider.Items.Add(new ComboBoxItem { Content = "OpenAI", Tag = "openai-api" });
@@ -556,12 +557,56 @@ internal sealed class SetupForm
         downloadStatus.Text = $"{name}: {Ui.Megabytes(progress.Received)} / {Ui.Megabytes(progress.Total)}";
     });
 
+    /// <summary>
+    /// What a CLI card offers next: installing it while it is missing, signing in
+    /// once it is here without an account — "not installed" was the wrong thing
+    /// to say to someone whose claude only needed a sign-in — and nothing once it
+    /// answers.
+    /// </summary>
+    private StackPanel CliActions(string id, string tool, string installUrl)
+    {
+        var install = Ui.Link(T("Install it", "Установить"), installUrl);
+        var signIn = Ui.Button(T("Sign in…", "Войти…"), () => _ = SignInAsync(id, tool));
+        signIn.HorizontalAlignment = HorizontalAlignment.Left;
+        signIn.Visibility = Visibility.Collapsed;
+        cliActions[id] = (install, signIn);
+        var panel = new StackPanel();
+        panel.Children.Add(install);
+        panel.Children.Add(signIn);
+        return panel;
+    }
+
+    private async Task SignInAsync(string id, string tool)
+    {
+        var signIn = cliActions[id].SignIn;
+        signIn.IsEnabled = false;
+        summaryStatus[id].Text = T("finish signing in in the browser…", "завершите вход в браузере…");
+        try
+        {
+            await CliProbe.SignInAsync(tool);
+            await ShowToolAsync(id, tool);
+        }
+        finally
+        {
+            signIn.IsEnabled = true;
+        }
+    }
+
+    private async Task ShowToolAsync(string id, string tool)
+    {
+        var status = await CliProbe.ProbeAsync(tool);
+        summaryStatus[id].Text = status.Text;
+        var (install, signIn) = cliActions[id];
+        install.Visibility = status.State == CliState.Missing ? Visibility.Visible : Visibility.Collapsed;
+        signIn.Visibility = status.State == CliState.SignedOut ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     private async Task DetectToolsAsync()
     {
-        var claude = CliProbe.DescribeAsync("claude");
-        var codex = CliProbe.DescribeAsync("codex");
-        summaryStatus["claude-cli"].Text = await claude;
-        summaryStatus["codex-cli"].Text = await codex;
+        var claude = ShowToolAsync("claude-cli", "claude");
+        var codex = ShowToolAsync("codex-cli", "codex");
+        await claude;
+        await codex;
         summaryStatus["ollama"].Text = await OllamaStatusAsync();
     }
 

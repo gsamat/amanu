@@ -219,7 +219,53 @@ public static class CommandLineTools
             var candidate = Path.Combine(directory.Trim('"'), name + extension);
             if (File.Exists(candidate)) return candidate;
         }
-        return null;
+        return name switch
+        {
+            "claude" => NewestCopy(Path.Combine(appData, "Claude", "claude-code"), "claude.exe"),
+            "codex" => NewestCopy(Path.Combine(local, "OpenAI", "Codex", "bin"), "codex.exe"),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The copy a desktop app carries for itself. The Claude and Codex apps each
+    /// keep one in a folder named by version or hash and put nothing on PATH, so
+    /// someone with only the app would otherwise be told the tool is not
+    /// installed. The newest is taken because an update leaves the old folder
+    /// behind. Claude's copy is signed in only while the app hands it a token of
+    /// its own, so run from here it usually needs signing in once — which is
+    /// what the setup window offers — and after that it reads ~/.claude like any
+    /// other install. Codex's copy shares ~/.codex with the app and just works.
+    /// </summary>
+    private static string? NewestCopy(string directory, string file)
+    {
+        if (!Directory.Exists(directory)) return null;
+        try
+        {
+            return new DirectoryInfo(directory).EnumerateFiles(file, SearchOption.AllDirectories)
+                .OrderByDescending(found => found.LastWriteTimeUtc)
+                .FirstOrDefault()?.FullName;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public static IReadOnlyList<string> SignInArguments(string name) => name == "claude" ? ["auth", "login"] : ["login"];
+
+    public static IReadOnlyList<string> SignInStatusArguments(string name) => name == "claude" ? ["auth", "status"] : ["login", "status"];
+
+    /// <summary>
+    /// Whether what a tool printed means nobody is signed in to it: claude's
+    /// status JSON, codex's status line, or what either says when asked for an
+    /// answer it cannot give without an account.
+    /// </summary>
+    public static bool SaysSignedOut(string output)
+    {
+        var lower = output.ToLowerInvariant();
+        return lower.Contains("not logged in") || lower.Contains("/login") || lower.Contains("codex login")
+               || System.Text.RegularExpressions.Regex.IsMatch(lower, "\"loggedin\"\\s*:\\s*false");
     }
 
     public static IReadOnlyList<string>? CodexMcpServers()
@@ -272,6 +318,12 @@ public static class CommandLineTools
         {
             var detail = ((await error.ConfigureAwait(false)) + stdout).Trim();
             if (detail.Length > 600) detail = detail[..600];
+            // Not signed in is this computer, not the recording: the pass waits for
+            // someone to sign in rather than spending attempts it cannot win.
+            if (SaysSignedOut(detail))
+                throw new ProcessingFailure(FailureKind.Environmental, T(
+                    $"{Path.GetFileNameWithoutExtension(executable)} is not signed in: open amanu setup and press Sign in",
+                    $"в {Path.GetFileNameWithoutExtension(executable)} не выполнен вход: откройте настройки amanu и нажмите «Войти»"));
             var lower = detail.ToLowerInvariant();
             var passes = new[] { "limit", "quota", "429", "timed out", "timeout", "network", "connect", "overloaded", "unavailable" }
                 .Any(lower.Contains);

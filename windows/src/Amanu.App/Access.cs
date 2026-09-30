@@ -96,30 +96,84 @@ public static class MicrophoneAccess
     public static void OpenSettings() => AmanuRuntime.Open("ms-settings:privacy-microphone");
 }
 
-/// <summary>Whether claude and codex are here, and whether they answer when run.</summary>
+public enum CliState { Missing, Broken, SignedOut, Ready }
+
+public sealed record CliStatus(CliState State, string Text);
+
+/// <summary>Whether claude and codex are here, whether they answer when run, and whether anyone is signed in to them.</summary>
 public static class CliProbe
 {
-    public static async Task<string> DescribeAsync(string name)
+    public static async Task<CliStatus> ProbeAsync(string name)
     {
         var path = CommandLineTools.Find(name);
-        if (path is null) return T("not installed", "не установлен");
+        if (path is null) return new(CliState.Missing, T("not installed", "не установлен"));
+        var version = await RunAsync(path, ["--version"]);
+        if (version is not (0, var output)) return new(CliState.Broken, T("installed, doesn’t answer", "установлен, но не отвечает"));
+        // Only an answer that says so counts as signed out. An older CLI without
+        // the status command, or one that does not answer in time, is given the
+        // benefit of the doubt: the meeting will say plainly if it was wrong.
+        if (await RunAsync(path, CommandLineTools.SignInStatusArguments(name)) is (not 0, var status) && CommandLineTools.SaysSignedOut(status))
+            return new(CliState.SignedOut, T("installed, but not signed in", "установлен, но вы не вошли"));
+        var line = output.Trim().Split('\n')[0].Trim();
+        return new(CliState.Ready, T("answers · ", "отвечает · ") + (line.Length > 40 ? line[..40] : line));
+    }
+
+    /// <summary>
+    /// Runs the tool's own sign-in in a console window of its own, so the link it
+    /// prints is there to click if the browser does not open by itself, and waits
+    /// for it to finish. On failure the window stays until a key is pressed, so
+    /// the reason can be read rather than flashing past.
+    /// </summary>
+    public static async Task SignInAsync(string name)
+    {
+        if (CommandLineTools.Find(name) is not { } path) return;
+        var start = new ProcessStartInfo("cmd.exe")
+        {
+            // cmd drops the outer pair of quotes after /c, which leaves the path's own quotes intact.
+            Arguments = $"/c \"\"{path}\" {string.Join(' ', CommandLineTools.SignInArguments(name))} || pause\"",
+            UseShellExecute = false,
+            CreateNoWindow = false,
+        };
         try
         {
-            var start = new ProcessStartInfo(path) { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-            start.ArgumentList.Add("--version");
             using var process = Process.Start(start);
-            if (process is null) return T("installed, doesn’t start", "установлен, но не запускается");
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            var output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
-            await process.WaitForExitAsync(timeout.Token);
-            var version = output.Trim().Split('\n')[0].Trim();
-            return process.ExitCode == 0
-                ? T("answers · ", "отвечает · ") + (version.Length > 40 ? version[..40] : version)
-                : T("installed, doesn’t answer", "установлен, но не отвечает");
+            if (process is not null) await process.WaitForExitAsync();
         }
-        catch (Exception exception) when (exception is OperationCanceledException or System.ComponentModel.Win32Exception or InvalidOperationException)
+        catch (System.ComponentModel.Win32Exception)
         {
-            return T("installed, doesn’t answer", "установлен, но не отвечает");
+        }
+    }
+
+    /// <summary>The exit code and everything printed, or null when it would not start or took more than 15 seconds.</summary>
+    private static async Task<(int ExitCode, string Output)?> RunAsync(string path, IReadOnlyList<string> arguments)
+    {
+        try
+        {
+            var start = new ProcessStartInfo(path)
+            {
+                UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true,
+            };
+            foreach (var argument in arguments) start.ArgumentList.Add(argument);
+            using var process = Process.Start(start);
+            if (process is null) return null;
+            process.StandardInput.Close();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try
+            {
+                var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
+                var error = process.StandardError.ReadToEndAsync(timeout.Token);
+                await process.WaitForExitAsync(timeout.Token);
+                return (process.ExitCode, await output + await error);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                return null;
+            }
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException or System.IO.IOException)
+        {
+            return null;
         }
     }
 }
