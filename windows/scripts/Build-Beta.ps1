@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = "0.6.0-beta.12",
+    [string]$Version = "0.6.0-beta.13",
 
     [Parameter(Mandatory = $false)]
     [string]$CertificatePath,
