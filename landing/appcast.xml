@@ -6,63 +6,29 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.27</title>
-            <pubDate>Tue, 29 Sep 2026 05:03:22 +0000</pubDate>
+            <title>0.4.29</title>
+            <pubDate>Wed, 30 Sep 2026 19:29:17 +0000</pubDate>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Amanu 0.4.27</h2>
-<p>This release follows a full audit of the app. It closes several ways a meeting could leave the Mac against your choice, or be lost, and makes recording, transcription and setup behave the same way everywhere.</p>
-<h3>Privacy</h3>
+            <description><![CDATA[<h2>Amanu 0.4.29</h2>
+<h3>Manage recordings</h3>
 <ul>
-<li>Speaker naming now goes wherever summaries go. Choosing Ollama, or turning summaries off, no longer lets naming send the transcript to Claude or OpenAI.</li>
-<li>The <code>claude</code> command-line tool is run with no tools, no personal settings and no hooks, so something said on a call cannot make it act on your Mac. Codex runs with its MCP servers turned off.</li>
-<li>Choosing an engine for one recording is honoured even while other recordings are being transcribed, and a fallback to the local engine applies only to the recording that needed it.</li>
-<li>Keys for OpenAI-compatible summary servers are kept apart from the OpenAI transcription key, and neither is sent to the other&#x27;s server.</li>
-<li>A config file that cannot be parsed no longer resets every setting to its default: Amanu keeps using the last settings it read, refuses to overwrite the file, holds transcription and summaries, and says what is wrong until the file is fixed.</li>
+<li>Import and Open recordings folder are now at the top of the window. Actions for the selected recording, including Re-transcribe, are grouped below its details.</li>
+<li>Summary, Transcript and Speakers have separate tabs. Summaries and transcripts display Markdown headings, lists, emphasis and links, and their text can be selected and copied.</li>
+<li>The divider between the recording list and details can be moved to give either pane more room.</li>
+<li>Long opening excerpts in Speakers no longer force the window wider or prevent it from being reduced.</li>
+<li>Switching between meetings keeps the Speakers content anchored inside the tab instead of gradually moving it to the right and down.</li>
 </ul>
-<h3>Recordings</h3>
+<h3>Validation and compatibility</h3>
 <ul>
-<li>Automatic recording no longer starts again seconds after stopping at its own silence or duration limit.</li>
-<li>A recording that cannot start is retried with growing pauses and one banner, instead of every few seconds with a new empty folder each time.</li>
-<li>The auto-record switch in the menu, the status window and Settings is one setting, remembered across restarts and applied at once.</li>
-<li>Recurring calendar meetings are recognised every time, and a meeting started from the calendar waits for you to join before it can stop as ended.</li>
-<li>A recording ends cleanly when the Mac goes to sleep.</li>
-<li>The microphone falls back to the default device or to plain capture when the chosen one refuses, at the start as well as mid-call, and a refusing device is no longer retried every few seconds.</li>
-<li>The archived audio keeps both channels of the call audio, and a file that cannot be read in full is never replaced by one that is silent at the end.</li>
-<li>A session whose details could not be saved stays recoverable instead of disappearing from the list.</li>
-</ul>
-<h3>Transcription</h3>
-<ul>
-<li>Re-transcribing now discards cached answers from AssemblyAI, OpenAI and ElevenLabs, so a corrected language gives a new transcript.</li>
-<li>An AssemblyAI job survives a brief network problem and is resumed rather than uploaded and paid for again.</li>
-<li>A failed model download or a missing key no longer counts against your meetings. Downloads are shared between windows and resume where they stopped.</li>
-<li>If echo cancellation fails, the meeting is transcribed without it instead of failing.</li>
-<li>A recording with one empty or missing track is transcribed from the other track.</li>
-<li>Whisper no longer forces the configured language on meetings expected in two languages.</li>
-<li>The <code>on_stop</code> hook runs once, after names and summary, including for sessions finished later.</li>
-</ul>
-<h3>Summaries</h3>
-<ul>
-<li>A summary is postponed rather than abandoned while a model is only temporarily unreachable, and gives up after a few real attempts instead of retrying for ever.</li>
-<li>Ollama receives a context large enough for the whole prompt.</li>
-</ul>
-<h3>Setup and settings</h3>
-<ul>
-<li>A new recordings folder takes effect without restarting.</li>
-<li>The sound test cannot be run during a recording.</li>
-<li>Setup notices permissions granted in System Settings when you return to it.</li>
-<li>Choice cards and switches work with the keyboard and VoiceOver.</li>
-<li>A key check tells an unreachable server apart from a refused key.</li>
-</ul>
-<h3>Compatibility</h3>
-<ul>
+<li>Checked switching between meetings, resizing and the formatted previews in the macOS app. This release changes the recordings interface; no audio capture changes are included.</li>
 <li>Universal binary for Apple Silicon and Intel Macs running macOS 14.2 or later. Local transcription requires Apple Silicon; Intel requires a cloud transcription key and has not been tested on physical hardware.</li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.27/amanu-v0.4.27-macos-universal.dmg"
-                sparkle:version="401"
-                sparkle:shortVersionString="0.4.27"
-                sparkle:edSignature="LuPvG6sFcpz/ogFHzvXvO2JIdQFOioWXzE45ILZNPnbAUll+54t20VWtKCc5GahrvtamA6mZqWgR5aIuyfB7DQ=="
-                length="23852288"
+                url="https://github.com/gsamat/amanu/releases/download/v0.4.29/amanu-v0.4.29-macos-universal.dmg"
+                sparkle:version="407"
+                sparkle:shortVersionString="0.4.29"
+                sparkle:edSignature="9ixJPU8KWXMFAXkaAYJX7IO9d9C7kI4DP3MksU3+BmudmrfTz6pPuSqTMzrgkH/F8v9jhm+mNXbEQHgMpsEaCA=="
+                length="23872355"
                 type="application/octet-stream" />
         </item>
     </channel>

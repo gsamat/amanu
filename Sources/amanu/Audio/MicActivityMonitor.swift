@@ -82,6 +82,7 @@ enum MicActivityMonitor {
         "com.kagi.kagimacOS",
         "app.zen-browser.zen",
         "company.thebrowser.dia",
+        "ai.perplexity.comet",
     ]
 
     struct Result {

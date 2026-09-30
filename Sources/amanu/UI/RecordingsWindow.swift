@@ -33,7 +33,7 @@ final class RecordingsWindow: NSObject {
     private let scroll = NSScrollView()
 
     private let detailTitle = NSTextField(labelWithString: "")
-    private let openingLabel = NSTextField(wrappingLabelWithString: "")
+    private let openingLabel = NSTextField(labelWithString: "")
     private let speakersStack = NSStackView()
     private let finishButton = NSButton()
     private let retranscribeButton = NSButton()
@@ -41,6 +41,11 @@ final class RecordingsWindow: NSObject {
     private let openFolderButton = NSButton()
     private let deleteButton = NSButton()
     private let importButton = NSButton()
+    private let openRootButton = NSButton()
+    private let rootPath = NSTextField(labelWithString: "")
+    private let detailTabs = NSTabView()
+    private let summaryText = NSTextView()
+    private let transcriptText = NSTextView()
     private let busyLabel = NSTextField(labelWithString: "")
     private let importStatus = MediaImportStatusView()
     private let retranscriptionMenu = NSMenu()
@@ -59,7 +64,7 @@ final class RecordingsWindow: NSObject {
     init(root: URL) {
         self.root = root
         panel = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 980, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -69,6 +74,7 @@ final class RecordingsWindow: NSObject {
         panel.title = localised("Recordings", "Записи")
         panel.isReleasedWhenClosed = false
         panel.setFrameAutosaveName("amanu.recordings")
+        panel.contentMinSize = NSSize(width: 860, height: 560)
 
         buildTable()
         panel.contentView = buildLayout()
@@ -143,11 +149,11 @@ final class RecordingsWindow: NSObject {
         scroll.documentView = table
         scroll.hasVerticalScroller = true
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
+        scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 160).isActive = true
     }
 
     private func buildLayout() -> NSView {
-        detailTitle.font = .systemFont(ofSize: 13, weight: .medium)
+        detailTitle.font = .systemFont(ofSize: 16, weight: .semibold)
         openingLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         // What was said in the meeting, which is the one thing in any of
         // amanu's windows that is not amanu's to translate. Named so that the
@@ -156,6 +162,13 @@ final class RecordingsWindow: NSObject {
         openingLabel.identifier = NSUserInterfaceItemIdentifier("meeting-words")
         openingLabel.textColor = .secondaryLabelColor
         openingLabel.lineBreakMode = .byTruncatingTail
+        openingLabel.maximumNumberOfLines = 1
+        // NSTabView derives its minimum width from this pane's fitting size.
+        // The excerpt can truncate at any width; its full text must not become
+        // the window's minimum width, even during that fitting calculation.
+        openingLabel.setContentCompressionResistancePriority(
+            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1),
+            for: .horizontal)
         busyLabel.font = .systemFont(ofSize: 11)
         busyLabel.textColor = .secondaryLabelColor
 
@@ -165,6 +178,8 @@ final class RecordingsWindow: NSObject {
 
         for (button, title, action) in [
             (importButton, localised("Import…", "Импортировать…"), #selector(chooseImportClicked)),
+            (openRootButton, localised("Open recordings folder", "Открыть папку записей"),
+             #selector(openRootClicked)),
             (finishButton, localised("Finish processing", "Доделать"), #selector(finishClicked)),
             (retranscribeButton,
              localised("Re-transcribe", "Расшифровать заново"), #selector(retranscribeClicked)),
@@ -180,21 +195,25 @@ final class RecordingsWindow: NSObject {
         }
         importButton.identifier = NSUserInterfaceItemIdentifier("choose-media-import")
         openTranscriptButton.identifier = NSUserInterfaceItemIdentifier("open-transcript")
+        openRootButton.identifier = NSUserInterfaceItemIdentifier("open-recordings-folder")
+        rootPath.stringValue = root.path
+        rootPath.font = .systemFont(ofSize: 11)
+        rootPath.textColor = .secondaryLabelColor
+        rootPath.lineBreakMode = .byTruncatingMiddle
+        rootPath.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        rootPath.toolTip = root.path
+        let toolbar = NSStackView(views: [importButton, openRootButton, NSView(), rootPath])
+        toolbar.orientation = .horizontal
+        toolbar.spacing = 8
+        toolbar.heightAnchor.constraint(equalTo: importButton.heightAnchor).isActive = true
 
         let processingButtons = NSStackView(views: [
-            importButton, finishButton, retranscribeButton,
+            finishButton, retranscribeButton, openTranscriptButton,
+            openFolderButton, deleteButton,
         ])
         processingButtons.orientation = .horizontal
         processingButtons.spacing = 8
-        let fileButtons = NSStackView(views: [
-            openTranscriptButton, openFolderButton, deleteButton, busyLabel,
-        ])
-        fileButtons.orientation = .horizontal
-        fileButtons.spacing = 8
-        let buttons = NSStackView(views: [processingButtons, fileButtons])
-        buttons.orientation = .vertical
-        buttons.alignment = .leading
-        buttons.spacing = 6
+        processingButtons.heightAnchor.constraint(equalTo: finishButton.heightAnchor).isActive = true
 
         let detailScroll = NSScrollView()
         detailScroll.documentView = speakersStack
@@ -202,18 +221,77 @@ final class RecordingsWindow: NSObject {
         detailScroll.drawsBackground = false
         speakersStack.translatesAutoresizingMaskIntoConstraints = false
         detailScroll.translatesAutoresizingMaskIntoConstraints = false
-        detailScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+        detailScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 100).isActive = true
         NSLayoutConstraint.activate([
             speakersStack.leadingAnchor.constraint(
                 equalTo: detailScroll.contentView.leadingAnchor, constant: 4),
             speakersStack.topAnchor.constraint(equalTo: detailScroll.contentView.topAnchor),
+            speakersStack.trailingAnchor.constraint(
+                equalTo: detailScroll.contentView.trailingAnchor, constant: -8),
         ])
+
+        let speakersContent = NSStackView(views: [openingLabel, detailScroll])
+        speakersContent.orientation = .vertical
+        speakersContent.distribution = .fill
+        speakersContent.alignment = .leading
+        speakersContent.spacing = 8
+        speakersContent.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        NSLayoutConstraint.activate([
+            openingLabel.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
+            detailScroll.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
+        ])
+        // NSTabView owns its content view's frame. A stack view calculates
+        // its own frame during layout, accumulating the tab's inset on each
+        // update if used directly. Keep that layout inside a plain tab view.
+        let speakersPane = NSView()
+        speakersContent.translatesAutoresizingMaskIntoConstraints = false
+        speakersPane.addSubview(speakersContent)
+        NSLayoutConstraint.activate([
+            speakersContent.leadingAnchor.constraint(equalTo: speakersPane.leadingAnchor),
+            speakersContent.trailingAnchor.constraint(equalTo: speakersPane.trailingAnchor),
+            speakersContent.topAnchor.constraint(equalTo: speakersPane.topAnchor),
+            speakersContent.bottomAnchor.constraint(equalTo: speakersPane.bottomAnchor),
+        ])
+        for (id, label, view) in [
+            ("summary", localised("Summary", "Саммари"), previewScroll(summaryText)),
+            ("transcript", localised("Transcript", "Расшифровка"), previewScroll(transcriptText)),
+            ("speakers", localised("Speakers", "Участники"), speakersPane),
+        ] as [(String, String, NSView)] {
+            let tab = NSTabViewItem(identifier: id)
+            tab.label = label
+            tab.view = view
+            detailTabs.addTabViewItem(tab)
+        }
+
+        let detail = NSStackView(views: [detailTitle, detailTabs, processingButtons, busyLabel])
+        detail.orientation = .vertical
+        detail.distribution = .fill
+        detail.alignment = .leading
+        detail.spacing = 10
+        detail.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        NSLayoutConstraint.activate([
+            detailTitle.widthAnchor.constraint(equalTo: detail.widthAnchor),
+            detailTabs.widthAnchor.constraint(equalTo: detail.widthAnchor),
+            detail.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
+        ])
+        detailTabs.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scroll.setContentHuggingPriority(.defaultLow, for: .vertical)
+        let split = NSSplitView()
+        split.isVertical = false
+        split.dividerStyle = .thin
+        split.autosaveName = "amanu.recordings.split"
+        split.setContentHuggingPriority(.defaultLow, for: .vertical)
+        split.addArrangedSubview(scroll)
+        split.addArrangedSubview(detail)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        split.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         importStatus.onCancel = { [weak self] in self?.onCancelImport?() }
         let content = NSStackView(views: [
-            scroll, importStatus, detailTitle, openingLabel, detailScroll, buttons,
+            toolbar, importStatus, split,
         ])
         content.orientation = .vertical
+        content.distribution = .fill
         content.alignment = .leading
         content.spacing = 10
         content.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
@@ -227,17 +305,38 @@ final class RecordingsWindow: NSObject {
             content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            scroll.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            toolbar.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             importStatus.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            openingLabel.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            detailScroll.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            split.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
         ])
         return container
+    }
+
+    private func previewScroll(_ text: NSTextView) -> NSScrollView {
+        text.isEditable = false
+        text.isSelectable = true
+        text.isRichText = true
+        text.font = .systemFont(ofSize: 13)
+        text.textColor = .labelColor
+        text.drawsBackground = false
+        text.textContainerInset = NSSize(width: 12, height: 12)
+        text.isVerticallyResizable = true
+        text.isHorizontallyResizable = false
+        text.autoresizingMask = [.width]
+        text.textContainer?.widthTracksTextView = true
+        let scroll = NSScrollView()
+        scroll.documentView = text
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        return scroll
     }
 
     /// Show another recordings folder: the one Setup has just moved amanu to.
     func setRoot(_ folder: URL) {
         root = folder
+        rootPath.stringValue = folder.path
+        rootPath.toolTip = folder.path
         table.deselectAll(nil)
         reload()
     }
@@ -302,6 +401,8 @@ final class RecordingsWindow: NSObject {
         table.reloadData()
         if let previous, let row = items.firstIndex(where: { $0.dir == previous }) {
             table.selectRowIndexes([row], byExtendingSelection: false)
+        } else if !items.isEmpty {
+            table.selectRowIndexes([0], byExtendingSelection: false)
         }
         showDetail()
     }
@@ -316,12 +417,33 @@ final class RecordingsWindow: NSObject {
                 ? localised("No recordings yet", "Записей пока нет")
                 : localised("Select a recording", "Выберите запись")
             openingLabel.stringValue = ""
+            summaryText.string = ""
+            transcriptText.string = ""
             updateButtons()
             return
         }
 
         detailTitle.stringValue = item.title ?? item.name
-        guard let transcript = PostProcessor.readTranscript(item.dir) else {
+        let summary = try? String(contentsOf: item.dir.appendingPathComponent("summary.md"), encoding: .utf8)
+        var summaryPreview = summary ?? (item.summary == .off
+            ? localised("Summaries are off.", "Саммари выключены.")
+            : localised("No summary yet.", "Саммари пока нет."))
+        summaryText.identifier = summary == nil ? nil : .init("meeting-words")
+        if summary != nil && !PostProcessor.hasCurrentSummary(item.dir) {
+            summaryPreview = localised(
+                "This summary belongs to the previous transcript.\n\n",
+                "Это саммари предыдущей расшифровки.\n\n") + summaryPreview
+        }
+        summaryText.textStorage?.setAttributedString(MarkdownPreview.render(summaryPreview))
+        let transcript = PostProcessor.readTranscript(item.dir)
+        let markdown = try? String(contentsOf: item.dir.appendingPathComponent("transcript.md"), encoding: .utf8)
+        let transcriptPreview = markdown ?? transcript?.rendered(
+            title: item.title ?? item.name, names: SpeakerNames.read(from: item.dir))
+            ?? localised("No transcript yet.", "Расшифровки пока нет.")
+        transcriptText.textStorage?.setAttributedString(MarkdownPreview.render(transcriptPreview))
+        transcriptText.identifier = markdown != nil || transcript != nil ? .init("meeting-words") : nil
+        for text in [summaryText, transcriptText] { text.scrollToBeginningOfDocument(nil) }
+        guard let transcript else {
             openingLabel.stringValue = item.transcript == .pending
                 ? localised("Not transcribed yet.", "Ещё не расшифровано.")
                 : localised(
@@ -333,6 +455,7 @@ final class RecordingsWindow: NSObject {
 
         let names = SpeakerNames.read(from: item.dir)
         openingLabel.stringValue = SessionInventory.opening(of: transcript, names: names)
+            .replacingOccurrences(of: "\n", with: " · ")
         for sample in SessionInventory.samples(transcript: transcript, names: names) {
             speakersStack.addArrangedSubview(speakerRow(sample, in: item.dir))
         }
@@ -611,6 +734,13 @@ final class RecordingsWindow: NSObject {
     }
 
     @objc private func chooseImportClicked() { onChooseImport?() }
+
+    @objc private func openRootClicked() {
+        Analytics.track(.artifactOpened, [
+            .artifact: .text(Analytics.Artifact.recordingsRoot.rawValue),
+        ])
+        NSWorkspace.shared.open(root)
+    }
 
     @objc private func openTranscriptClicked() {
         guard let item = selected else { return }

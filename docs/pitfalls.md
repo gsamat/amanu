@@ -340,6 +340,22 @@ nested stack hugs its contents loosely, so spare height in the window went
 the corner it belongs in; a required vertical content hugging priority is
 what stops it, relaxed only while the live transcript needs the room.
 
+## A stack view is not a tab's content view either
+
+`NSTabView` owns the frame of each tab's content view. Using an `NSStackView`
+directly there made the Speakers pane add the tab's inset to its own position
+on every layout: choosing another meeting moved it seven points right and six
+points down, until it escaped the tab. Put a plain `NSView` in the tab and pin
+the stack inside it. The regression test switches meetings repeatedly and
+compares the pane's frame with the tab's content rectangle.
+
+A truncating label can still enlarge the tab's minimum width: AppKit uses the
+pane's fitting size, and the label's full intrinsic width participates in that
+calculation. The opening excerpt's horizontal compression resistance must be
+below `fittingSizeCompression`, so a long utterance can truncate during that
+calculation too. Merely setting `byTruncatingTail` did not stop a meeting from
+giving the window a minimum width of over eleven thousand points.
+
 ## Asking macOS what it has granted is not free
 
 Measured inside the signed bundle on 19 August 2026, on an M-series Mac with

@@ -52,6 +52,7 @@ struct CallAppDetectionTests {
         "com.kagi.kagimacOS",
         "app.zen-browser.zen",
         "company.thebrowser.dia",
+        "ai.perplexity.comet.helper",
         "ru.yandex.desktop.telemost",
         "ru.unlimitedtech.express.desktop",
         "kontur.talk",
