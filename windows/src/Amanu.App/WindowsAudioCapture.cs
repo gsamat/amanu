@@ -7,26 +7,36 @@ using NAudio.Wave;
 
 namespace Amanu.App;
 
+public delegate void LiveAudioHandler(bool microphone, ReadOnlySpan<byte> data, WaveFormat format, bool silent, long offsetMs);
+
+public interface ILiveAudioSource
+{
+    bool IsRunning { get; }
+    long ElapsedMs { get; }
+    event LiveAudioHandler? LiveAudioAvailable;
+    event EventHandler? CaptureStarted;
+    Func<Task>? LiveStopping { get; set; }
+}
+
 /// <summary>
 /// The microphone and the call, captured by WASAPI into two crash-tolerant WAV
-/// files. The call is the call app's own process tree through application
-/// loopback, or everything Windows plays when <c>system_audio</c> is <c>all</c>.
+/// files. Live recognition receives packets independently of the durable files.
 /// </summary>
-public sealed class WindowsAudioCapture : IAudioCapture
+public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
 {
     private WasapiRecorder? microphone;
     private WasapiRecorder? system;
     private TrackWriter? microphoneTrack;
     private TrackWriter? systemTrack;
     private long startedAt100ns;
-    private CancellationTokenSource? liveLifetime;
-    private Task? liveRotation;
-    private string? liveDirectory;
-    private int liveChunkIndex;
     private volatile bool paused;
+    private volatile bool running;
 
-    public bool LiveChunksEnabled { get; set; }
-    public event EventHandler<LiveAudioChunk>? LiveChunkReady;
+    public bool IsRunning => running;
+    public long ElapsedMs => (TrackWriter.Now100ns() - startedAt100ns) / 10_000;
+    public event LiveAudioHandler? LiveAudioAvailable;
+    public event EventHandler? CaptureStarted;
+    public Func<Task>? LiveStopping { get; set; }
 
     /// <summary>A track stopped delivering audio because its device went away; the recording carries on with the other.</summary>
     public event EventHandler<string>? TrackLost;
@@ -62,21 +72,14 @@ public sealed class WindowsAudioCapture : IAudioCapture
 
             microphoneTrack = new TrackWriter(session.MicrophoneTrack, microphone.WaveFormat, startedAt100ns);
             systemTrack = new TrackWriter(session.SystemTrack, system.WaveFormat, startedAt100ns);
-            if (LiveChunksEnabled)
-            {
-                liveDirectory = Path.Combine(session.Directory, ".live");
-                Directory.CreateDirectory(liveDirectory);
-                liveChunkIndex = 0;
-                OpenLiveWriters();
-                liveLifetime = new CancellationTokenSource();
-                liveRotation = RotateLiveChunksAsync(liveLifetime.Token);
-            }
             microphone.DataAvailable += OnMicrophoneData;
             system.DataAvailable += OnSystemData;
             microphone.RecordingStopped += (_, args) => { if (args.Exception is not null) TrackLost?.Invoke(this, "mic"); };
             system.RecordingStopped += (_, args) => { if (args.Exception is not null) TrackLost?.Invoke(this, "system"); };
             microphone.StartRecording();
             system.StartRecording();
+            running = true;
+            CaptureStarted?.Invoke(this, EventArgs.Empty);
         }
         catch
         {
@@ -120,13 +123,23 @@ public sealed class WindowsAudioCapture : IAudioCapture
         return Task.CompletedTask;
     }
 
-    private void OnMicrophoneData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition) =>
-        microphoneTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition,
-            flags.HasFlag(AudioClientBufferFlags.TimestampError));
+    private void OnMicrophoneData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
+    {
+        var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
+        var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
+        microphoneTrack?.Write(buffer, silent, qpcPosition, invalidTime);
+        if (microphone is not null) LiveAudioAvailable?.Invoke(true, buffer, microphone.WaveFormat, silent,
+            ((qpcPosition > 0 && !invalidTime ? qpcPosition : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
+    }
 
-    private void OnSystemData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition) =>
-        systemTrack?.Write(buffer, paused || flags.HasFlag(AudioClientBufferFlags.Silent), qpcPosition,
-            flags.HasFlag(AudioClientBufferFlags.TimestampError));
+    private void OnSystemData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
+    {
+        var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
+        var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
+        systemTrack?.Write(buffer, silent, qpcPosition, invalidTime);
+        if (system is not null) LiveAudioAvailable?.Invoke(false, buffer, system.WaveFormat, silent,
+            ((qpcPosition > 0 && !invalidTime ? qpcPosition : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
+    }
 
     private static Process? FindTargetProcess(string processFamily)
     {
@@ -142,17 +155,8 @@ public sealed class WindowsAudioCapture : IAudioCapture
 
     private async Task DisposeCaptureAsync()
     {
-        if (liveLifetime is not null)
-        {
-            await liveLifetime.CancelAsync();
-            if (liveRotation is not null)
-                try { await liveRotation.ConfigureAwait(false); } catch (OperationCanceledException) { }
-            var final = CloseLiveWriters();
-            if (final is not null) LiveChunkReady?.Invoke(this, final);
-            liveLifetime.Dispose();
-            liveLifetime = null;
-            liveRotation = null;
-        }
+        running = false;
+        if (LiveStopping is { } stopLive) await stopLive().ConfigureAwait(false);
         if (microphone is not null)
         {
             microphone.DataAvailable -= OnMicrophoneData;
@@ -170,36 +174,6 @@ public sealed class WindowsAudioCapture : IAudioCapture
         microphone = null;
         system = null;
         paused = false;
-        liveDirectory = null;
-    }
-
-    private async Task RotateLiveChunksAsync(CancellationToken cancellationToken)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
-        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-        {
-            var chunk = CloseLiveWriters();
-            OpenLiveWriters();
-            if (chunk is not null) LiveChunkReady?.Invoke(this, chunk);
-        }
-    }
-
-    private void OpenLiveWriters()
-    {
-        if (liveDirectory is null || microphoneTrack is null || systemTrack is null) return;
-        var prefix = Path.Combine(liveDirectory, $"chunk-{liveChunkIndex:0000}");
-        microphoneTrack.StartSide(prefix + "-mic.wav");
-        systemTrack.StartSide(prefix + "-system.wav");
-    }
-
-    private LiveAudioChunk? CloseLiveWriters()
-    {
-        var mic = microphoneTrack?.EndSide();
-        var call = systemTrack?.EndSide();
-        if (mic is null || call is null) return null;
-        var chunk = new LiveAudioChunk(mic, call, liveChunkIndex * 20_000L);
-        liveChunkIndex++;
-        return chunk;
     }
 
     public async ValueTask DisposeAsync()
@@ -218,8 +192,6 @@ public sealed class WindowsAudioCapture : IAudioCapture
         }
     }
 }
-
-public sealed record LiveAudioChunk(string MicrophonePath, string SystemPath, long OffsetMs);
 
 /// <summary>
 /// One track's WAV file, kept on the recording's timeline. Loopback capture sends
@@ -247,7 +219,6 @@ internal sealed class TrackWriter : IDisposable
     private readonly System.Threading.Channels.Channel<Packet> packets =
         System.Threading.Channels.Channel.CreateUnbounded<Packet>(new() { SingleReader = true, SingleWriter = true });
     private readonly Task drain;
-    private WaveFileWriter? side;
     private long framesWritten;
     private long lastFlush100ns;
 
@@ -311,7 +282,6 @@ internal sealed class TrackWriter : IDisposable
         else
         {
             writer.Write(packet.Data, 0, packet.Length);
-            side?.Write(packet.Data, 0, packet.Length);
         }
         framesWritten += packet.Length / format.BlockAlign;
         // Flush rewrites the header's lengths, so a crash leaves a file every
@@ -329,26 +299,7 @@ internal sealed class TrackWriter : IDisposable
         {
             var piece = (int)Math.Min(bytes, zeros.Length);
             writer.Write(zeros, 0, piece);
-            side?.Write(zeros, 0, piece);
             bytes -= piece;
-        }
-    }
-
-    /// <summary>Starts a second file receiving the same audio — a live-transcript piece.</summary>
-    public void StartSide(string path)
-    {
-        lock (gate) side = new WaveFileWriter(path, format);
-    }
-
-    public string? EndSide()
-    {
-        lock (gate)
-        {
-            if (side is null) return null;
-            var path = side.Filename;
-            side.Dispose();
-            side = null;
-            return path;
         }
     }
 
@@ -358,8 +309,6 @@ internal sealed class TrackWriter : IDisposable
         drain.Wait(TimeSpan.FromSeconds(30));
         lock (gate)
         {
-            side?.Dispose();
-            side = null;
             writer.Dispose();
         }
     }

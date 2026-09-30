@@ -12,7 +12,10 @@ public sealed record DownloadProgress(string Item, long Received, long Total)
 
 public sealed class ModelManager(string dataDirectory, HttpClient httpClient, string? applicationDirectory = null)
 {
+    public CpuTranscriptionGate CpuTranscription { get; } = new();
     public string ModelDirectory { get; } = Path.Combine(dataDirectory, "models");
+    public string LiveRuntimeDirectory => Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "live-runtime"));
+    public bool LiveRuntimePresent => File.Exists(Path.Combine(LiveRuntimeDirectory, "transcribe.dll"));
     public event EventHandler<DownloadProgress>? Progress;
     public event EventHandler<string>? DownloadStarted;
     public event EventHandler<string>? DownloadFinished;
@@ -22,14 +25,15 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
     {
         get
         {
-            var path = Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "local-runtime", "transcribe-cli.exe");
+            var path = Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "local-runtime", "transcribe-cli.exe"));
             return File.Exists(path) ? path : null;
         }
     }
 
     public string ModelPath(string model) => Path.Combine(ModelDirectory, ModelCatalog.Models[model].FileName);
     public bool IsReady(string model) =>
-        CliPath is not null && ModelCatalog.Models.ContainsKey(model) && File.Exists(ModelPath(model));
+        (model == "nemotron-live" ? LiveRuntimePresent : CliPath is not null)
+        && ModelCatalog.Models.ContainsKey(model) && File.Exists(ModelPath(model));
 
     /// <summary>What the model weighs on this computer, measured rather than quoted; null when it isn't here.</summary>
     public long? DownloadedBytes(string model) =>
@@ -46,7 +50,7 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
     {
         if (!ModelCatalog.Models.TryGetValue(model, out var artifact))
             throw new InvalidOperationException($"Unknown local model: {model}");
-        if (CliPath is null)
+        if (model == "nemotron-live" ? !LiveRuntimePresent : CliPath is null)
             throw new InvalidOperationException("The local transcription runtime is missing from this Amanu installation.");
         Directory.CreateDirectory(ModelDirectory);
         lock (downloading)

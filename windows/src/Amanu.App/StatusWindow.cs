@@ -52,11 +52,16 @@ internal sealed class StatusWindow : Window
     private bool operationPending;
     private bool wasRecording;
     private bool allowClose;
+    private readonly Dictionary<long, (Paragraph Paragraph, Run Text)> liveParagraphs = [];
 
     public StatusWindow(AmanuRuntime runtime)
     {
         this.runtime = runtime;
         Title = "Amanu";
+#if DEBUG
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AMANU_TEST_DATA")))
+            Title = "Amanu — Live transcript test";
+#endif
         Width = 360;
         SizeToContent = SizeToContent.Height;
         MinWidth = 320;
@@ -193,6 +198,7 @@ internal sealed class StatusWindow : Window
             else
             {
                 liveText.Document.Blocks.Clear();
+                liveParagraphs.Clear();
                 ShowLive(false);
                 await runtime.StartManualAsync();
             }
@@ -237,8 +243,13 @@ internal sealed class StatusWindow : Window
                 : T($"{current.ProcessFamily} holds the microphone", $"{current.ProcessFamily} держит микрофон")
             : settings.AutoRecord.Enabled ? runtime.AutoRecord.LastDecision : T("auto-record is off", "автозапись выключена");
         live.IsChecked = settings.LiveTranscription.Enabled;
-        live.IsEnabled = !current.IsRecording;
-        live.ToolTip = current.IsRecording ? T("Can be changed before the next recording", "Можно поменять перед следующей записью") : null;
+        live.IsEnabled = settings.Transcription.Enabled;
+        if (!wasRecording && current.IsRecording)
+        {
+            liveText.Document.Blocks.Clear();
+            liveParagraphs.Clear();
+            liveReveal.Visibility = Visibility.Collapsed;
+        }
         var problems = runtime.ConfigProblems;
         problemLine.Text = problems.Count > 0 ? problems[0].Headline : "";
         problemLine.Visibility = problems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -271,10 +282,22 @@ internal sealed class StatusWindow : Window
 
     private void AppendLive(LiveLine line)
     {
-        var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 6) };
-        paragraph.Inlines.Add(new Run(SpeakerLabels.Display(line.Speaker) + "  ") { FontWeight = FontWeights.SemiBold });
-        paragraph.Inlines.Add(new Run(line.Text));
-        liveText.Document.Blocks.Add(paragraph);
+        if (!liveParagraphs.TryGetValue(line.Id, out var existing))
+        {
+            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 6) };
+            paragraph.Inlines.Add(new Run(SpeakerLabels.Display(line.Speaker) + "  ") { FontWeight = FontWeights.SemiBold });
+            existing = (paragraph, new Run());
+            paragraph.Inlines.Add(existing.Text);
+            liveParagraphs[line.Id] = existing;
+            liveText.Document.Blocks.Add(paragraph);
+            if (liveParagraphs.Count > 200)
+            {
+                var first = liveParagraphs.First();
+                liveText.Document.Blocks.Remove(first.Value.Paragraph);
+                liveParagraphs.Remove(first.Key);
+            }
+        }
+        existing.Text.Text = line.Text;
         liveText.ScrollToEnd();
         if (runtime.State.IsRecording) ShowLive(true);
     }

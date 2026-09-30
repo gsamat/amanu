@@ -9,3 +9,4 @@ dist/
 .vs/
 windows/.tools/
 windows/artifacts/
+/artifacts/live-validation/

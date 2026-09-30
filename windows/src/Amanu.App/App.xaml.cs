@@ -27,6 +27,12 @@ public partial class App : System.Windows.Application
     [STAThread]
     private static void Main()
     {
+        var arguments = Environment.GetCommandLineArgs()[1..];
+        if (arguments.Length == 5 && arguments[0] == "--live-worker")
+        {
+            Environment.ExitCode = LiveSpeechWorker.Main(arguments);
+            return;
+        }
         VelopackApp.Build().SetAutoApplyOnStartup(true).Run();
         var app = new App();
         app.InitializeComponent();
@@ -38,8 +44,12 @@ public partial class App : System.Windows.Application
         // One Amanu per person. Opening it again — from Start, or the installer's
         // shortcut — rings the running one, which shows its window: with both
         // icons off, that is the only way back to it.
-        instance = new Mutex(initiallyOwned: true, InstanceName, out var first);
-        doorbell = new EventWaitHandle(false, EventResetMode.AutoReset, DoorbellName);
+        var scope = "";
+#if DEBUG
+        if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("AMANU_TEST_DATA"))) scope = ".LiveTest";
+#endif
+        instance = new Mutex(initiallyOwned: true, InstanceName + scope, out var first);
+        doorbell = new EventWaitHandle(false, EventResetMode.AutoReset, DoorbellName + scope);
         if (!first)
         {
             // Opened from Start or Explorer, this process may bring a window to

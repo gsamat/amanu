@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = "0.6.0-beta.13",
+    [string]$Version = "0.6.0-beta.14",
 
     [Parameter(Mandatory = $false)]
     [string]$CertificatePath,
@@ -16,14 +16,20 @@ $releaseDirectory = Join-Path $windowsRoot "artifacts\release"
 $toolDirectory = Join-Path $windowsRoot ".tools"
 
 dotnet restore (Join-Path $windowsRoot "Amanu.Windows.slnx")
+if ($LASTEXITCODE -ne 0) { throw "Could not restore the Windows solution." }
 dotnet test (Join-Path $windowsRoot "tests\Amanu.Core.Tests\Amanu.Core.Tests.csproj") --configuration Release --no-restore
+if ($LASTEXITCODE -ne 0) { throw "Core tests failed." }
+dotnet test (Join-Path $windowsRoot "tests\Amanu.Live.Tests\Amanu.Live.Tests.csproj") --configuration Release --no-restore
+if ($LASTEXITCODE -ne 0) { throw "Windows live tests failed." }
 dotnet publish (Join-Path $windowsRoot "src\Amanu.App\Amanu.App.csproj") `
     --configuration Release `
     --runtime win-x64 `
     --self-contained true `
     --property:Version=$Version `
     --output $publishDirectory
+if ($LASTEXITCODE -ne 0) { throw "Could not publish the Windows app." }
 & (Join-Path $PSScriptRoot "Build-LocalRuntime.ps1") -PublishDirectory $publishDirectory
+& (Join-Path $PSScriptRoot "Build-LiveRuntime.ps1") -PublishDirectory $publishDirectory
 
 if (-not (Test-Path (Join-Path $toolDirectory "vpk.exe"))) {
     dotnet tool install --tool-path $toolDirectory vpk --version 1.2.0
@@ -53,4 +59,5 @@ if ($CertificatePath) {
 }
 
 & (Join-Path $toolDirectory "vpk.exe") @arguments
+if ($LASTEXITCODE -ne 0) { throw "Could not package the Windows beta installer." }
 Write-Host "Amanu beta artifacts: $releaseDirectory"

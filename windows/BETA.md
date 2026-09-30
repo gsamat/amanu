@@ -7,6 +7,14 @@ without publishing a GitHub Release; see [README.md](README.md).
 
 ## Fixed since beta.3
 
+- Beta.14 replaces queued live chunks with local streaming recognition, using
+  a separate Nemotron model and isolated decoders for each side. Background
+  local transcription yields to live recognition and resumes after Stop.
+- Claude Code bundled inside the Microsoft Store Claude Desktop installation
+  is detected alongside ordinary desktop and standalone CLI installations.
+- An `on_stop` hook that opens a viewer such as Notepad no longer blocks the
+  processing queue while the viewer remains open.
+
 - The Setup and Settings windows fit a small screen, with their title bars on
   it; opening Amanu again brings the running window forward.
 - Russian (and any other non-Latin) speech transcribed on this computer no
@@ -68,8 +76,9 @@ without publishing a GitHub Release; see [README.md](README.md).
 ## Windows-specific notes
 
 - Browser audio is isolated by process tree, not by tab.
-- Live text comes from completed 20-second pieces, transcribed by the local model
-  when one is downloaded and by the configured cloud engine otherwise.
+- Live text uses a separate local streaming model (about 750 MB), downloaded
+  from Settings. It updates as speech arrives and never uploads live audio.
+  See [LIVE_TRANSCRIPTION.md](LIVE_TRANSCRIPTION.md) for requirements and validation.
 - The local transcription CLI ships in the installer; models (270–890 MB) download
   from Settings and resume if interrupted.
 - x64 only for now; the code is architecture-neutral.

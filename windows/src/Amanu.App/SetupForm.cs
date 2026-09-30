@@ -62,6 +62,7 @@ internal sealed class SetupForm
     private readonly ComboBox language = new() { MinWidth = 220 };
     private readonly TextBlock languageNote = Ui.Status();
     private readonly CheckBox live = Ui.Switch(T("Live transcript", "Расшифровка на ходу"));
+    private readonly TextBlock liveModelStatus = Ui.Status();
 
     private readonly TextBlock folderPath = new() { FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock folderDetail = Ui.Detail(FolderAdvice);
@@ -98,6 +99,7 @@ internal sealed class SetupForm
     {
         this.runtime = runtime;
         this.showsConfigProblems = showsConfigProblems;
+        localDownload["nemotron-live"] = Ui.Button(T("Download live model…", "Скачать модель лайва…"), () => _ = DownloadAsync("nemotron-live"));
         micSettings = Ui.Button(T("Open settings", "Открыть параметры"), MicrophoneAccess.OpenSettings);
         (var cloudKeyView, cloudKey) = Ui.Secret(T("paste key", "вставьте ключ"), 260);
         (summaryKeyView, summaryKey) = Ui.Secret("sk-…");
@@ -129,8 +131,9 @@ internal sealed class SetupForm
             LanguageRow(),
             Ui.Box(Ui.Row(live,
                 Ui.Title(T("I want a live transcript during meetings", "Показывать расшифровку прямо во время встречи")),
-                Ui.Detail(T("Every 20 seconds a piece of the recording is transcribed by the same engine as the final transcript — the local model when it is downloaded. The final transcript is still made afterwards.",
-                    "Каждые 20 секунд кусок записи расшифровывается тем же движком, что и итоговая расшифровка, — локальной моделью, если она скачана. Итоговая расшифровка всё равно делается после встречи.")))))));
+                Ui.Detail(T("Words appear as you speak, using a separate local model (about 750 MB to download). Nothing is sent to the cloud. The final transcript is made afterwards.",
+                    "Слова появляются по мере речи. Для этого нужна отдельная локальная модель — около 750 МБ для скачивания. Звук не уходит в облако. Итоговая расшифровка делается после встречи."))),
+                Ui.Row(Ui.Symbol(""), liveModelStatus, Ui.Detail(""), localDownload["nemotron-live"])))));
 
         View.Children.Add(Ui.Section(T("Files", "Файлы"), Ui.Box(
             Ui.Row(Ui.Symbol(""), folderPath, folderDetail, Ui.Button(T("Choose…", "Выбрать…"), ChooseFolder)),
@@ -700,6 +703,11 @@ internal sealed class SetupForm
             };
             live.IsChecked = settings.LiveTranscription.Enabled;
             live.IsEnabled = choice.Enabled;
+            var liveReady = runtime.IsLocalModelReady("nemotron-live");
+            liveModelStatus.Text = liveReady ? T("live model downloaded", "модель лайва скачана")
+                : downloadErrors.GetValueOrDefault("nemotron-live") ?? T("live model not downloaded", "модель лайва не скачана");
+            localDownload["nemotron-live"].Visibility = liveReady ? Visibility.Collapsed : Visibility.Visible;
+            localDownload["nemotron-live"].IsEnabled = !runtime.IsLocalModelDownloading("nemotron-live");
 
             folderPath.Text = settings.RecordingsDirectory;
             keepAudio.IsChecked = settings.KeepAudio;

@@ -66,7 +66,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         }
         RecoveredSessionCount = recovered.Count;
 
-        capture = new WindowsAudioCapture { LiveChunksEnabled = settings.LiveTranscription.Enabled };
+        capture = new WindowsAudioCapture();
         coordinator = new RecordingCoordinator(sessions, new AutoRecordPolicy(Options(settings)), capture,
             () => Settings.SystemAudio == "all");
         activityMonitor = new CallActivityMonitor(Matcher(settings));
@@ -76,7 +76,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         models = new ModelManager(dataDirectory, httpClient);
         analytics = new AnalyticsService(dataDirectory, () => Settings, () => !ConfigUnreadable, httpClient);
         processing = new ProcessingCoordinator(() => Settings, () => !ConfigUnreadable, secrets, models, httpClient, analytics);
-        liveTranscription = new LiveTranscriptionCoordinator(capture, processing.LiveEngine);
+        liveTranscription = new LiveTranscriptionCoordinator(capture, models, () => Settings);
 
         coordinator.StateChanged += (_, state) =>
         {
@@ -122,6 +122,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         {
             _ = analytics.RecordAsync("model_download_finished", new Dictionary<string, object?> { ["asset"] = AnalyticsAsset(item) });
             Task.Run(processing.Rescan);
+            if (item.Equals("Model nemotron-live", StringComparison.OrdinalIgnoreCase)) _ = liveTranscription.RefreshAsync();
         };
         models.DownloadFailed += (_, item) => _ = analytics.RecordAsync("model_download_failed", new Dictionary<string, object?> { ["asset"] = AnalyticsAsset(item), ["reason"] = "unknown" });
         liveTranscription.LineReady += (_, line) => LiveLineReady?.Invoke(this, line);
@@ -204,6 +205,10 @@ public sealed class AmanuRuntime : IAsyncDisposable
         // Not %LOCALAPPDATA%\Amanu: that is where Velopack installs the program,
         // and uninstalling removes the folder with everything in it.
         var dataDirectory = Path.Combine(localData, "Amanu Data");
+#if DEBUG
+        if (Environment.GetEnvironmentVariable("AMANU_TEST_DATA") is { Length: > 0 } testDirectory)
+            dataDirectory = Path.GetFullPath(testDirectory);
+#endif
         MoveOutOfInstallFolder(Path.Combine(localData, "Amanu"), dataDirectory);
         Directory.CreateDirectory(dataDirectory);
         var store = new AppSettingsStore(Path.Combine(dataDirectory, "config.json"), home);
@@ -242,7 +247,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
 
     public async Task StartAsync()
     {
-        if (!ConfigUnreadable)
+        if (!ConfigUnreadable && !IsTestInstance)
         {
             try { StartupRegistration.SetEnabled(Settings.StartAtLogin); }
             catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or System.Security.SecurityException) { }
@@ -353,9 +358,12 @@ public sealed class AmanuRuntime : IAsyncDisposable
             TryCreateDirectory(next.RecordingsDirectory);
             coordinator.SetSessionsRoot(next.RecordingsDirectory);
         }
-        capture.LiveChunksEnabled = next.LiveTranscription.Enabled;
+        if (previous.LiveTranscription.Enabled != next.LiveTranscription.Enabled
+            || previous.Transcription.Enabled != next.Transcription.Enabled
+            || previous.Transcription.Language != next.Transcription.Language)
+            _ = liveTranscription.RefreshAsync();
         activityMonitor.Matcher = Matcher(next);
-        if (previous.StartAtLogin != next.StartAtLogin && !ConfigUnreadable)
+        if (previous.StartAtLogin != next.StartAtLogin && !ConfigUnreadable && !IsTestInstance)
         {
             try { StartupRegistration.SetEnabled(next.StartAtLogin); }
             catch (Exception exception) when (exception is UnauthorizedAccessException or IOException or System.Security.SecurityException) { }
@@ -498,6 +506,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         processing.EnsureLocalModelAsync(model, cancellationToken);
 
     public bool IsLocalModelReady(string model) => models.IsReady(model);
+    public bool IsLocalModelDownloading(string model) => models.IsDownloading(model);
     public bool LocalRuntimePresent => models.CliPath is not null;
     public long? LocalModelBytes(string model) => models.DownloadedBytes(model);
 
@@ -544,8 +553,21 @@ public sealed class AmanuRuntime : IAsyncDisposable
         "model parakeet" => "parakeet-v3",
         "model gigaam" => "gigaam-v3",
         "model whisper" => "whisper-large-v3-turbo",
+        "model nemotron-live" => "nemotron-live",
         _ => "runtime",
     };
+
+    private static bool IsTestInstance
+    {
+        get
+        {
+#if DEBUG
+            return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AMANU_TEST_DATA"));
+#else
+            return false;
+#endif
+        }
+    }
 
     public async ValueTask DisposeAsync()
     {

@@ -11,6 +11,11 @@ public static class ModelCatalog
     public static IReadOnlyDictionary<string, DownloadArtifact> Models { get; } =
         new Dictionary<string, DownloadArtifact>(StringComparer.OrdinalIgnoreCase)
         {
+            ["nemotron-live"] = new(
+                "https://huggingface.co/handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf/resolve/main/nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf",
+                "b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c",
+                751_094_240,
+                "nemotron-3.5-asr-streaming-0.6b-Q8_0.gguf"),
             ["parakeet"] = new(
                 "https://huggingface.co/handy-computer/parakeet-tdt-0.6b-v3-gguf/resolve/main/parakeet-tdt-0.6b-v3-Q8_0.gguf",
                 "5859f77944efcd8eafa23a6350731960b2b55b2203df51f319665c807d802cc7",

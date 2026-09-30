@@ -118,6 +118,21 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
     private async Task<IReadOnlyList<TranscriptSegment>> TranscribeFileAsync(
         string source, string side, int offsetMs, CancellationToken cancellationToken)
     {
+        while (true)
+        {
+            using var cpu = await models.CpuTranscription.EnterBatchAsync(cancellationToken).ConfigureAwait(false);
+            try { return await TranscribeFileCoreAsync(source, side, offsetMs, cpu.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Live preempted this pass. Wait and retry without spending a
+                // processing attempt or changing the saved recording.
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<TranscriptSegment>> TranscribeFileCoreAsync(
+        string source, string side, int offsetMs, CancellationToken cancellationToken)
+    {
         var cli = models.CliPath ?? throw new ProcessingFailure(FailureKind.Environmental,
             T("The local transcription runtime is missing from this installation.", "В этой установке нет локального движка расшифровки."));
         var modelPath = models.ModelPath(model);
@@ -129,6 +144,7 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
         {
             var wave = Path.Combine(temp, "input.wav");
             AudioPreprocessor.ConvertToMono16k(source, wave);
+            cancellationToken.ThrowIfCancellationRequested();
             // Each model is cut up as the macOS app cuts it. Parakeet's text is
             // grouped from its word timings: the batch JSONL gives one segment for
             // the whole track, which made a transcript two paragraphs, all of one
@@ -141,7 +157,9 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             IReadOnlyList<(string Path, long StartMs, long EndMs)> pieces = model == "gigaam"
                 ? AudioPreprocessor.Split(wave, temp, GigaAmChunkSeconds)
                 : [(wave, 0L, 0L)];
-            var arguments = new List<string> { "-m", modelPath };
+            // The Windows runtime is built for portable CPU dispatch. Keep the
+            // same backend when validating with an upstream runtime package.
+            var arguments = new List<string> { "-m", modelPath, "--backend", "cpu" };
             if (byWord)
             {
                 arguments.AddRange(["-q", "--timestamps", "word"]);
@@ -169,10 +187,21 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             foreach (var argument in arguments) start.ArgumentList.Add(argument);
             using var process = Process.Start(start) ?? throw new ProcessingFailure(FailureKind.Environmental,
                 T("Could not launch local transcription.", "Не удалось запустить локальную расшифровку."));
+            // A previous recording can still be processing when a new meeting
+            // starts. Its batch decoder must yield CPU to the live decoders.
+            try { process.PriorityClass = ProcessPriorityClass.Idle; }
+            catch (InvalidOperationException) { } // An immediate CLI failure is handled below.
             using var registration = cancellationToken.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
             var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
             var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            try { await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false); }
+            catch (OperationCanceledException)
+            {
+                // The cancellation registration kills our child; wait for file
+                // handles to close before deleting its temporary input.
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                throw;
+            }
             var output = await outputTask.ConfigureAwait(false);
             var error = await errorTask.ConfigureAwait(false);
             // A negative exit code is Windows ending the process — a missing DLL, a

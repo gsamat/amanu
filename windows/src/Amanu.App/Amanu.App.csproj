@@ -4,11 +4,12 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWPF>true</UseWPF>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <UseWindowsForms>true</UseWindowsForms>
     <StartupObject>Amanu.App.App</StartupObject>
     <AssemblyName>Amanu</AssemblyName>
     <RootNamespace>Amanu.App</RootNamespace>
-    <Version>0.6.0-beta.13</Version>
+    <Version>0.6.0-beta.14</Version>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Amanu.ico</ApplicationIcon>

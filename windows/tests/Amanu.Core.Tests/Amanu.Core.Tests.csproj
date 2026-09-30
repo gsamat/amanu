@@ -15,5 +15,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Amanu.Core/Amanu.Core.csproj" />
     <Compile Include="../../src/Amanu.App/ModelManager.cs" Link="ModelManager.cs" />
+    <Compile Include="../../src/Amanu.App/CommandLineToolLocator.cs" Link="CommandLineToolLocator.cs" />
   </ItemGroup>
 </Project>

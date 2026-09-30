@@ -462,18 +462,6 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         };
     }
 
-    /// <summary>The engine one live piece goes to: the same choice as the final transcript, never cached.</summary>
-    public ITranscriptionEngine? LiveEngine()
-    {
-        var current = settings();
-        if (!configReadable() || !current.Transcription.Enabled) return null;
-        var plan = EngineResolver.Plan(current.Transcription.Engine, current.Transcription.Cloud, current.Transcription.LocalEngine,
-            provider => !string.IsNullOrWhiteSpace(secrets.Get(provider)), models.IsReady);
-        return plan.Local is { } local ? CreateLocal(local, current)
-            : plan.Cloud is { } cloud ? CreateCloud(cloud, current, cache: false)
-            : null;
-    }
-
     public ITranscriptionEngine CreateLocal(string model, AppSettings current) =>
         new LocalTranscriptionEngine(models, model, MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)));
 
@@ -702,8 +690,9 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         {
             var info = new ProcessStartInfo(hook.Executable) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = directory };
             foreach (var argument in hook.Arguments) info.ArgumentList.Add(argument.Replace("{session}", directory, StringComparison.Ordinal));
+            // A hook may open a viewer such as Notepad. Launch it once, then
+            // let the queue continue while the viewer remains open.
             using var process = Process.Start(info);
-            if (process is not null) await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {

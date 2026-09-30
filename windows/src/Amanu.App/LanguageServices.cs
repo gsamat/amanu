@@ -205,55 +205,11 @@ public static class CommandLineTools
     /// PATH a terminal sees, so the usual install folders are looked in as well.
     /// </summary>
     public static string? Find(string name)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var places = new List<string>
-        {
-            Path.Combine(home, ".local", "bin"),
-            Path.Combine(appData, "npm"),
-            Path.Combine(local, "Programs", name),
-        };
-        places.AddRange((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
-        foreach (var directory in places)
-        foreach (var extension in new[] { ".exe", ".cmd" })
-        {
-            var candidate = Path.Combine(directory.Trim('"'), name + extension);
-            if (File.Exists(candidate)) return candidate;
-        }
-        return name switch
-        {
-            "claude" => NewestCopy(Path.Combine(appData, "Claude", "claude-code"), "claude.exe"),
-            "codex" => NewestCopy(Path.Combine(local, "OpenAI", "Codex", "bin"), "codex.exe"),
-            _ => null,
-        };
-    }
-
-    /// <summary>
-    /// The copy a desktop app carries for itself. The Claude and Codex apps each
-    /// keep one in a folder named by version or hash and put nothing on PATH, so
-    /// someone with only the app would otherwise be told the tool is not
-    /// installed. The newest is taken because an update leaves the old folder
-    /// behind. Claude's copy is signed in only while the app hands it a token of
-    /// its own, so run from here it usually needs signing in once — which is
-    /// what the setup window offers — and after that it reads ~/.claude like any
-    /// other install. Codex's copy shares ~/.codex with the app and just works.
-    /// </summary>
-    private static string? NewestCopy(string directory, string file)
-    {
-        if (!Directory.Exists(directory)) return null;
-        try
-        {
-            return new DirectoryInfo(directory).EnumerateFiles(file, SearchOption.AllDirectories)
-                .OrderByDescending(found => found.LastWriteTimeUtc)
-                .FirstOrDefault()?.FullName;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
-    }
+        => CommandLineToolLocator.Find(name,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetEnvironmentVariable("PATH") ?? "");
 
     public static IReadOnlyList<string> SignInArguments(string name) => name == "claude" ? ["auth", "login"] : ["login"];
 
