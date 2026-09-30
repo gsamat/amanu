@@ -7,7 +7,7 @@ without publishing a GitHub Release; see [README.md](README.md).
 
 ## Fixed since beta.3
 
-- Beta.16 replaces queued live chunks with local streaming recognition, using
+- Beta.17 replaces queued live chunks with local streaming recognition, using
   a separate Nemotron model and isolated decoders for each side. Background
   local transcription yields to live recognition and resumes after Stop.
 - The final transcription CLI initializes portable CPU modules before loading

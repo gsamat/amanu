@@ -9,6 +9,9 @@ separate child process. A native decoder failure stops live recognition while
 the main process continues writing both recording tracks. Each decoder uses up
 to four threads (two per decoder on an eight-logical-processor host). Two loaded models require substantially more memory than the
 single model file on disk.
+Live decoder processes use Windows `AboveNormal` priority so ordinary background
+work does not starve audio deadlines; their thread budget stays bounded. Batch
+transcription uses `Idle` priority and is interrupted when live recognition starts.
 
 WASAPI packets are continuously converted to 16 kHz mono and fed in 2.24-second
 frames with the model's 13-frame right context. This amortizes CPU inference
@@ -52,6 +55,10 @@ text, processed-audio lag, errors, and stop time:
 ```powershell
 dotnet run --project tests/Amanu.Live.Harness -- APP_DIR DATA_DIR mic.wav system.wav 510 result.json
 ```
+
+To validate a signed package instead of the source build, build the harness with
+`-p:CandidateDirectory=APP_DIR` and use that package's `Amanu.dll` and
+`Amanu.Core.dll` in the harness output directory.
 
 `--capture APP_DIR DATA_DIR playback.wav OUTPUT_DIR` instead exercises the real
 WASAPI devices, durable WAV recording, pause, live off/on, and stop. Playback

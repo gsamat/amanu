@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -37,7 +38,12 @@ internal sealed class LiveSpeechWorker : IAsyncDisposable
         };
         foreach (var argument in new[] { "--live-worker", runtime, model, language ?? "auto", threads.ToString(System.Globalization.CultureInfo.InvariantCulture) })
             start.ArgumentList.Add(argument);
-        var worker = new LiveSpeechWorker(Process.Start(start) ?? throw new IOException("Could not start the live decoder."));
+        var process = Process.Start(start) ?? throw new IOException("Could not start the live decoder.");
+        // These bounded workers serve live audio deadlines. Background activity
+        // such as Windows Update must not starve them at normal priority.
+        try { process.PriorityClass = ProcessPriorityClass.AboveNormal; }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException) { }
+        var worker = new LiveSpeechWorker(process);
         try { await worker.ReadAsync(token).WaitAsync(TimeSpan.FromMinutes(2), token).ConfigureAwait(false); return worker; }
         catch { await worker.DisposeAsync().ConfigureAwait(false); throw; }
     }
