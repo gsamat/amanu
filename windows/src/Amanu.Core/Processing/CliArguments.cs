@@ -42,7 +42,12 @@ public static partial class CliArguments
     /// cover a tool an MCP server runs in its own process. When the servers cannot
     /// be told apart the config is not read at all.
     /// </summary>
-    public static IReadOnlyList<string> Codex(string model, string outputFile, IReadOnlyList<string>? mcpServers)
+    /// <param name="model">
+    /// Only a model somebody chose. Without one codex picks its own, which is the
+    /// one the account can use: a ChatGPT sign-in refuses <c>gpt-5</c>, the API
+    /// default, with a 400.
+    /// </param>
+    public static IReadOnlyList<string> Codex(string? model, string outputFile, IReadOnlyList<string>? mcpServers)
     {
         var arguments = new List<string> { "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--ephemeral" };
         if (mcpServers is not null && mcpServers.All(IsBareTomlKey))
@@ -50,9 +55,31 @@ public static partial class CliArguments
             foreach (var server in mcpServers) arguments.AddRange(["-c", $"mcp_servers.{server}.enabled=false"]);
         }
         else arguments.Add("--ignore-user-config");
-        arguments.AddRange(["--model", model, "--output-last-message", outputFile, "-"]);
+        if (!string.IsNullOrWhiteSpace(model)) arguments.AddRange(["--model", model]);
+        arguments.AddRange(["--output-last-message", outputFile, "-"]);
         return arguments;
     }
+
+    /// <summary>
+    /// What to say about a CLI that exited non-zero. codex prints a banner and
+    /// then echoes the whole prompt — the meeting — before its error, so the head
+    /// of the output is the transcript and the reason is at the very end. Its
+    /// <c>ERROR:</c> lines are taken when there are any, with the message pulled
+    /// out of the JSON they carry; otherwise the last lines, never the first.
+    /// </summary>
+    public static string FailureDetail(string output, int limit = 600)
+    {
+        var lines = output.Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0).ToList();
+        var errors = lines.Where(line => line.StartsWith("ERROR", StringComparison.Ordinal))
+            .Select(line => JsonMessage().Match(line) is { Success: true } match ? Regex.Unescape(match.Groups[1].Value) : line)
+            .Distinct()
+            .ToList();
+        var detail = errors.Count > 0 ? string.Join("; ", errors) : string.Join("\n", lines.TakeLast(5));
+        return detail.Length > limit ? detail[^limit..] : detail;
+    }
+
+    [GeneratedRegex("\"message\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")]
+    private static partial Regex JsonMessage();
 
     /// <summary>
     /// The server names under <c>mcp_servers</c> in a TOML document. Not a TOML

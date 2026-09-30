@@ -112,6 +112,29 @@ public sealed class CliArgumentsTests
     }
 
     [Fact]
+    public void Codex_without_a_chosen_model_is_left_to_pick_its_own()
+    {
+        Assert.DoesNotContain("--model", CliArguments.Codex(null, "o", []));
+    }
+
+    [Fact]
+    public void A_codex_failure_is_told_by_its_error_not_by_the_prompt_it_echoed()
+    {
+        var output = """
+            OpenAI Codex v0.159.0
+            --------
+            user
+            Below is a meeting transcript with speaker labels.
+            me: the confidential part
+            warning: Model metadata for `gpt-5` not found.
+            ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-5' model is not supported when using Codex with a ChatGPT account."}}
+            ERROR: {"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-5' model is not supported when using Codex with a ChatGPT account."}}
+            """;
+        Assert.Equal("The 'gpt-5' model is not supported when using Codex with a ChatGPT account.", CliArguments.FailureDetail(output));
+        Assert.Equal("Not logged in · Please run /login", CliArguments.FailureDetail("Not logged in · Please run /login\n"));
+    }
+
+    [Fact]
     public void Mcp_servers_are_found_in_every_toml_shape()
     {
         const string toml = """

@@ -51,9 +51,12 @@ public sealed class LanguageModels(HttpClient httpClient, SecretStore secrets, F
             candidates["anthropic-api"] = new("anthropic-api", model, false,
                 (system, prompt, token) => AnthropicAsync(anthropicKey, model, system, prompt, token));
         }
+        // The OpenAI default is an API model; codex on a ChatGPT sign-in refuses
+        // it, so codex is told a model only when somebody chose one.
+        var codexModel = summary.OpenAiModel == new SummarySettings().OpenAiModel ? null : summary.OpenAiModel;
         if (CommandLineTools.Find("codex") is { } codex)
-            candidates["codex-cli"] = new("codex-cli", summary.OpenAiModel, false,
-                (system, prompt, token) => CodexCliAsync(codex, summary.OpenAiModel, system, prompt, token));
+            candidates["codex-cli"] = new("codex-cli", codexModel, false,
+                (system, prompt, token) => CodexCliAsync(codex, codexModel, system, prompt, token));
         if (KeyRouting.AcceptableServer(summary.OpenAiBaseUrl)
             && KeyRouting.SummaryOpenAiKey(summary.OpenAiBaseUrl, secrets.Get(SecretNames.OpenAi), secrets.Get(SecretNames.OpenAiCompatible)) is { Length: > 0 } openAiKey)
             candidates["openai-api"] = new("openai-api", summary.OpenAiModel, false,
@@ -168,7 +171,7 @@ public sealed class LanguageModels(HttpClient httpClient, SecretStore secrets, F
         return await CommandLineTools.RunAsync(path, CliArguments.Claude(systemFile, model), prompt, scratch.Path, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string> CodexCliAsync(string path, string model, string system, string prompt, CancellationToken cancellationToken)
+    private static async Task<string> CodexCliAsync(string path, string? model, string system, string prompt, CancellationToken cancellationToken)
     {
         using var scratch = new ScratchDirectory();
         var output = Path.Combine(scratch.Path, "answer.txt");
@@ -316,8 +319,7 @@ public static class CommandLineTools
             throw new ProcessingFailure(FailureKind.Transient, T($"{Path.GetFileName(executable)} timed out", $"{Path.GetFileName(executable)} не ответил вовремя"));
         if (process.ExitCode != 0)
         {
-            var detail = ((await error.ConfigureAwait(false)) + stdout).Trim();
-            if (detail.Length > 600) detail = detail[..600];
+            var detail = CliArguments.FailureDetail(stdout + "\n" + await error.ConfigureAwait(false));
             // Not signed in is this computer, not the recording: the pass waits for
             // someone to sign in rather than spending attempts it cannot win.
             if (SaysSignedOut(detail))
