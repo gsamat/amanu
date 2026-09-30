@@ -81,7 +81,13 @@ public sealed class ProcessingHookTests
                 }
                 catch (ArgumentException) { }
             }
-            Directory.Delete(root, recursive: true);
+            // Windows can briefly retain the child's working-directory handle
+            // after its exit is signalled. Wait for that handle to be released.
+            for (var attempt = 0; ; attempt++)
+            {
+                try { Directory.Delete(root, recursive: true); break; }
+                catch (IOException) when (attempt < 20) { await Task.Delay(100); }
+            }
         }
     }
 
