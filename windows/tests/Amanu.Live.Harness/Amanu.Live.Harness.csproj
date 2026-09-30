@@ -3,6 +3,15 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/Amanu.App/Amanu.App.csproj" /></ItemGroup>
+  <ItemGroup Condition="'$(CandidateDirectory)' == ''">
+    <ProjectReference Include="../../src/Amanu.App/Amanu.App.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(CandidateDirectory)' != ''">
+    <Reference Include="Amanu"><HintPath>$(CandidateDirectory)/Amanu.dll</HintPath></Reference>
+    <Reference Include="Amanu.Core"><HintPath>$(CandidateDirectory)/Amanu.Core.dll</HintPath></Reference>
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="Velopack" />
+  </ItemGroup>
 </Project>

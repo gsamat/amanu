@@ -37,20 +37,28 @@ internal sealed class StatusWindow : Window
     private readonly TextBlock decision = Ui.Status();
     private readonly CheckBox live = new ClickCheckBox { Content = T("Live transcript", "Расшифровка на ходу") };
     private readonly TextBlock liveStatus = Ui.Status();
+    private readonly Grid livePanel = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 0) };
+    private readonly TextBlock livePlaceholder = new()
+    {
+        Margin = new Thickness(16),
+        TextWrapping = TextWrapping.Wrap,
+        VerticalAlignment = VerticalAlignment.Center,
+        IsHitTestVisible = false,
+    };
     private readonly TextBlock liveReveal = new() { FontSize = 12, Visibility = Visibility.Collapsed };
     private readonly RichTextBox liveText = new()
     {
         IsReadOnly = true,
         Height = 240,
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        Visibility = Visibility.Collapsed,
-        Margin = new Thickness(0, 8, 0, 0),
         BorderThickness = new Thickness(1),
     };
     private readonly DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly DispatcherTimer processingFade = new() { Interval = TimeSpan.FromSeconds(8) };
     private bool operationPending;
     private bool wasRecording;
+    private bool? wasLiveEnabled;
+    private string recognitionStatus = "";
     private bool allowClose;
     private readonly Dictionary<long, (Paragraph Paragraph, Run Text)> liveParagraphs = [];
 
@@ -117,15 +125,17 @@ internal sealed class StatusWindow : Window
             stack.Children.Add(button);
         }
 
-        var liveRow = new DockPanel { Margin = new Thickness(0, 14, 0, 0) };
-        DockPanel.SetDock(liveStatus, Dock.Right);
-        liveRow.Children.Add(liveStatus);
-        liveRow.Children.Add(live);
-        stack.Children.Add(liveRow);
+        live.Margin = new Thickness(0, 14, 0, 0);
+        stack.Children.Add(live);
+        liveStatus.TextWrapping = TextWrapping.Wrap;
+        liveStatus.Margin = new Thickness(0, 4, 0, 0);
+        stack.Children.Add(liveStatus);
         liveReveal.Inlines.Add(new Hyperlink(new Run(T("Show the live transcript", "Показать расшифровку на ходу"))));
         ((Hyperlink)liveReveal.Inlines.FirstInline).Click += (_, _) => ShowLive(true);
         stack.Children.Add(liveReveal);
-        stack.Children.Add(liveText);
+        livePanel.Children.Add(liveText);
+        livePanel.Children.Add(livePlaceholder);
+        stack.Children.Add(livePanel);
         Content = stack;
 
         autoRecord.Click += (_, _) =>
@@ -134,13 +144,18 @@ internal sealed class StatusWindow : Window
         };
         live.Click += (_, _) =>
         {
-            if (!Ui.TryUpdate(this, () => runtime.Update(settings => settings.LiveTranscription.Enabled = live.IsChecked == true))) Refresh();
+            Ui.TryUpdate(this, () => runtime.Update(settings => settings.LiveTranscription.Enabled = live.IsChecked == true));
+            Refresh();
         };
         runtime.StateChanged += (_, _) => Dispatcher.InvokeAsync(Refresh);
         runtime.SettingsChanged += (_, _) => Dispatcher.InvokeAsync(Refresh);
         runtime.ProcessingStatusChanged += (_, status) => Dispatcher.InvokeAsync(() => ShowProcessing(status));
         runtime.LiveLineReady += (_, line) => Dispatcher.InvokeAsync(() => AppendLive(line));
-        runtime.LiveStatusChanged += (_, text) => Dispatcher.InvokeAsync(() => liveStatus.Text = text);
+        runtime.LiveStatusChanged += (_, text) => Dispatcher.InvokeAsync(() =>
+        {
+            recognitionStatus = text;
+            RefreshLivePlaceholder();
+        });
         // With no tray icon there is no balloon to show, so what it would have
         // said is said here instead.
         runtime.NotificationRequested += (_, notice) => Dispatcher.InvokeAsync(() =>
@@ -199,7 +214,8 @@ internal sealed class StatusWindow : Window
             {
                 liveText.Document.Blocks.Clear();
                 liveParagraphs.Clear();
-                ShowLive(false);
+                recognitionStatus = "";
+                ShowLive(runtime.Settings.LiveTranscription.Enabled);
                 await runtime.StartManualAsync();
             }
         }
@@ -244,23 +260,31 @@ internal sealed class StatusWindow : Window
             : settings.AutoRecord.Enabled ? runtime.AutoRecord.LastDecision : T("auto-record is off", "автозапись выключена");
         live.IsChecked = settings.LiveTranscription.Enabled;
         live.IsEnabled = settings.Transcription.Enabled;
+        if (wasLiveEnabled != settings.LiveTranscription.Enabled)
+        {
+            wasLiveEnabled = settings.LiveTranscription.Enabled;
+            recognitionStatus = "";
+            ShowLive(settings.LiveTranscription.Enabled);
+        }
         if (!wasRecording && current.IsRecording)
         {
             liveText.Document.Blocks.Clear();
             liveParagraphs.Clear();
             liveReveal.Visibility = Visibility.Collapsed;
+            ShowLive(settings.LiveTranscription.Enabled);
         }
         var problems = runtime.ConfigProblems;
         problemLine.Text = problems.Count > 0 ? problems[0].Headline : "";
         problemLine.Visibility = problems.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowInTaskbar = settings.TaskbarIcon;
-        if (wasRecording && !current.IsRecording && liveText.Visibility == Visibility.Visible)
+        if (wasRecording && !current.IsRecording)
         {
             // A recording that stopped folds its transcript away, and leaves a way back to it.
             ShowLive(false);
             liveReveal.Visibility = liveText.Document.Blocks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         wasRecording = current.IsRecording;
+        RefreshLivePlaceholder();
     }
 
     private void ShowProcessing(ProcessingStatus status)
@@ -298,14 +322,38 @@ internal sealed class StatusWindow : Window
             }
         }
         existing.Text.Text = line.Text;
+        RefreshLivePlaceholder();
         liveText.ScrollToEnd();
-        if (runtime.State.IsRecording) ShowLive(true);
+        // A final result may arrive after disabling live recognition. Keep the
+        // text, but do not reopen a panel the user has just switched off.
+        if (runtime.State.IsRecording && runtime.Settings.LiveTranscription.Enabled) ShowLive(true);
     }
 
     private void ShowLive(bool visible)
     {
-        liveText.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        livePanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         if (visible) liveReveal.Visibility = Visibility.Collapsed;
+        RefreshLivePlaceholder();
+    }
+
+    private void RefreshLivePlaceholder()
+    {
+        var current = runtime.State;
+        var enabled = runtime.Settings.LiveTranscription.Enabled;
+        liveStatus.Text = current.IsRecording && enabled ? recognitionStatus : "";
+        liveStatus.Visibility = string.IsNullOrWhiteSpace(liveStatus.Text) ? Visibility.Collapsed : Visibility.Visible;
+        livePlaceholder.Visibility = liveParagraphs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        livePlaceholder.Text = !runtime.Settings.Transcription.Enabled
+            ? T("Enable transcription in Settings to see live speech here.", "Включите расшифровку в настройках, чтобы видеть речь здесь.")
+            : !current.IsRecording
+                ? T("Start recording to see live speech here.", "Начните запись, чтобы видеть речь здесь.")
+                : current.IsPaused
+                    ? T("Recording paused.", "Запись на паузе.")
+                    : !runtime.IsLocalModelReady("nemotron-live")
+                        ? T("Download the live model in Settings.", "Скачайте модель лайва в настройках.")
+                        : !string.IsNullOrWhiteSpace(recognitionStatus) && recognitionStatus != T("live", "в реальном времени")
+                            ? recognitionStatus
+                            : T("Waiting for speech…", "Ожидание речи…");
     }
 
     private async void OnDrop(object sender, DragEventArgs args)

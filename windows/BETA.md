@@ -7,11 +7,14 @@ without publishing a GitHub Release; see [README.md](README.md).
 
 ## Fixed since beta.3
 
-- Beta.15 replaces queued live chunks with local streaming recognition, using
+- Beta.16 replaces queued live chunks with local streaming recognition, using
   a separate Nemotron model and isolated decoders for each side. Background
   local transcription yields to live recognition and resumes after Stop.
 - The final transcription CLI initializes portable CPU modules before loading
   a model. The build verifies both CPU discovery and ordinary CLI startup.
+- The live panel opens immediately when enabled or recording starts, showing
+  loading, waiting and paused states. A late recognition result cannot reopen
+  the panel after live recognition is switched off.
 - Claude Code bundled inside the Microsoft Store Claude Desktop installation
   is detected alongside ordinary desktop and standalone CLI installations.
 - An `on_stop` hook that opens a viewer such as Notepad no longer blocks the
