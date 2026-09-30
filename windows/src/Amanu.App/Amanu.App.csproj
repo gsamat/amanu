@@ -8,7 +8,7 @@
     <StartupObject>Amanu.App.App</StartupObject>
     <AssemblyName>Amanu</AssemblyName>
     <RootNamespace>Amanu.App</RootNamespace>
-    <Version>0.6.0-beta.11</Version>
+    <Version>0.6.0-beta.12</Version>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Amanu.ico</ApplicationIcon>
