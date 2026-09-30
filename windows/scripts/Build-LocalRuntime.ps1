@@ -21,6 +21,12 @@ try {
         throw "transcribe.cpp v0.1.3 did not resolve to the pinned commit."
     }
 
+    # The pinned CLI initializes modules only for --list-devices. Model loads
+    # in ordinary and batch passes need the same bootstrap.
+    $bootstrapPatch = Join-Path $PSScriptRoot '../patches/transcribe-cli-init-backends.patch'
+    git -C $sourceDirectory apply --ignore-space-change $bootstrapPatch
+    if ($LASTEXITCODE -ne 0) { throw "Could not apply the pinned CLI backend initialization patch." }
+
     cmake -S $sourceDirectory -B $buildDirectory `
         -DTRANSCRIBE_BUILD_TESTS=OFF `
         -DTRANSCRIBE_BUILD_TOOLS=OFF `
@@ -50,6 +56,7 @@ try {
     New-Item -ItemType Directory -Force -Path $licenses | Out-Null
     Copy-Item -LiteralPath (Join-Path $sourceDirectory "LICENSE") -Destination (Join-Path $licenses "transcribe.cpp-LICENSE") -Force
     Copy-Item -LiteralPath (Join-Path $sourceDirectory "ggml/LICENSE") -Destination (Join-Path $licenses "ggml-LICENSE") -Force
+    & (Join-Path $PSScriptRoot 'Test-NativeCpu.ps1') -RuntimeDirectory $destinationDirectory
     Write-Host "Bundled transcribe-cli from $actualCommit"
 }
 finally {

@@ -32,6 +32,9 @@ tools, as does the existing final-transcription runtime build. The beta build
 and Windows workflow include both runtimes.
 Both runtime builds disable build-host CPU targeting and include CPU variants
 selected at runtime; the final CLI must also run on older supported processors.
+The final CLI has a pinned patch that initializes these modules before ordinary
+and batch model loads. `Test-NativeCpu.ps1` checks both device discovery and
+ordinary startup during the build.
 
 Windows validation:
 
