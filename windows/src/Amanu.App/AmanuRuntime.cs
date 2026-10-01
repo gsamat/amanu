@@ -491,8 +491,10 @@ public sealed class AmanuRuntime : IAsyncDisposable
 
     public Task RetranscribeAsync(string directory, string? engine) => processing.RetranscribeAsync(directory, engine);
 
-    public Task SetSpeakerNameAsync(string directory, string label, string name, CancellationToken cancellationToken = default) =>
-        processing.SetSpeakerNameAsync(directory, label, name, cancellationToken);
+    public ProcessingStatus? ProcessingStatusFor(string directory) => processing.StatusFor(directory);
+
+    public Task SetSpeakerNameAsync(string directory, string label, string name, CancellationToken cancellationToken = default, string? title = null) =>
+        processing.SetSpeakerNameAsync(directory, label, name, cancellationToken, title);
 
     /// <summary>Moves a session to the Recycle Bin, where it can still be got back.</summary>
     public void DeleteSession(string directory)

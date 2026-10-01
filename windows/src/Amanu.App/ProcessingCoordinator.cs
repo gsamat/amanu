@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
@@ -45,11 +46,14 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     private readonly HttpClient httpClient;
     private readonly AnalyticsService analytics;
     private readonly LanguageModels languageModels;
+    private readonly Func<string, AppSettings, ITranscriptionEngine>? localEngineFactory;
     private readonly Channel<string> queue = Channel.CreateUnbounded<string>();
     private readonly CancellationTokenSource lifetime = new();
     private readonly HashSet<string> queued = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock queueLock = new();
     private readonly HashSet<string> again = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> preparing = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, ProcessingStatus> statuses = new(StringComparer.OrdinalIgnoreCase);
     private string? current;
     private Task? worker;
 
@@ -59,7 +63,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         SecretStore secrets,
         ModelManager models,
         HttpClient httpClient,
-        AnalyticsService analytics)
+        AnalyticsService analytics,
+        Func<string, AppSettings, ITranscriptionEngine>? localEngineFactory = null)
     {
         this.settings = settings;
         this.configReadable = configReadable;
@@ -67,6 +72,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         this.models = models;
         this.httpClient = httpClient;
         this.analytics = analytics;
+        this.localEngineFactory = localEngineFactory;
         languageModels = new LanguageModels(httpClient, secrets, settings);
     }
 
@@ -74,6 +80,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     public event EventHandler? SessionsChanged;
 
     public LanguageModels LanguageModels => languageModels;
+
+    public ProcessingStatus? StatusFor(string directory) => statuses.GetValueOrDefault(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar));
 
     public bool IsBusy
     {
@@ -118,7 +126,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         if (!File.Exists(Path.Combine(directory, "meta.json")) || File.Exists(Path.Combine(directory, ".recording.json"))) return false;
         if (Has(directory, "transcribe.failed")) return false;
         if (Has(directory, "transcribe.off")) return !ReadLedger(directory).HookRan;
-        if (!Has(directory, "transcript.json")) return true;
+        if (!Has(directory, "transcript.json") || Has(directory, TranscriptVersions.RequestFile)) return true;
         var current = settings();
         // A session finished while naming or summaries were off stays that way:
         // switching them on is not a request to send every old meeting to a model.
@@ -134,6 +142,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         var directory = Path.GetFullPath(sessionDirectory).TrimEnd(Path.DirectorySeparatorChar);
         lock (queueLock)
         {
+            if (preparing.Contains(directory)) return;
             if (!queued.Add(directory))
             {
                 // Asked for while it is being worked on: go round once more after,
@@ -142,8 +151,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
                 return;
             }
         }
-        queue.Writer.TryWrite(directory);
         Publish(directory, "queued", T("Queued for processing", "В очереди на обработку"), true);
+        queue.Writer.TryWrite(directory);
     }
 
     public Task EnsureLocalModelAsync(string model, CancellationToken cancellationToken = default) =>
@@ -200,42 +209,45 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     /// Transcribes a session again, optionally with a particular engine, which is
     /// remembered by the session so a queue draining in the background never
     /// substitutes its own. Provider caches go, or a corrected language would
-    /// return the old text; the summary stays, marked stale, until a summary of
-    /// the new transcript replaces it; names typed by hand stay.
+    /// return the old text. The existing transcript and names remain available
+    /// until the replacement succeeds; completed versions are archived separately.
     /// </summary>
     public async Task RetranscribeAsync(string directory, string? engine, CancellationToken cancellationToken = default)
     {
+        directory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
         lock (queueLock)
         {
-            if (string.Equals(current, Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+            if (queued.Contains(directory) || !preparing.Add(directory))
                 throw new InvalidOperationException(T(
                     "This recording is being processed right now; try again when it finishes.",
                     "Эта запись сейчас обрабатывается — попробуйте, когда закончится."));
         }
-        var audio = await LoadAudioAsync(directory, cancellationToken).ConfigureAwait(false);
-        if (!audio.HasAudio)
-            throw new InvalidOperationException(T(
-                "This session's audio was not kept, so there is nothing to transcribe again.",
-                "Звук этой записи не сохранён, расшифровывать заново нечего."));
-        ProviderCache.Clear(directory);
-        foreach (var file in new[] { "transcript.json", "transcript.md", "transcribe.failed", "transcribe.deferred", "transcribe.off",
-                     "speakers.failed", "speakers.deferred", "summary.failed", "summary.deferred" })
-            File.Delete(Path.Combine(directory, file));
-        if (File.Exists(Path.Combine(directory, "summary.md")))
-            await AtomicFiles.WriteTextAsync(Path.Combine(directory, "summary.stale"), "retranscribed", cancellationToken).ConfigureAwait(false);
-        var speakers = await SpeakerFile.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
-        var manual = speakers.Names.Where(pair => speakers.Sources.GetValueOrDefault(pair.Key) == "manual").ToDictionary();
-        if (manual.Count == 0) File.Delete(Path.Combine(directory, "speakers.json"));
-        else await SpeakerFile.WriteAsync(directory, manual, manual.ToDictionary(pair => pair.Key, _ => "manual"), cancellationToken).ConfigureAwait(false);
-        var choice = Path.Combine(directory, "transcribe.engine");
-        if (engine is null) File.Delete(choice);
-        else await AtomicFiles.WriteTextAsync(choice, engine, cancellationToken).ConfigureAwait(false);
-        // on_stop has had its run for this session; a new transcript does not earn another.
-        WriteLedger(directory, new ProcessingLedger(HookRan: ReadLedger(directory).HookRan));
+        try
+        {
+            var audio = await LoadAudioAsync(directory, cancellationToken).ConfigureAwait(false);
+            if (!audio.HasAudio)
+                throw new InvalidOperationException(T(
+                    "This session's audio was not kept, so there is nothing to transcribe again.",
+                    "Звук этой записи не сохранён, расшифровывать заново нечего."));
+            ProviderCache.Clear(directory);
+            foreach (var file in new[] { "transcribe.failed", "transcribe.deferred", "transcribe.off",
+                         "speakers.failed", "speakers.deferred", "summary.failed", "summary.deferred" })
+                File.Delete(Path.Combine(directory, file));
+            engine ??= settings().Transcription.Engine;
+            var choice = Path.Combine(directory, "transcribe.engine");
+            await AtomicFiles.WriteTextAsync(choice, engine, cancellationToken).ConfigureAwait(false);
+            // on_stop has had its run for this session; a new transcript does not earn another.
+            WriteLedger(directory, new ProcessingLedger(HookRan: ReadLedger(directory).HookRan));
+            await AtomicFiles.WriteTextAsync(Path.Combine(directory, TranscriptVersions.RequestFile), engine, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (queueLock) preparing.Remove(directory);
+        }
         Enqueue(directory);
     }
 
-    public async Task SetSpeakerNameAsync(string directory, string label, string name, CancellationToken cancellationToken = default)
+    public async Task SetSpeakerNameAsync(string directory, string label, string name, CancellationToken cancellationToken = default, string? title = null)
     {
         var transcript = await ReadTranscriptAsync(directory, cancellationToken).ConfigureAwait(false);
         var file = await SpeakerFile.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
@@ -252,7 +264,7 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
             sources[label] = "manual";
         }
         await SpeakerFile.WriteAsync(directory, names, sources, cancellationToken).ConfigureAwait(false);
-        await TranscriptWriter.WriteAsync(directory, await ReadTitleAsync(directory, cancellationToken), transcript, names, cancellationToken)
+        await TranscriptWriter.WriteAsync(directory, title ?? await ReadTitleAsync(directory, cancellationToken), transcript, names, cancellationToken)
             .ConfigureAwait(false);
         SessionsChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -317,10 +329,10 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
         var title = await ReadTitleAsync(directory, cancellationToken).ConfigureAwait(false);
         var ledger = ReadLedger(directory);
 
-        if (!Has(directory, "transcript.json"))
+        if (!Has(directory, "transcript.json") || Has(directory, TranscriptVersions.RequestFile))
         {
             if (Has(directory, "transcribe.failed")) return;
-            if (!current.Transcription.Enabled)
+            if (!current.Transcription.Enabled && !Has(directory, TranscriptVersions.RequestFile))
             {
                 await AtomicFiles.WriteTextAsync(Path.Combine(directory, "transcribe.off"), "disabled", cancellationToken).ConfigureAwait(false);
                 await RunHookOnceAsync(directory, cancellationToken).ConfigureAwait(false);
@@ -372,9 +384,24 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
                 await GiveUpAsync(directory, T("No speech was heard in this recording.", "В записи не слышно речи."), cancellationToken).ConfigureAwait(false);
                 return false;
             }
-            var names = (await SpeakerFile.ReadAsync(directory, cancellationToken).ConfigureAwait(false)).Names;
+            var speakers = await SpeakerFile.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
+            var replacing = Has(directory, TranscriptVersions.RequestFile);
+            var names = replacing
+                ? speakers.Names.Where(pair => speakers.Sources.GetValueOrDefault(pair.Key) == "manual").ToDictionary()
+                : speakers.Names;
+            await TranscriptVersions.ArchiveCurrentAsync(directory, cancellationToken).ConfigureAwait(false);
+            if (replacing && Has(directory, "summary.md"))
+                await AtomicFiles.WriteTextAsync(Path.Combine(directory, "summary.stale"), "retranscribed", cancellationToken).ConfigureAwait(false);
             await TranscriptWriter.WriteAsync(directory, title, transcript, names, cancellationToken).ConfigureAwait(false);
+            if (replacing)
+            {
+                if (names.Count == 0) File.Delete(Path.Combine(directory, "speakers.json"));
+                else await SpeakerFile.WriteAsync(directory, names, names.ToDictionary(pair => pair.Key, _ => "manual"), cancellationToken).ConfigureAwait(false);
+                foreach (var marker in new[] { TranscriptVersions.RequestFile, "speakers.off", "summary.off" })
+                    File.Delete(Path.Combine(directory, marker));
+            }
             File.Delete(Path.Combine(directory, "transcribe.deferred"));
+            SessionsChanged?.Invoke(this, EventArgs.Empty);
             WriteLedger(directory, ReadLedger(directory) with { LastError = null });
             _ = analytics.RecordAsync("transcript_finished", new Dictionary<string, object?>
             {
@@ -463,7 +490,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     }
 
     public ITranscriptionEngine CreateLocal(string model, AppSettings current) =>
-        new LocalTranscriptionEngine(models, model, MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)));
+        localEngineFactory?.Invoke(model, current)
+        ?? new LocalTranscriptionEngine(models, model, MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)));
 
     /// <returns>Whether naming is done, off, or given up on — anything but waiting.</returns>
     private async Task<bool> NameSpeakersAsync(string directory, string title, TranscriptDocument transcript, CancellationToken cancellationToken)
@@ -748,8 +776,13 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
             : Path.GetFileName(directory);
     }
 
-    private void Publish(string directory, string stage, string message, bool busy) =>
-        StatusChanged?.Invoke(this, new ProcessingStatus(directory, stage, message, busy));
+    private void Publish(string directory, string stage, string message, bool busy)
+    {
+        var status = new ProcessingStatus(directory, stage, message, busy);
+        statuses[directory] = status;
+        StatusChanged?.Invoke(this, status);
+        SessionsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private static string KnownModel(string engine, string model) => (engine, model) switch
     {

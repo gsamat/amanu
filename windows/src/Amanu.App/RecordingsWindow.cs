@@ -36,6 +36,8 @@ internal sealed class RecordingsWindow : Window
     private readonly TextBlock problem = Ui.Status("", Ui.Caution);
     private readonly TextBox summary = ReadOnlyText();
     private readonly TextBox transcript = ReadOnlyText();
+    private readonly TabControl engineTabs = new() { Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
+    private readonly TextBlock processingStatus = Ui.Status("");
     private readonly StackPanel speakers = new() { Margin = new Thickness(12) };
     private readonly TextBlock empty = Ui.Detail("");
     private readonly System.Windows.Controls.Button finish;
@@ -44,7 +46,13 @@ internal sealed class RecordingsWindow : Window
     private readonly System.Windows.Controls.Button folder;
     private readonly System.Windows.Controls.Button delete;
     private readonly Grid detail = new();
+    private readonly TabControl tabs = new() { Margin = new Thickness(0, 8, 0, 0) };
     private bool loading;
+    private bool reloadRequested;
+    private bool updatingChoices;
+    private string? selectedTranscriptKey;
+    private string? selectedTranscriptSession;
+    private int transcriptShown;
     private int shown;
 
     public RecordingsWindow(AmanuRuntime runtime)
@@ -58,7 +66,10 @@ internal sealed class RecordingsWindow : Window
 
         grid.Columns.Add(Column(T("When", "Когда"), nameof(Row.When), 140));
         grid.Columns.Add(Column(T("Meeting", "Встреча"), nameof(Row.Meeting), 0));
-        grid.Columns.Add(Column(T("Transcript", "Расшифровка"), nameof(Row.TranscriptText), 200));
+        var transcriptColumn = Column(T("Transcripts", "Расшифровки"), nameof(Row.TranscriptText), 260);
+        transcriptColumn.ElementStyle = new Style(typeof(TextBlock));
+        transcriptColumn.ElementStyle.Setters.Add(new Setter(TextBlock.TextWrappingProperty, TextWrapping.Wrap));
+        grid.Columns.Add(transcriptColumn);
         grid.Columns.Add(Column(T("Names", "Имена"), nameof(Row.NamesText), 90));
         grid.Columns.Add(Column(T("Summary", "Саммари"), nameof(Row.SummaryText), 130));
         grid.SelectionChanged += async (_, _) => await ShowSelectedAsync();
@@ -87,10 +98,19 @@ internal sealed class RecordingsWindow : Window
         rootPath.TextTrimming = TextTrimming.CharacterEllipsis;
         toolbar.Children.Add(rootPath);
 
-        var tabs = new TabControl { Margin = new Thickness(0, 8, 0, 0) };
-        tabs.Items.Add(new TabItem { Header = T("Summary", "Саммари"), Content = summary });
         tabs.Items.Add(new TabItem { Header = T("Transcript", "Расшифровка"), Content = transcript });
         tabs.Items.Add(new TabItem { Header = T("Speakers", "Участники"), Content = Ui.Scroll(speakers) });
+        tabs.Items.Add(new TabItem { Header = T("Summary", "Саммари"), Content = summary });
+        engineTabs.SelectionChanged += async (_, args) =>
+        {
+            if (!updatingChoices && args.Source == engineTabs) await ShowTranscriptAsync();
+        };
+        var transcriptPanel = new Grid();
+        transcriptPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        transcriptPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        transcriptPanel.Children.Add(engineTabs);
+        Grid.SetRow(tabs, 1);
+        transcriptPanel.Children.Add(tabs);
 
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         foreach (var button in new[] { finish, retranscribe, listen, folder, delete })
@@ -109,9 +129,13 @@ internal sealed class RecordingsWindow : Window
         detail.Children.Add(title);
         Grid.SetRow(problem, 1);
         problem.Margin = new Thickness(0, 4, 0, 0);
-        detail.Children.Add(problem);
-        Grid.SetRow(tabs, 2);
-        detail.Children.Add(tabs);
+        var statusPanel = new StackPanel();
+        statusPanel.Children.Add(processingStatus);
+        statusPanel.Children.Add(problem);
+        Grid.SetRow(statusPanel, 1);
+        detail.Children.Add(statusPanel);
+        Grid.SetRow(transcriptPanel, 2);
+        detail.Children.Add(transcriptPanel);
         Grid.SetRow(actions, 3);
         detail.Children.Add(actions);
 
@@ -165,15 +189,17 @@ internal sealed class RecordingsWindow : Window
 
     private async Task ReloadAsync()
     {
-        if (loading) return;
+        if (loading) { reloadRequested = true; return; }
         loading = true;
         try
         {
             var selected = Selected?.Item.Directory;
+            var selectedTab = tabs.SelectedIndex;
             var items = await runtime.LoadSessionsAsync();
-            var rows = items.Select(item => new Row(item)).ToList();
+            var rows = items.Select(item => new Row(item, runtime.ProcessingStatusFor(item.Directory))).ToList();
             grid.ItemsSource = rows;
             grid.SelectedItem = rows.FirstOrDefault(row => row.Item.Directory == selected) ?? rows.FirstOrDefault();
+            tabs.SelectedIndex = selectedTab;
             // Setting the selection shows it: the rows are new, so the selection changes.
             empty.Text = rows.Count == 0
                 ? T("No recordings yet. A meeting recorded by hand or by itself shows up here, and so does a file you import.",
@@ -185,6 +211,11 @@ internal sealed class RecordingsWindow : Window
         finally
         {
             loading = false;
+            if (reloadRequested)
+            {
+                reloadRequested = false;
+                await ReloadAsync();
+            }
         }
     }
 
@@ -192,6 +223,7 @@ internal sealed class RecordingsWindow : Window
     {
         // Each showing counts; one overtaken by a newer while it read files draws nothing.
         var version = ++shown;
+        ++transcriptShown;
         speakers.Children.Clear();
         if (Selected is not { } row)
         {
@@ -204,28 +236,79 @@ internal sealed class RecordingsWindow : Window
         title.Text = item.Title;
         problem.Text = item.Problem ?? "";
         problem.Visibility = item.Problem is null ? Visibility.Collapsed : Visibility.Visible;
-        var summaryText = await ReadAsync(Path.Combine(item.Directory, "summary.md"));
-        var transcriptText = await ReadAsync(Path.Combine(item.Directory, "transcript.md"));
+        processingStatus.Text = row.Status is { IsBusy: true } status ? status.Message : row.TranscriptText;
+        if (selectedTranscriptSession != item.Directory)
+        {
+            selectedTranscriptSession = item.Directory;
+            selectedTranscriptKey = null;
+        }
+        var entries = item.Transcripts ?? [];
+        var choices = entries.Select((entry, index) => new TranscriptChoice(entry,
+            entry.EngineName + (entries.Count(other => other.Engine == entry.Engine) > 1 ? $" ({index + 1})" : "")
+            + " · " + Row.Step(row.StateFor(entry)))).ToList();
+        updatingChoices = true;
+        engineTabs.ItemsSource = choices.Select(choice => new TabItem { Header = choice.Label, Tag = choice }).ToList();
+        engineTabs.SelectedItem = engineTabs.Items.Cast<TabItem>().FirstOrDefault(tab => ((TranscriptChoice)tab.Tag).Key == selectedTranscriptKey)
+            ?? engineTabs.Items.Cast<TabItem>().LastOrDefault();
+        engineTabs.Visibility = choices.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        tabs.Margin = new Thickness(0, choices.Count > 1 ? 0 : 8, 0, 0);
+        updatingChoices = false;
+        await ShowTranscriptAsync();
         if (version != shown) return;
-        summary.Text = summaryText
-                       ?? (item.Summary == ProcessingStep.Off ? T("Summaries are off.", "Саммари выключены.") : T("No summary yet.", "Саммари пока нет."));
-        if (item.Summary == ProcessingStep.Stale)
-            summary.Text = T("This summary is of the previous transcript; a new one is on its way.\n\n", "Это саммари прежней расшифровки; новое на подходе.\n\n") + summary.Text;
-        transcript.Text = transcriptText ?? T("No transcript yet.", "Расшифровки пока нет.");
-        await ShowSpeakersAsync(item, version);
 
         var recording = item.Transcript == ProcessingStep.Recording;
-        finish.IsEnabled = !recording && (item.Transcript is ProcessingStep.Failed or ProcessingStep.Deferred
+        finish.IsEnabled = !recording && row.Status?.IsBusy != true && (item.Transcript is ProcessingStep.Failed or ProcessingStep.Deferred
             || item.SpeakerNames is ProcessingStep.Failed or ProcessingStep.Deferred
             || item.Summary is ProcessingStep.Failed or ProcessingStep.Deferred or ProcessingStep.Stale);
-        retranscribe.IsEnabled = !recording && item.HasAudio;
+        retranscribe.IsEnabled = !recording && item.HasAudio && row.Status?.IsBusy != true;
         listen.IsEnabled = item.HasAudio && !recording;
-        delete.IsEnabled = !recording;
+        delete.IsEnabled = !recording && row.Status?.IsBusy != true;
     }
 
-    private async Task ShowSpeakersAsync(SessionListItem item, int version)
+    private async Task ShowTranscriptAsync()
     {
-        var transcriptPath = Path.Combine(item.Directory, "transcript.json");
+        var version = ++transcriptShown;
+        speakers.Children.Clear();
+        var item = Selected?.Item;
+        if (engineTabs.SelectedItem is not TabItem { Tag: TranscriptChoice choice })
+        {
+            var emptySummary = item is null ? "" : await ReadAsync(Path.Combine(item.Directory, "summary.md"))
+                ?? T("No summary yet.", "Саммари пока нет.");
+            if (version != transcriptShown) return;
+            transcript.Text = T("No transcript yet.", "Расшифровки пока нет.");
+            summary.Text = emptySummary;
+            speakers.Children.Add(Ui.Detail(T("Speakers appear once there is a transcript.", "Участники появятся, когда будет расшифровка.")));
+            return;
+        }
+        selectedTranscriptKey = choice.Key;
+        var directory = choice.Version.Directory;
+        if (choice.Version.State != ProcessingStep.Done)
+        {
+            transcript.Text = choice.Label + "\n\n" + (item?.Problem ?? T("Earlier transcripts are available in the tabs above.", "Предыдущие расшифровки доступны во вкладках выше."));
+            summary.Text = T("No summary for this transcript yet.", "Саммари этой расшифровки пока нет.");
+            speakers.Children.Add(Ui.Detail(T("Speakers appear once this transcript is ready.", "Участники появятся, когда эта расшифровка будет готова.")));
+            return;
+        }
+        var text = await ReadAsync(Path.Combine(directory, "transcript.md")) ?? T("No transcript text available.", "Текст расшифровки недоступен.");
+        var summaryText = await ReadAsync(Path.Combine(directory, "summary.md"))
+            ?? (item?.Summary == ProcessingStep.Off ? T("Summaries are off.", "Саммари выключены.") : T("No summary yet.", "Саммари пока нет."));
+        if (File.Exists(Path.Combine(directory, "summary.stale")))
+            summaryText = T("This summary refers to the previous transcript.\n\n", "Это саммари предыдущей расшифровки.\n\n") + summaryText;
+        if (version != transcriptShown) return;
+        transcript.Text = text;
+        summary.Text = summaryText;
+        await ShowSpeakersAsync(directory, item?.Title ?? "", version);
+    }
+
+    private sealed record TranscriptChoice(TranscriptVersion Version, string Label)
+    {
+        public string Key => Version.State == ProcessingStep.Done ? $"{Version.Engine}:{Version.CreatedAt:O}" : "pending";
+        public override string ToString() => Label;
+    }
+
+    private async Task ShowSpeakersAsync(string directory, string meetingTitle, int version)
+    {
+        var transcriptPath = Path.Combine(directory, "transcript.json");
         if (!File.Exists(transcriptPath))
         {
             speakers.Children.Add(Ui.Detail(T("Speakers appear once there is a transcript.", "Участники появятся, когда будет расшифровка.")));
@@ -235,8 +318,8 @@ internal sealed class RecordingsWindow : Window
         try { document = JsonSerializer.Deserialize<TranscriptDocument>(await File.ReadAllTextAsync(transcriptPath)); }
         catch (JsonException) { return; }
         if (document is null) return;
-        var file = await SpeakerFile.ReadAsync(item.Directory, CancellationToken.None);
-        if (version != shown) return;
+        var file = await SpeakerFile.ReadAsync(directory, CancellationToken.None);
+        if (version != transcriptShown) return;
         foreach (var group in document.Segments.Where(segment => segment.Speaker is not null).GroupBy(segment => segment.Speaker!))
         {
             var label = group.Key;
@@ -278,7 +361,7 @@ internal sealed class RecordingsWindow : Window
             {
                 if (box.Text.Trim() == stored) return;
                 stored = box.Text.Trim();
-                try { await runtime.SetSpeakerNameAsync(item.Directory, label, stored); }
+                try { await runtime.SetSpeakerNameAsync(directory, label, stored, title: meetingTitle); }
                 catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
                 {
                     Ui.ShowError(this, T("Couldn’t save the name", "Не удалось сохранить имя"), exception.Message);
@@ -299,10 +382,18 @@ internal sealed class RecordingsWindow : Window
             var item = new MenuItem { Header = text, IsEnabled = enabled, ToolTip = why };
             item.Click += async (_, _) =>
             {
-                try { await runtime.RetranscribeAsync(row.Item.Directory, engine); }
+                try
+                {
+                    retranscribe.IsEnabled = false;
+                    processingStatus.Text = T("Starting transcription…", "Запускаю расшифровку…");
+                    await runtime.RetranscribeAsync(row.Item.Directory, engine);
+                    selectedTranscriptKey = "pending";
+                    await ReloadAsync();
+                }
                 catch (Exception exception) when (exception is InvalidOperationException or IOException)
                 {
                     Ui.ShowError(this, T("Couldn’t transcribe again", "Не удалось расшифровать заново"), exception.Message);
+                    await ReloadAsync();
                 }
             };
             menu.Items.Add(item);
@@ -369,9 +460,10 @@ internal sealed class RecordingsWindow : Window
     }
 
     /// <summary>One line of the list, in words.</summary>
-    private sealed class Row(SessionListItem item)
+    private sealed class Row(SessionListItem item, ProcessingStatus? status)
     {
         public SessionListItem Item { get; } = item;
+        public ProcessingStatus? Status { get; } = status;
 
         public string When => Item.StartedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm", Culture);
 
@@ -379,7 +471,18 @@ internal sealed class RecordingsWindow : Window
             ? $"{Item.Title} · {Math.Max(1, (int)Math.Round(Item.DurationSeconds / 60.0))} {T("min", "мин")}"
             : Item.Title;
 
-        public string TranscriptText => Item.Transcript switch
+        public ProcessingStep StateFor(TranscriptVersion version) => version.State != ProcessingStep.Done ? Status?.Stage switch
+        {
+            "transcribing" => ProcessingStep.Transcribing,
+            "queued" => ProcessingStep.Pending,
+            "deferred" => ProcessingStep.Deferred,
+            "failed" => ProcessingStep.Failed,
+            _ => version.State,
+        } : version.State;
+
+        public string TranscriptText => Item.Transcripts is { Count: > 0 } versions
+            ? string.Join("\n", versions.Select(version => $"{version.EngineName} — {Step(StateFor(version))}"))
+            : Item.Transcript switch
         {
             ProcessingStep.Done => T("done", "готово") + (Item.Engine is { } engine ? $" ({engine})" : ""),
             ProcessingStep.Recording => T("recording", "идёт запись"),
@@ -396,12 +499,13 @@ internal sealed class RecordingsWindow : Window
             _ => Step(Item.Summary),
         };
 
-        private static string Step(ProcessingStep step) => step switch
+        public static string Step(ProcessingStep step) => step switch
         {
             ProcessingStep.Done => T("done", "готово"),
             ProcessingStep.Off => T("off", "выключено"),
             ProcessingStep.Failed => T("failed", "не удалось"),
             ProcessingStep.Deferred => T("waiting", "ждёт"),
+            ProcessingStep.Transcribing => T("transcribing…", "расшифровывается…"),
             _ => T("queued", "в очереди"),
         };
     }

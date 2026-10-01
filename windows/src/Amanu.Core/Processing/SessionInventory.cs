@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace Amanu.Core.Processing;
 
-public enum ProcessingStep { Off, Pending, Deferred, Failed, Done, Stale, Recording }
+public enum ProcessingStep { Off, Pending, Deferred, Failed, Done, Stale, Recording, Transcribing }
 
 public sealed record SessionListItem(
     string Directory,
@@ -18,7 +18,8 @@ public sealed record SessionListItem(
     bool HasAudio,
     int NamedSpeakerCount = 0,
     int SpeakerCount = 0,
-    string? Problem = null);
+    string? Problem = null,
+    IReadOnlyList<TranscriptVersion>? Transcripts = null);
 
 /// <summary>What is in the recordings folder, read from the files each session leaves.</summary>
 public static class SessionInventory
@@ -74,7 +75,9 @@ public static class SessionInventory
         var names = await NamesAsync(Path.Combine(directory, "speakers.json"), cancellationToken).ConfigureAwait(false);
         var files = Directory.EnumerateFiles(directory).ToArray();
 
-        var transcriptStep = recording ? ProcessingStep.Recording : Step(directory, "transcript.json", "transcribe");
+        var versions = await TranscriptVersions.ReadAsync(directory, cancellationToken).ConfigureAwait(false);
+        var transcriptStep = recording ? ProcessingStep.Recording
+            : versions.LastOrDefault(version => version.State != ProcessingStep.Done)?.State ?? Step(directory, "transcript.json", "transcribe");
         var summaryStep = Step(directory, "summary.md", "summary");
         if (summaryStep == ProcessingStep.Done && File.Exists(Path.Combine(directory, "summary.stale"))) summaryStep = ProcessingStep.Stale;
         var problem = new[] { "transcribe.failed", "transcribe.deferred", "summary.failed", "summary.deferred", "speakers.failed", "speakers.deferred" }
@@ -91,11 +94,12 @@ public static class SessionInventory
             transcriptStep,
             Step(directory, "speakers.json", "speakers"),
             summaryStep,
-            files.Sum(file => new FileInfo(file).Length),
+            Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).Sum(file => new FileInfo(file).Length),
             files.Any(IsAudio),
             labels.Count(names.Contains),
             labels.Count,
-            problem);
+            problem,
+            versions);
     }
 
     private static ProcessingStep Step(string directory, string completedName, string prefix)

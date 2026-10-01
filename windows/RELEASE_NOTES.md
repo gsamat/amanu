@@ -15,6 +15,10 @@ and prepares summaries with the configured local or cloud service.
   Long Windows Parakeet tracks are processed in bounded portions with overlapping
   context and meeting-relative word timestamps to limit memory use.
 - Recordings management, import, playback, and re-transcription.
+  Re-transcription shows queued, active, waiting, and failed states for its engine.
+  Earlier transcripts remain available during processing and after completion,
+  with engine tabs for multiple results and transcript, speakers, and summary tabs
+  for the selected result. A single transcript uses only the inner tabs.
 - English and Russian interface, Windows light and dark themes.
 - The application and installer are named Amanu. Updates use the stable channel.
 
