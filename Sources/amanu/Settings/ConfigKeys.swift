@@ -49,6 +49,7 @@ extension Config {
         case autoRecordMaxDuration = "auto_record.max_duration_minutes"
         case autoRecordSilenceStop = "auto_record.silence_stop_minutes"
         case autoRecordApps = "auto_record.apps"
+        case autoRecordAnyApp = "auto_record.any_app"
         case autoRecordIgnoreApps = "auto_record.ignore_apps"
         case systemAudio = "system_audio"
         case calendar

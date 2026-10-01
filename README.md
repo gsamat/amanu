@@ -280,6 +280,13 @@ only values that differ from the defaults. A compact example:
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.
+  On macOS, `apps` accepts app names (such as `Comet` or `Comet Helper`) as
+  well as bundle-id prefixes; browser helpers resolve to the whole browser
+  for audio capture. `auto_record.any_app` (off by default) records microphone
+  activity from apps outside this list too. Dictation tools and `ignore_apps`
+  still stay excluded. Turn it on in Advanced settings; turning it off restores
+  the configured call list. An explicit `apps: []` in the config also accepts
+  any app, while clearing the list field in Settings restores the standard list.
 - `speaker_names.*` covers `enabled`, `backend`, and `model`. Naming sends
   the transcript wherever `summary.backend` does, and to no model when
   summaries are off, unless `speaker_names.backend` names a backend of its own.

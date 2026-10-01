@@ -338,7 +338,7 @@ enum Config {
         /// of who holds the mic. The backstop that would have caught
         /// mygranola's overnight 15-hour run.
         var silenceStop: TimeInterval = Config.defaultNumber(.autoRecordSilenceStop) * 60
-        /// Bundle-id prefixes that count as a call. Empty means any process.
+        /// Bundle-id prefixes or app names that count as a call. Empty means any process.
         var callApps: [String] = MicActivityMonitor.defaultCallApps
         /// Extra bundle ids / process names to never count.
         var ignoreApps: [String] = []
@@ -362,6 +362,7 @@ enum Config {
         // An explicit empty list is meaningful here ("count any app"), so this
         // reads presence rather than non-emptiness.
         if let v = list(.autoRecordApps, in: json) { settings.callApps = v }
+        if flag(.autoRecordAnyApp, in: json) { settings.callApps = [] }
         if let v = list(.autoRecordIgnoreApps, in: json) { settings.ignoreApps = v }
         return settings
     }

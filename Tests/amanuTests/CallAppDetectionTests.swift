@@ -81,6 +81,111 @@ struct CallAppDetectionTests {
         #expect(result.families == ["com.google.Chrome"])
     }
 
+    @Test("A browser or helper name enables recording and follows the whole browser",
+          arguments: ["Comet", "Comet Helper", " comet "])
+    func browserNamesCount(entry: String) {
+        let processes = [
+            process("ai.perplexity.comet", name: "Comet", object: 1),
+            process("ai.perplexity.comet.helper", name: "Comet Helper", object: 2, input: true),
+            process("ai.perplexity.comet.helper.Renderer", name: "Comet Helper (Renderer)",
+                    object: 3, output: true),
+            process("com.spotify.client", name: "Spotify", object: 4, output: true),
+        ]
+        let result = MicActivityMonitor.evaluate(processes: processes, callApps: [entry])
+
+        #expect(result.active)
+        #expect(result.families == ["ai.perplexity.comet"])
+        #expect(AudioProcesses.matching(families: result.families, in: processes)
+            .map(\.object) == [1, 2, 3])
+    }
+
+    @Test("An app with a bundle id can be listed by its display name")
+    func bundledAppMatchesByName() {
+        let result = MicActivityMonitor.evaluate(
+            processes: [process("com.example.Calls", name: "Calls", input: true)],
+            callApps: ["Calls"])
+        #expect(result.active)
+        #expect(result.families == ["com.example.Calls"])
+    }
+
+    @Test("App names do not match unrelated names or empty entries",
+          arguments: ["Com", "Cometary", "Comet Helperish", "", " "])
+    func similarNamesDoNotCount(entry: String) {
+        let result = MicActivityMonitor.evaluate(
+            processes: [process("ai.perplexity.comet.helper", name: "Comet Helper", input: true)],
+            callApps: [entry])
+        #expect(!result.active)
+    }
+
+    @Test("A browser name covers helpers with a Chromium role suffix")
+    func namedBrowserCoversRenderer() {
+        let result = MicActivityMonitor.evaluate(
+            processes: [process("ai.perplexity.comet.helper.Renderer",
+                                name: "Comet Helper (Renderer)", input: true)],
+            callApps: ["Comet"])
+        #expect(result.active)
+        #expect(result.families == ["ai.perplexity.comet"])
+    }
+
+    @MainActor
+    @Test("A configured browser name starts recording after the microphone delay")
+    func namedBrowserStartsRecording() {
+        var settings = Config.AutoRecordSettings()
+        settings.callApps = ["Comet"]
+        settings.calendar = false
+        settings.startDelay = 10
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        var starts: [RecordingSession.Trigger] = []
+        var capturedFamilies: [String] = []
+        let processes = [process("ai.perplexity.comet.helper", name: "Comet Helper", input: true)]
+        let controller = AutoRecordController(
+            settings: settings, calendar: nil, loadSettings: { settings },
+            checkMic: { MicActivityMonitor.evaluate(processes: processes, callApps: $0.callApps) },
+            now: { now })
+        controller.startRecording = { trigger, context in
+            starts.append(trigger)
+            capturedFamilies = context.appFamilies
+            return true
+        }
+        controller.tick()
+        #expect(starts.isEmpty)
+        now.addTimeInterval(10)
+        controller.tick()
+        #expect(starts == [.micActivity])
+        #expect(capturedFamilies == ["ai.perplexity.comet"])
+    }
+
+    @Test("The any-app switch bypasses the call list and preserves exclusions", .freshHome)
+    func anyAppSwitch() throws {
+        try Home.current.writeConfig([
+            "auto_record": ["apps": ["us.zoom.xos"], "ignore_apps": ["Ignored"]],
+        ])
+        let entry = try #require(SettingsSchema.everyEntry.first {
+            $0.path == ["auto_record", "any_app"]
+        })
+        let unknown = process("com.example.Unknown", name: "Unknown", input: true)
+        #expect(!MicActivityMonitor.evaluate(
+            processes: [unknown], callApps: Config.autoRecord().callApps).active)
+
+        guard case .set(let value) = SettingsSchema.resolve(.flag(true), for: entry) else {
+            Issue.record("The switch must save the enabled mode")
+            return
+        }
+        #expect(Config.update(path: entry.path, value: value))
+        let settings = Config.autoRecord()
+        #expect(settings.callApps.isEmpty)
+        #expect(MicActivityMonitor.evaluate(processes: [unknown], callApps: settings.callApps).active)
+        #expect(!MicActivityMonitor.evaluate(
+            processes: [process("com.example.Ignored", name: "Ignored", input: true)],
+            callApps: settings.callApps, ignoring: settings.ignoreApps).active)
+        #expect(!MicActivityMonitor.evaluate(
+            processes: [process("com.prakashjoshipax.VoiceInk", name: "VoiceInk", input: true)],
+            callApps: settings.callApps).active)
+
+        #expect(Config.update(path: entry.path, value: nil))
+        #expect(Config.autoRecord().callApps == ["us.zoom.xos"])
+    }
+
     @Test("An app that isn't a call app is seen but doesn't start anything")
     func unlistedAppIsVisibleButInert() {
         let result = MicActivityMonitor.evaluate(

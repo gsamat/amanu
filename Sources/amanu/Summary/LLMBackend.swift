@@ -53,10 +53,9 @@ struct LLMBackend: Sendable {
     ///   - anthropicModel: an Anthropic model somebody chose, for the API and
     ///     the `claude` CLI both. nil — the default — leaves the API on the
     ///     summary's default model and the CLI on Claude Code's own.
-    ///   - openAIModel: the same for the codex CLI and the OpenAI API. They
-    ///     are separate because one string can't serve both providers:
-    ///     handing an Anthropic model id to the OpenAI backend further down
-    ///     the chain would just fail there.
+    ///   - openAIModel: the model for the OpenAI API only. Codex keeps its
+    ///     own configured model: API model ids (including our default
+    ///     `gpt-5`) may not be supported by a ChatGPT subscription.
     static func available(
         preference: String = "auto",
         anthropicModel: String? = nil,
@@ -76,7 +75,7 @@ struct LLMBackend: Sendable {
             candidates.append(anthropic(key: key, model: anthropicModel ?? settings.model))
         }
         if let codex = cliPath("codex") {
-            candidates.append(codexCLI(path: codex, model: openAIModelID))
+            candidates.append(codexCLI(path: codex))
         }
         // Not simply the OpenAI key: an OpenAI-compatible endpoint has a key
         // of its own — see `Credentials.summaryOpenAIKey`.
@@ -198,15 +197,17 @@ struct LLMBackend: Sendable {
     /// `codex exec` prints a running trace to stdout, so the answer is read
     /// from the file it writes with `--output-last-message` rather than
     /// scraped out of the log.
-    private static func codexCLI(path: String, model: String) -> LLMBackend {
-        LLMBackend(name: "codex-cli", model: model) { system, prompt in
+    private static func codexCLI(path: String) -> LLMBackend {
+        // The CLI resolves its model from its own config or default. We do
+        // not know that model here and must not report the API's model as it.
+        LLMBackend(name: "codex-cli", model: nil) { system, prompt in
             let output = FileManager.default.temporaryDirectory
                 .appendingPathComponent("amanu-codex-\(UUID().uuidString).txt")
             defer { try? FileManager.default.removeItem(at: output) }
 
             _ = try await run(
                 executable: path,
-                arguments: codexArguments(model: model, output: output),
+                arguments: codexArguments(output: output),
                 input: "\(system)\n\n\(prompt)",
                 timeout: 1800
             )
@@ -240,7 +241,7 @@ struct LLMBackend: Sendable {
     /// `mcpServers` is nil when the file defines servers that could not be
     /// told apart, which is answered the same way.
     static func codexArguments(
-        model: String, output: URL, mcpServers: [String]? = codexMCPServers()
+        output: URL, mcpServers: [String]? = codexMCPServers()
     ) -> [String] {
         var arguments = [
             "exec",
@@ -256,7 +257,6 @@ struct LLMBackend: Sendable {
             arguments.append("--ignore-user-config")
         }
         arguments += [
-            "--model", model,
             "--output-last-message", output.path,
             "-",
         ]

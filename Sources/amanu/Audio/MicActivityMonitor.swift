@@ -100,7 +100,7 @@ enum MicActivityMonitor {
     }
 
     /// - Parameters:
-    ///   - callApps: bundle-id prefixes that count as a meeting. Empty means
+    ///   - callApps: bundle-id prefixes or app names that count as a meeting. Empty means
     ///     any process counts (minus the ignore lists) — the old, jumpier
     ///     behaviour, kept because it's the right answer for someone whose call
     ///     app isn't in any list.
