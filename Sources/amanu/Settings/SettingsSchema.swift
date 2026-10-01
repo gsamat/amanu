@@ -217,7 +217,7 @@ enum SettingsSchema {
                   localised(
                       "How long a call app must hold the microphone before this counts as a meeting.",
                       "Сколько приложение звонка должно держать микрофон, чтобы это считалось встречей."),
-                  .number(unit: localised("seconds", "с")), default: 12),
+                  .number(unit: localised("seconds", "с")), default: 3),
             Entry(["auto_record", "stop_delay_seconds"],
                   localised("Wait before stopping", "Ждать перед остановкой"),
                   localised(

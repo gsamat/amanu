@@ -1,4 +1,4 @@
-name: Windows beta
+name: Windows release
 
 on:
   workflow_dispatch:
@@ -6,12 +6,17 @@ on:
       version:
         description: SemVer package version
         required: true
-        default: 0.6.0-beta.3
+        default: 0.6.0
       publish_release:
-        description: Publish/update a GitHub prerelease so installed betas can auto-update
+        description: Publish/update a stable GitHub release and update feed
         required: true
         type: boolean
         default: false
+      upload_artifact:
+        description: Upload the installer as a publicly accessible Actions artifact
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -20,6 +25,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-2025
+    environment: windows-signing
     env:
       BETA_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_BETA_CERTIFICATE_BASE64 }}
       BETA_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_BETA_CERTIFICATE_PASSWORD }}
@@ -39,7 +45,11 @@ jobs:
 
       - name: Test
         working-directory: windows
-        run: dotnet test tests/Amanu.Core.Tests/Amanu.Core.Tests.csproj --no-restore --configuration Release
+        run: |
+          dotnet test tests/Amanu.Core.Tests/Amanu.Core.Tests.csproj --no-restore --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw "Core tests failed." }
+          dotnet test tests/Amanu.Live.Tests/Amanu.Live.Tests.csproj --no-restore --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw "Windows live tests failed." }
 
       - name: Publish self-contained x64 app
         working-directory: windows
@@ -57,6 +67,11 @@ jobs:
         run: |
           & windows/scripts/Build-LocalRuntime.ps1 -PublishDirectory "${{ runner.temp }}/amanu-publish"
 
+      - name: Build pinned streaming runtime
+        shell: pwsh
+        run: |
+          & windows/scripts/Build-LiveRuntime.ps1 -PublishDirectory "${{ runner.temp }}/amanu-publish"
+
       - name: Install pinned Velopack CLI
         run: dotnet tool install --tool-path "${{ runner.temp }}/velopack" vpk --version 1.2.0
 
@@ -70,13 +85,20 @@ jobs:
             -not [string]::IsNullOrWhiteSpace($env:ARTIFACT_SIGNING_PROFILE)
           "available=$($available.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
+      - name: Require Azure signing for artifact upload
+        if: inputs.upload_artifact && steps.artifact_signing.outputs.available != 'true'
+        shell: pwsh
+        run: |
+          Write-Error "Azure Artifact Signing is required for downloadable Windows release artifacts."
+          exit 1
+
       - name: Azure login for Artifact Signing
         if: steps.artifact_signing.outputs.available == 'true'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
 
       - name: Sign Amanu payload with Azure Artifact Signing
         if: steps.artifact_signing.outputs.available == 'true'
@@ -94,7 +116,7 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - name: Decode optional beta certificate
+      - name: Decode optional signing certificate
         id: certificate
         shell: pwsh
         run: |
@@ -107,8 +129,8 @@ jobs:
           "available=true" >> $env:GITHUB_OUTPUT
           "path=$certificatePath" >> $env:GITHUB_OUTPUT
 
-      - name: Package unsigned beta installer
-        if: steps.certificate.outputs.available != 'true' || steps.artifact_signing.outputs.available == 'true'
+      - name: Package unsigned installer
+        if: steps.certificate.outputs.available != 'true' && steps.artifact_signing.outputs.available != 'true'
         shell: pwsh
         run: >-
           & "${{ runner.temp }}/velopack/vpk.exe" pack
@@ -116,15 +138,41 @@ jobs:
           --packVersion "${{ inputs.version }}"
           --packDir "${{ runner.temp }}/amanu-publish"
           --mainExe Amanu.exe
-          --packTitle "Amanu Beta"
+          --packTitle "Amanu"
           --packAuthors Amanu
           --icon windows/src/Amanu.App/Assets/Amanu.ico
-          --channel beta
+          --channel stable
           --runtime win-x64
-          --releaseNotes windows/BETA.md
+          --releaseNotes windows/RELEASE_NOTES.md
           --outputDir "${{ runner.temp }}/amanu-release"
 
-      - name: Package signed beta installer
+      - name: Package with Azure Artifact Signing
+        if: steps.artifact_signing.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $metadataPath = Join-Path $env:RUNNER_TEMP "amanu-artifact-signing.json"
+          $metadata = @{
+            Endpoint = $env:ARTIFACT_SIGNING_ENDPOINT
+            CodeSigningAccountName = $env:ARTIFACT_SIGNING_ACCOUNT
+            CertificateProfileName = $env:ARTIFACT_SIGNING_PROFILE
+          } | ConvertTo-Json
+          [IO.File]::WriteAllText($metadataPath, $metadata, [Text.UTF8Encoding]::new($false))
+          $packArgs = @(
+            'pack', '--packId', 'Amanu', '--packVersion', '${{ inputs.version }}',
+            '--packDir', '${{ runner.temp }}/amanu-publish', '--mainExe', 'Amanu.exe',
+            '--packTitle', 'Amanu', '--packAuthors', 'Amanu',
+            '--icon', 'windows/src/Amanu.App/Assets/Amanu.ico',
+            '--channel', 'stable', '--runtime', 'win-x64',
+            '--releaseNotes', 'windows/RELEASE_NOTES.md',
+            '--outputDir', '${{ runner.temp }}/amanu-release',
+            '--azureTrustedSignFile', $metadataPath,
+            # First-party DLLs are signed above. Leave third-party DLLs untouched.
+            '--signExclude', '(?i)\.dll$'
+          )
+          & '${{ runner.temp }}/velopack/vpk.exe' @packArgs
+          if ($LASTEXITCODE -ne 0) { throw "Velopack Azure signing failed: $LASTEXITCODE" }
+
+      - name: Package signed installer
         if: steps.certificate.outputs.available == 'true' && steps.artifact_signing.outputs.available != 'true'
         shell: pwsh
         run: >-
@@ -133,44 +181,25 @@ jobs:
           --packVersion "${{ inputs.version }}"
           --packDir "${{ runner.temp }}/amanu-publish"
           --mainExe Amanu.exe
-          --packTitle "Amanu Beta"
+          --packTitle "Amanu"
           --packAuthors Amanu
           --icon windows/src/Amanu.App/Assets/Amanu.ico
-          --channel beta
+          --channel stable
           --runtime win-x64
-          --releaseNotes windows/BETA.md
+          --releaseNotes windows/RELEASE_NOTES.md
           --outputDir "${{ runner.temp }}/amanu-release"
           --signParams "/td sha256 /fd sha256 /f `"${{ steps.certificate.outputs.path }}`" /p `"$env:BETA_CERTIFICATE_PASSWORD`" /tr http://timestamp.digicert.com"
-
-      - name: Sign installer with Azure Artifact Signing
-        if: steps.artifact_signing.outputs.available == 'true'
-        uses: azure/artifact-signing-action@v2
-        with:
-          endpoint: ${{ env.ARTIFACT_SIGNING_ENDPOINT }}
-          signing-account-name: ${{ env.ARTIFACT_SIGNING_ACCOUNT }}
-          certificate-profile-name: ${{ env.ARTIFACT_SIGNING_PROFILE }}
-          files: ${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
 
       - name: Verify Azure signatures
         if: steps.artifact_signing.outputs.available == 'true'
         shell: pwsh
-        run: |
-          $files = @(
-            "${{ runner.temp }}\amanu-publish\Amanu.exe",
-            "${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe",
-            "${{ runner.temp }}\amanu-release\Amanu-beta-Setup.exe"
-          )
-          foreach ($file in $files) {
-            $signature = Get-AuthenticodeSignature -LiteralPath $file
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $file: $($signature.Status)"
-            }
-          }
+        run: >-
+          & windows/scripts/Test-ReleaseSignatures.ps1
+          -PublishDirectory '${{ runner.temp }}/amanu-publish'
+          -ReleaseDirectory '${{ runner.temp }}/amanu-release'
 
       - name: Upload installer and update feed
+        if: inputs.upload_artifact
         uses: actions/upload-artifact@v5
         with:
           name: Amanu-Windows-${{ inputs.version }}-x64
@@ -178,7 +207,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish GitHub beta release and update feed
+      - name: Publish GitHub release and update feed
         if: inputs.publish_release
         shell: pwsh
         env:
@@ -190,7 +219,7 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber
           } else {
-            gh release create $tag @assets --prerelease --title "Amanu Windows ${{ inputs.version }}" --notes-file windows/BETA.md
+            gh release create $tag @assets --target '${{ github.sha }}' --title "Amanu Windows ${{ inputs.version }}" --notes-file windows/RELEASE_NOTES.md
           }
 
       - name: Remove temporary certificate

@@ -59,8 +59,22 @@ struct AssemblyAIEngineTests {
         #expect(body["speaker_labels"] as? Bool == true)
         #expect(body["speech_model"] as? String == "universal-3-pro")
         let detection = try #require(body["language_detection_options"] as? [String: Any])
+        #expect(detection["code_switching"] as? Bool == true)
         #expect(detection["expected_languages"] as? [String] == ["ru", "en"])
         #expect(detection["fallback_language"] as? String == "ru")
+    }
+
+    @Test("Automatic detection enables code switching on mono and multichannel audio", arguments: [false, true])
+    func automaticRequestEnablesCodeSwitching(multichannel: Bool) throws {
+        let body = AssemblyAIEngine.requestBody(
+            audioURL: "https://example.test/audio.m4a", expectedLanguages: [],
+            speechModel: nil, multichannel: multichannel)
+        #expect(body["language_detection"] as? Bool == true)
+        #expect(body["language_code"] == nil)
+        #expect(body["multichannel"] as? Bool == (multichannel ? true : nil))
+        let detection = try #require(body["language_detection_options"] as? [String: Any])
+        #expect(detection["code_switching"] as? Bool == true)
+        #expect(detection["expected_languages"] == nil)
     }
 
     @Test("Multichannel responses never reuse a cache made from a mono mix")
@@ -74,6 +88,9 @@ struct AssemblyAIEngineTests {
         let legacy = folder.appendingPathComponent("transcript.assemblyai.json")
         #expect(cache.path != legacy.path)
         #expect(cache != (await engine.cacheURL(for: audio, multichannel: false)))
+        let beforeCodeSwitching = ProviderCache.url(in: folder, provider: .assemblyAI,
+            parts: [audio.lastPathComponent, "universal", "", "multichannel"])
+        #expect(cache != beforeCodeSwitching)
         // Beside the audio it was made from, so it goes wherever the session goes.
         #expect(cache.deletingLastPathComponent().path == folder.path)
     }

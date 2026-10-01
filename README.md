@@ -232,7 +232,7 @@ only values that differ from the defaults. A compact example:
     "enabled": true,
     "mic_activity": true,
     "calendar": false,
-    "start_delay_seconds": 12,
+    "start_delay_seconds": 3,
     "stop_delay_seconds": 15,
     "min_duration_seconds": 45,
     "silence_stop_minutes": 10,

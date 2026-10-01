@@ -1,0 +1,15 @@
+diff --git a/examples/cli/main.cpp b/examples/cli/main.cpp
+--- a/examples/cli/main.cpp
++++ b/examples/cli/main.cpp
+@@ -622,3 +622,11 @@ int main(int argc, char ** argv) {
++    // Load CPU modules next to transcribe.dll before either model-loading path.
++    // v0.1.3 only initializes them in the standalone --list-devices query.
++    const transcribe_status backend_status = transcribe_init_backends_default();
++    if (backend_status != TRANSCRIBE_OK) {
++        std::fprintf(stderr, "error: could not initialize compute backends (%d)\n", backend_status);
++        return EXIT_FAILURE;
++    }
++
+     // Batch mode: --batch reads a file list, one wav path per line. Loads
+     // the model ONCE and reuses the context across all files. Outputs one
+     // JSONL line per file to stdout when --batch-jsonl is set, otherwise

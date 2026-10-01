@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Amanu.App/Amanu.App.csproj" />
+    <Project Path="src/Amanu.Core/Amanu.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Amanu.Core.Tests/Amanu.Core.Tests.csproj" />
+    <Project Path="tests/Amanu.Live.Tests/Amanu.Live.Tests.csproj" />
+  </Folder>
+</Solution>
