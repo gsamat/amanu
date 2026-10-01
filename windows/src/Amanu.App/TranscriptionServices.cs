@@ -288,7 +288,7 @@ public sealed class AssemblyAiTranscriptionEngine(
             var multichannel = side == "*";
             var shift = audio.BothSides ? Math.Min(audio.MicrophoneOffsetMs, audio.SystemOffsetMs) : audio.Only.OffsetMs;
             var cachePath = cache
-                ? ProviderCache.PathFor(audio.Directory, "assemblyai", Model, string.Join('+', expectedLanguages),
+                ? ProviderCache.PathFor(audio.Directory, "assemblyai", "code-switching-v1", Model, string.Join('+', expectedLanguages),
                     multichannel ? "multichannel" : "mono", side, new FileInfo(source).Length.ToString())
                 : null;
 
@@ -360,18 +360,7 @@ public sealed class AssemblyAiTranscriptionEngine(
         var uploadUrl = (await upload.Content.ReadFromJsonAsync<JsonElement>(cancellationToken).ConfigureAwait(false))
             .GetProperty("upload_url").GetString();
 
-        var body = new Dictionary<string, object?>
-        {
-            ["audio_url"] = uploadUrl,
-            ["speaker_labels"] = true,
-            ["punctuate"] = true,
-            ["format_text"] = true,
-            ["language_detection"] = true,
-        };
-        if (multichannel) body["multichannel"] = true;
-        if (expectedLanguages.Count > 0)
-            body["language_detection_options"] = new { expected_languages = expectedLanguages, fallback_language = expectedLanguages[0] };
-        if (speechModel is not null) body["speech_model"] = speechModel;
+        var body = RequestBody(uploadUrl!, multichannel, expectedLanguages, speechModel);
 
         using var created = await Http.SendAsync(httpClient, () =>
         {
@@ -385,6 +374,31 @@ public sealed class AssemblyAiTranscriptionEngine(
             await AtomicFiles.WriteJsonAsync(Path.Combine(directory, ".assemblyai-job.json"),
                 new { id, key = ProviderCache.KeyDigest(apiKey), cache = Path.GetFileName(cachePath) }, cancellationToken).ConfigureAwait(false);
         return id;
+    }
+
+    internal static Dictionary<string, object?> RequestBody(string audioUrl, bool multichannel,
+        IReadOnlyList<string> expectedLanguages, string? speechModel)
+    {
+        // Universal-2 requires code switching explicitly even on automatic
+        // language selection. Keep one request and the existing channel layout.
+        var detection = new Dictionary<string, object?> { ["code_switching"] = true };
+        if (expectedLanguages.Count > 0)
+        {
+            detection["expected_languages"] = expectedLanguages;
+            detection["fallback_language"] = expectedLanguages[0];
+        }
+        var body = new Dictionary<string, object?>
+        {
+            ["audio_url"] = audioUrl,
+            ["speaker_labels"] = true,
+            ["punctuate"] = true,
+            ["format_text"] = true,
+            ["language_detection"] = true,
+            ["language_detection_options"] = detection,
+        };
+        if (multichannel) body["multichannel"] = true;
+        if (speechModel is not null) body["speech_model"] = speechModel;
+        return body;
     }
 
     /// <summary>
