@@ -145,85 +145,45 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             var wave = Path.Combine(temp, "input.wav");
             AudioPreprocessor.ConvertToMono16k(source, wave);
             cancellationToken.ThrowIfCancellationRequested();
-            // Each model is cut up as the macOS app cuts it. Parakeet's text is
-            // grouped from its word timings: the batch JSONL gives one segment for
-            // the whole track, which made a transcript two paragraphs, all of one
-            // side and then all of the other, and the words are only in the plain
-            // output for a single file. GigaAM hears twenty seconds at a time: given
-            // a whole track it drops letters past about half a minute and returns
-            // garbage for a two-minute one, in time that grows with the square of
-            // the length. Whisper finds its own segments.
-            var byWord = model == "parakeet";
+            if (model == "parakeet")
+            {
+                var chunks = AudioPreprocessor.SplitWithContext(wave, temp, 60, 1);
+                var words = new List<TimedWord>();
+                var fallback = new List<TranscriptSegment>();
+                foreach (var chunk in chunks)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var args = new List<string> { "-m", modelPath, "--backend", "cpu", "-q", "--timestamps", "word" };
+                    if (!string.IsNullOrWhiteSpace(languagePin)) args.AddRange(["--language", languagePin]);
+                    args.Add(chunk.Path);
+                    var answer = await RunCliAsync(cli, args, cancellationToken).ConfigureAwait(false);
+                    var parsed = LocalCliWords.Parse(answer);
+                    words.AddRange(parsed.Select(word => word with
+                    {
+                        StartMs = word.StartMs + chunk.OffsetMs,
+                        EndMs = word.EndMs + chunk.OffsetMs,
+                    }).Where(word => (word.StartMs + word.EndMs) / 2 >= chunk.StartMs
+                        && (word.StartMs + word.EndMs) / 2 < chunk.EndMs));
+                    if (parsed.Count == 0 && LocalCliWords.FullText(answer) is { Length: > 0 } text)
+                        fallback.Add(new TranscriptSegment(chunk.StartMs + offsetMs, chunk.EndMs + offsetMs, text, SpeakerLabels.Raw(side, "")));
+                }
+                return LocalCliWords.Segments(words.OrderBy(word => word.StartMs).ToArray()).Select(item => item with
+                {
+                    StartMs = item.StartMs + offsetMs,
+                    EndMs = item.EndMs + offsetMs,
+                    Speaker = SpeakerLabels.Raw(side, ""),
+                }).Concat(fallback).OrderBy(segment => segment.StartMs).ToArray();
+            }
+            // GigaAM hears twenty seconds at a time; Whisper finds its own segments.
             IReadOnlyList<(string Path, long StartMs, long EndMs)> pieces = model == "gigaam"
                 ? AudioPreprocessor.Split(wave, temp, GigaAmChunkSeconds)
                 : [(wave, 0L, 0L)];
-            // The Windows runtime is built for portable CPU dispatch. Keep the
-            // same backend when validating with an upstream runtime package.
             var arguments = new List<string> { "-m", modelPath, "--backend", "cpu" };
-            if (byWord)
-            {
-                arguments.AddRange(["-q", "--timestamps", "word"]);
-            }
-            else
-            {
-                var batch = Path.Combine(temp, "batch.txt");
-                await File.WriteAllLinesAsync(batch, pieces.Select(piece => piece.Path), cancellationToken).ConfigureAwait(false);
-                arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
-            }
+            var batch = Path.Combine(temp, "batch.txt");
+            await File.WriteAllLinesAsync(batch, pieces.Select(piece => piece.Path), cancellationToken).ConfigureAwait(false);
+            arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
             if (!string.IsNullOrWhiteSpace(languagePin)) arguments.AddRange(["--language", languagePin]);
-            if (byWord) arguments.Add(wave);
-            // The CLI writes UTF-8. Left unsaid, .NET reads a windowless app's pipes
-            // in the ANSI code page, and every Cyrillic word comes back as mojibake
-            // while English survives — which is how the first real recording found it.
-            var start = new ProcessStartInfo(cli)
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8,
-            };
-            foreach (var argument in arguments) start.ArgumentList.Add(argument);
-            using var process = Process.Start(start) ?? throw new ProcessingFailure(FailureKind.Environmental,
-                T("Could not launch local transcription.", "Не удалось запустить локальную расшифровку."));
-            // A previous recording can still be processing when a new meeting
-            // starts. Its batch decoder must yield CPU to the live decoders.
-            try { process.PriorityClass = ProcessPriorityClass.Idle; }
-            catch (InvalidOperationException) { } // An immediate CLI failure is handled below.
-            using var registration = cancellationToken.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-            try { await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false); }
-            catch (OperationCanceledException)
-            {
-                // The cancellation registration kills our child; wait for file
-                // handles to close before deleting its temporary input.
-                await process.WaitForExitAsync().ConfigureAwait(false);
-                throw;
-            }
-            var output = await outputTask.ConfigureAwait(false);
-            var error = await errorTask.ConfigureAwait(false);
-            // A negative exit code is Windows ending the process — a missing DLL, a
-            // crash, no memory — which says nothing against the recording.
-            if (process.ExitCode != 0)
-                throw new ProcessingFailure(process.ExitCode < 0 ? FailureKind.Environmental : FailureKind.Recording,
-                    T("Local transcription failed: ", "Локальная расшифровка не удалась: ") + $"({process.ExitCode}) " + error.Trim());
-            if (byWord)
-            {
-                var words = LocalCliWords.Parse(output);
-                if (words.Count > 0)
-                    return LocalCliWords.Segments(words).Select(item => item with
-                    {
-                        StartMs = item.StartMs + offsetMs,
-                        EndMs = item.EndMs + offsetMs,
-                        Speaker = SpeakerLabels.Raw(side, ""),
-                    }).ToArray();
-                // No words: a silent track, or an output this parser no longer
-                // reads — in which case one paragraph beats losing the side.
-                var text = LocalCliWords.FullText(output);
-                return text.Length == 0 ? [] : [new TranscriptSegment(offsetMs, offsetMs, text, SpeakerLabels.Raw(side, ""))];
-            }
+            var output = await RunCliAsync(cli, arguments, cancellationToken).ConfigureAwait(false);
             if (model == "gigaam")
             {
                 // One segment per piece, as on the Mac: the piece's span, its text.
@@ -257,6 +217,31 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
         {
             if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true);
         }
+    }
+
+    private static async Task<string> RunCliAsync(string cli, IEnumerable<string> arguments, CancellationToken cancellationToken)
+    {
+        var start = new ProcessStartInfo(cli)
+        {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
+            CreateNoWindow = true, StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8,
+        };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new ProcessingFailure(FailureKind.Environmental,
+            T("Could not launch local transcription.", "Не удалось запустить локальную расшифровку."));
+        try { process.PriorityClass = ProcessPriorityClass.Idle; }
+        catch (InvalidOperationException) { }
+        using var registration = cancellationToken.Register(() => { try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } });
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        try { await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) { await process.WaitForExitAsync().ConfigureAwait(false); throw; }
+        var output = await outputTask.ConfigureAwait(false);
+        var error = await errorTask.ConfigureAwait(false);
+        if (process.ExitCode != 0)
+            throw new ProcessingFailure(process.ExitCode < 0 ? FailureKind.Environmental : FailureKind.Recording,
+                T("Local transcription failed: ", "Локальная расшифровка не удалась: ") + $"({process.ExitCode}) " + error.Trim());
+        return output;
     }
 }
 

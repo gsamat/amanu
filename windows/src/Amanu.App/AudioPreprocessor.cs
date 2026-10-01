@@ -7,6 +7,42 @@ namespace Amanu.App;
 
 public static class AudioPreprocessor
 {
+    public sealed record ContextChunk(string Path, long OffsetMs, long StartMs, long EndMs);
+
+    /// <summary>Bound Parakeet's attention memory while retaining context on each side of a cut.</summary>
+    public static IReadOnlyList<ContextChunk> SplitWithContext(string wave, string directory, int seconds, int contextSeconds)
+    {
+        if (seconds <= 0 || contextSeconds < 0) throw new ArgumentOutOfRangeException(nameof(seconds));
+        using var reader = new WaveFileReader(wave);
+        var format = reader.WaveFormat;
+        var coreBytes = checked(format.AverageBytesPerSecond * seconds);
+        var contextBytes = checked(format.AverageBytesPerSecond * contextSeconds);
+        var buffer = new byte[checked(coreBytes + 2 * contextBytes)];
+        var result = new List<ContextChunk>();
+        for (long start = 0; start < reader.Length; start += coreBytes)
+        {
+            var end = Math.Min(reader.Length, start + coreBytes);
+            var from = Math.Max(0, start - contextBytes);
+            var through = Math.Min(reader.Length, end + contextBytes);
+            reader.Position = from;
+            var path = Path.Combine(directory, $"context-{result.Count:0000}.wav");
+            using (var writer = new WaveFileWriter(path, format))
+            {
+                var remaining = through - from;
+                while (remaining > 0)
+                {
+                    var read = reader.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+                    if (read == 0) throw new EndOfStreamException("Audio ended before its declared length.");
+                    writer.Write(buffer, 0, read);
+                    remaining -= read;
+                }
+            }
+            result.Add(new ContextChunk(path, from * 1000 / format.AverageBytesPerSecond,
+                start * 1000 / format.AverageBytesPerSecond, end * 1000 / format.AverageBytesPerSecond));
+        }
+        return result;
+    }
+
     public static int DurationSeconds(string source)
     {
         try
