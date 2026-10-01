@@ -47,9 +47,7 @@ enum AudioChannelExtractor {
                     AVFormatIDKey: kAudioFormatMPEG4AAC,
                     AVSampleRateKey: inputFormat.sampleRate,
                     AVNumberOfChannelsKey: 1,
-                    // Core Audio rejects 64 kbps for a 16 kHz mono AAC
-                    // encoder. Keep lower-rate archives/imports readable.
-                    AVEncoderBitRateKey: min(64_000, Int(inputFormat.sampleRate) * 2),
+                    AVEncoderBitRateKey: 64_000,
                 ],
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false)
