@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = "0.6.0-beta.17",
+    [string]$Version = "0.6.0",
 
     [Parameter(Mandatory = $false)]
     [string]$CertificatePath,
@@ -41,12 +41,12 @@ $arguments = @(
     "--packVersion", $Version,
     "--packDir", $publishDirectory,
     "--mainExe", "Amanu.exe",
-    "--packTitle", "Amanu Beta",
+    "--packTitle", "Amanu",
     "--packAuthors", "Amanu",
     "--icon", (Join-Path $windowsRoot "src\Amanu.App\Assets\Amanu.ico"),
-    "--channel", "beta",
+    "--channel", "stable",
     "--runtime", "win-x64",
-    "--releaseNotes", (Join-Path $windowsRoot "BETA.md"),
+    "--releaseNotes", (Join-Path $windowsRoot "RELEASE_NOTES.md"),
     "--outputDir", $releaseDirectory
 )
 
@@ -59,5 +59,5 @@ if ($CertificatePath) {
 }
 
 & (Join-Path $toolDirectory "vpk.exe") @arguments
-if ($LASTEXITCODE -ne 0) { throw "Could not package the Windows beta installer." }
-Write-Host "Amanu beta artifacts: $releaseDirectory"
+if ($LASTEXITCODE -ne 0) { throw "Could not package the Windows installer." }
+Write-Host "Amanu release artifacts: $releaseDirectory"

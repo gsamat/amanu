@@ -18,7 +18,7 @@ public enum UpdateOutcome
 public sealed record UpdateResult(UpdateOutcome Outcome, string Message);
 
 /// <summary>
-/// The beta channel on GitHub releases. An update is downloaded in the background
+/// The stable channel on GitHub releases. An update is downloaded in the background
 /// and never applied while a meeting records or a session is being processed.
 /// </summary>
 public static class UpdateService
@@ -27,8 +27,8 @@ public static class UpdateService
     private static UpdateInfo? pending;
 
     private static UpdateManager Manager => manager ??= new UpdateManager(
-        new GithubSource("https://github.com/gsamat/amanu", accessToken: null, prerelease: true),
-        new UpdateOptions { ExplicitChannel = "beta" });
+        new GithubSource("https://github.com/gsamat/amanu", accessToken: null, prerelease: false),
+        new UpdateOptions { ExplicitChannel = "stable" });
 
     public static async Task<UpdateResult> CheckAsync(Func<bool> busy, bool interactive, CancellationToken cancellationToken)
     {

@@ -181,6 +181,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
     public RecordingState State => coordinator.State;
     public AutoRecordPolicy AutoRecord => coordinator.Policy;
     public bool IsProcessing => processing.IsBusy;
+    public string LiveStatus => liveTranscription.Status;
     public LanguageModels LanguageModels => processing.LanguageModels;
     public HttpClient Http => httpClient;
 
@@ -247,6 +248,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
 
     public async Task StartAsync()
     {
+        _ = liveTranscription.RefreshAsync();
         if (!ConfigUnreadable && !IsTestInstance)
         {
             try { StartupRegistration.SetEnabled(Settings.StartAtLogin); }

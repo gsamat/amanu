@@ -7,7 +7,15 @@ using System.Text.Json;
 namespace Amanu.App;
 
 /// <summary>A native decoder crash must never take the durable recorder down with it.</summary>
-internal sealed class LiveSpeechWorker : IAsyncDisposable
+internal interface ILiveSpeechWorker : IAsyncDisposable
+{
+    string Text { get; }
+    bool Healthy { get; }
+    Task FeedAsync(float[] samples, int count, CancellationToken token);
+    Task CommandAsync(byte command, CancellationToken token);
+}
+
+internal sealed class LiveSpeechWorker : ILiveSpeechWorker
 {
     private const string Prefix = "AmanuLive:";
     private readonly Process process;

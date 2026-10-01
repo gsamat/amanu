@@ -24,7 +24,7 @@ $payloadPaths = @('Amanu.exe', 'Amanu.dll', 'Amanu.Core.dll', 'local-runtime/tra
 foreach ($relativePath in $payloadPaths) {
     Assert-CompanySignature (Join-Path $PublishDirectory $relativePath)
 }
-Assert-CompanySignature (Join-Path $ReleaseDirectory 'Amanu-beta-Setup.exe')
+Assert-CompanySignature (Join-Path $ReleaseDirectory 'Amanu-stable-Setup.exe')
 
 $packages = @(Get-ChildItem -LiteralPath $ReleaseDirectory -File | Where-Object {
     $_.Name -like '*-full.nupkg' -or $_.Name -like '*-Portable.zip'

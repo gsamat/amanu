@@ -3,6 +3,11 @@
 Live transcription uses the Nemotron 3.5 streaming model locally, independently
 of the engine selected for the final transcript. Download the live model in
 Settings. It is about 750 MB; its checksum and URL are pinned in `ModelCatalog`.
+When enabled, live decoders preload at startup, when the setting is switched on,
+or when the model download completes. The idle status changes from loading to
+ready. Starting a recording reuses the loaded decoders, including a load already
+in progress. Stopping resets decoder context and keeps the models ready for the
+next recording; disabling live transcription or quitting releases them.
 
 Microphone and system audio each have a persistent CPU model and decoder in a
 separate child process. A native decoder failure stops live recognition while
@@ -24,7 +29,8 @@ when no utterance is active. The original WAV tracks receive every packet.
 Partial text replaces the current paragraph. Pauses close a paragraph; continuous
 utterances are limited to sixty seconds of decoder context. Stop finishes the
 current decoder call and short tail, with a five-second grace period before
-cancellation. Final transcription starts after the live models have been freed.
+cancellation. Final transcription starts after live decoding releases the CPU.
+Warm idle decoders retain model memory but do not reserve CPU or block the queue.
 If a previous recording is still being transcribed, live interrupts its batch
 pass and reserves CPU until it stops. The batch pass then retries automatically;
 this interruption does not consume a processing attempt or modify the recording.

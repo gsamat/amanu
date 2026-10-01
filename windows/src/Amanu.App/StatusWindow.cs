@@ -58,7 +58,6 @@ internal sealed class StatusWindow : Window
     private bool operationPending;
     private bool wasRecording;
     private bool? wasLiveEnabled;
-    private string recognitionStatus = "";
     private bool allowClose;
     private readonly Dictionary<long, (Paragraph Paragraph, Run Text)> liveParagraphs = [];
 
@@ -151,11 +150,7 @@ internal sealed class StatusWindow : Window
         runtime.SettingsChanged += (_, _) => Dispatcher.InvokeAsync(Refresh);
         runtime.ProcessingStatusChanged += (_, status) => Dispatcher.InvokeAsync(() => ShowProcessing(status));
         runtime.LiveLineReady += (_, line) => Dispatcher.InvokeAsync(() => AppendLive(line));
-        runtime.LiveStatusChanged += (_, text) => Dispatcher.InvokeAsync(() =>
-        {
-            recognitionStatus = text;
-            RefreshLivePlaceholder();
-        });
+        runtime.LiveStatusChanged += (_, _) => Dispatcher.InvokeAsync(RefreshLivePlaceholder);
         // With no tray icon there is no balloon to show, so what it would have
         // said is said here instead.
         runtime.NotificationRequested += (_, notice) => Dispatcher.InvokeAsync(() =>
@@ -214,7 +209,6 @@ internal sealed class StatusWindow : Window
             {
                 liveText.Document.Blocks.Clear();
                 liveParagraphs.Clear();
-                recognitionStatus = "";
                 ShowLive(runtime.Settings.LiveTranscription.Enabled);
                 await runtime.StartManualAsync();
             }
@@ -263,7 +257,6 @@ internal sealed class StatusWindow : Window
         if (wasLiveEnabled != settings.LiveTranscription.Enabled)
         {
             wasLiveEnabled = settings.LiveTranscription.Enabled;
-            recognitionStatus = "";
             ShowLive(settings.LiveTranscription.Enabled);
         }
         if (!wasRecording && current.IsRecording)
@@ -338,9 +331,10 @@ internal sealed class StatusWindow : Window
 
     private void RefreshLivePlaceholder()
     {
+        var recognitionStatus = runtime.LiveStatus;
         var current = runtime.State;
         var enabled = runtime.Settings.LiveTranscription.Enabled;
-        liveStatus.Text = current.IsRecording && enabled ? recognitionStatus : "";
+        liveStatus.Text = enabled ? recognitionStatus : "";
         liveStatus.Visibility = string.IsNullOrWhiteSpace(liveStatus.Text) ? Visibility.Collapsed : Visibility.Visible;
         livePlaceholder.Visibility = liveParagraphs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         livePlaceholder.Text = !runtime.Settings.Transcription.Enabled

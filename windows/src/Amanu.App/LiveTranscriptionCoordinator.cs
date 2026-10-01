@@ -16,6 +16,11 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
     private readonly ModelManager models;
     private readonly Func<AppSettings> settings;
     private readonly SemaphoreSlim transitions = new(1);
+    private readonly Func<string?, int, CancellationToken, Task<ILiveSpeechWorker>> createWorker;
+    private CancellationTokenSource? preparationCancellation;
+    private Task<Prepared?>? preparation;
+    private string? preparedLanguage;
+    private string status = "";
     private CancellationTokenSource? cancellation;
     private Task worker = Task.CompletedTask;
     private Run? active;
@@ -23,10 +28,18 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
     private bool disposed;
 
     public LiveTranscriptionCoordinator(ILiveAudioSource capture, ModelManager models, Func<AppSettings> settings)
+        : this(capture, models, settings, async (language, threads, token) =>
+            await LiveSpeechWorker.CreateAsync(models.LiveRuntimeDirectory, models.ModelPath("nemotron-live"), language, threads, token).ConfigureAwait(false))
+    {
+    }
+
+    internal LiveTranscriptionCoordinator(ILiveAudioSource capture, ModelManager models, Func<AppSettings> settings,
+        Func<string?, int, CancellationToken, Task<ILiveSpeechWorker>> createWorker)
     {
         this.capture = capture;
         this.models = models;
         this.settings = settings;
+        this.createWorker = createWorker;
         capture.LiveAudioAvailable += OnAudio;
         capture.CaptureStarted += OnStarted;
         capture.LiveStopping = StopAsync;
@@ -35,6 +48,12 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
     public event EventHandler<LiveLine>? LineReady;
     public event EventHandler<string>? StatusChanged;
     public event EventHandler<LiveDiagnostic>? Diagnostic;
+    public string Status => Volatile.Read(ref status);
+    private void SetStatus(string value)
+    {
+        Volatile.Write(ref status, value);
+        StatusChanged?.Invoke(this, value);
+    }
     private void OnStarted(object? sender, EventArgs args) => _ = RefreshAsync();
 
     public async Task RefreshAsync()
@@ -42,46 +61,98 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
         await transitions.WaitAsync().ConfigureAwait(false);
         try
         {
-            await StopCoreAsync().ConfigureAwait(false);
             var current = settings();
-            if (disposed || !capture.IsRunning || !current.LiveTranscription.Enabled || !current.Transcription.Enabled) return;
-            if (!models.IsReady("nemotron-live"))
+            if (disposed || !current.LiveTranscription.Enabled || !current.Transcription.Enabled)
             {
-                StatusChanged?.Invoke(this, T("Download the live model in Settings", "Скачайте модель лайва в настройках"));
+                await StopCoreAsync().ConfigureAwait(false);
+                await ClearPreparationAsync().ConfigureAwait(false);
+                SetStatus("");
                 return;
             }
-            StatusChanged?.Invoke(this, T("loading…", "загрузка…"));
-            cancellation = new CancellationTokenSource();
-            var source = cancellation;
+            if (!models.IsReady("nemotron-live"))
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+                await ClearPreparationAsync().ConfigureAwait(false);
+                SetStatus(T("Download the live model in Settings", "Скачайте модель лайва в настройках"));
+                return;
+            }
             var language = MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)) is "en" ? "en-US" : null;
-            worker = Task.Run(() => RunAsync(source, language));
+            if (preparation is null || preparedLanguage != language
+                || (preparation.IsCompletedSuccessfully && preparation.Result is not { Healthy: true }))
+            {
+                await StopCoreAsync().ConfigureAwait(false);
+                await ClearPreparationAsync().ConfigureAwait(false);
+                preparedLanguage = language;
+                preparationCancellation = new CancellationTokenSource();
+                var token = preparationCancellation.Token;
+                SetStatus(T("loading…", "загрузка…"));
+                preparation = Task.Run(() => PrepareAsync(language, token));
+            }
+            if (capture.IsRunning && cancellation is null)
+            {
+                cancellation = new CancellationTokenSource();
+                worker = RunAsync(cancellation, preparation);
+            }
         }
         finally { transitions.Release(); }
     }
 
-    private async Task RunAsync(CancellationTokenSource source, string? language)
+    private async Task<Prepared?> PrepareAsync(string? language, CancellationToken token)
     {
-        var token = source.Token;
+        ILiveSpeechWorker? mic = null;
+        ILiveSpeechWorker? system = null;
         try
         {
+            // Loading uses the CPU, but warm idle decoders must not block final transcripts.
             using var cpu = await models.CpuTranscription.EnterLiveAsync(token).ConfigureAwait(false);
-            // Load before accepting audio; no backlog accumulates during preload.
             var threads = Math.Clamp(Environment.ProcessorCount / 4, 1, 4);
-            await using var mic = await LiveSpeechWorker.CreateAsync(models.LiveRuntimeDirectory, models.ModelPath("nemotron-live"), language, threads, token).ConfigureAwait(false);
+            mic = await createWorker(language, threads, token).ConfigureAwait(false);
+            system = await createWorker(language, threads, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            await using var system = await LiveSpeechWorker.CreateAsync(models.LiveRuntimeDirectory, models.ModelPath("nemotron-live"), language, threads, token).ConfigureAwait(false);
-            token.ThrowIfCancellationRequested();
-            var run = new Run(source);
-            Volatile.Write(ref active, run);
-            StatusChanged?.Invoke(this, T("live", "в реальном времени"));
-            await Task.WhenAll(ConsumeAsync(run, run.Mic, mic, SpeakerLabels.Me),
-                ConsumeAsync(run, run.System, system, SpeakerLabels.Them)).ConfigureAwait(false);
+            if (!capture.IsRunning) SetStatus(T("ready", "готово"));
+            return new Prepared(mic, system);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception exception)
         {
+            SetStatus(T("live unavailable: ", "лайв недоступен: ") + exception.Message);
+        }
+        if (system is not null) await system.DisposeAsync().ConfigureAwait(false);
+        if (mic is not null) await mic.DisposeAsync().ConfigureAwait(false);
+        return null;
+    }
+
+    private async Task RunAsync(CancellationTokenSource source, Task<Prepared?> prepared)
+    {
+        var token = source.Token;
+        Prepared? decoders = null;
+        try
+        {
+            decoders = await prepared.WaitAsync(token).ConfigureAwait(false);
+            if (decoders is null) return;
+            using var cpu = await models.CpuTranscription.EnterLiveAsync(token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            var mic = decoders.Mic;
+            var system = decoders.System;
+            var run = new Run(source);
+            Volatile.Write(ref active, run);
+            SetStatus(T("live", "в реальном времени"));
+            await Task.WhenAll(ConsumeAsync(run, run.Mic, mic, SpeakerLabels.Me),
+                ConsumeAsync(run, run.System, system, SpeakerLabels.Them)).ConfigureAwait(false);
+            // A fresh session must never inherit the previous session's decoder state.
+            using var reset = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            await mic.CommandAsync(2, reset.Token).ConfigureAwait(false);
+            await system.CommandAsync(2, reset.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            if (decoders is not null) decoders.Invalid = true;
+        }
+        catch (Exception exception)
+        {
+            if (decoders is not null) decoders.Invalid = true;
             source.Cancel();
-            StatusChanged?.Invoke(this, T("live stopped · recording continues: ", "лайв остановлен · запись продолжается: ") + exception.Message);
+            SetStatus(T("live stopped · recording continues: ", "лайв остановлен · запись продолжается: ") + exception.Message);
         }
         finally { Volatile.Write(ref active, null); }
     }
@@ -101,10 +172,10 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
         if (Interlocked.Exchange(ref run.Overloaded, 1) != 0) return;
         Diagnostic?.Invoke(this, new LiveDiagnostic(speaker, reason, 0, lag));
         try { run.Source.Cancel(); } catch (ObjectDisposedException) { return; }
-        StatusChanged?.Invoke(this, T("live stopped: can't keep up · recording continues", "лайв остановлен: не успеваю · запись продолжается"));
+        SetStatus(T("live stopped: can't keep up · recording continues", "лайв остановлен: не успеваю · запись продолжается"));
     }
 
-    private async Task ConsumeAsync(Run run, LiveAudioQueue<Packet> queue, LiveSpeechWorker stream, string speaker)
+    private async Task ConsumeAsync(Run run, LiveAudioQueue<Packet> queue, ILiveSpeechWorker stream, string speaker)
     {
         var token = run.Source.Token;
         LiveAudioResampler? resampler = null;
@@ -251,10 +322,21 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
             catch (TimeoutException) { await cancellation.CancelAsync().ConfigureAwait(false); }
         }
         else await cancellation.CancelAsync().ConfigureAwait(false);
-        await worker.ConfigureAwait(false); // Free models before handing the session to final processing.
+        await worker.ConfigureAwait(false); // Release the CPU before handing the session to final processing.
         cancellation.Dispose();
         cancellation = null;
-        StatusChanged?.Invoke(this, "");
+        if (preparation is { IsCompletedSuccessfully: true } && preparation.Result is { Healthy: true })
+            SetStatus(T("ready", "готово"));
+    }
+    private async Task ClearPreparationAsync()
+    {
+        if (preparationCancellation is null) return;
+        await preparationCancellation.CancelAsync().ConfigureAwait(false);
+        var decoders = await preparation!.ConfigureAwait(false);
+        if (decoders is not null) await decoders.DisposeAsync().ConfigureAwait(false);
+        preparationCancellation.Dispose();
+        preparationCancellation = null;
+        preparation = null;
     }
     public async ValueTask DisposeAsync()
     {
@@ -262,7 +344,17 @@ public sealed class LiveTranscriptionCoordinator : IAsyncDisposable
         capture.LiveAudioAvailable -= OnAudio;
         capture.CaptureStarted -= OnStarted;
         capture.LiveStopping = null;
-        await StopAsync().ConfigureAwait(false);
+        await RefreshAsync().ConfigureAwait(false);
+    }
+    private sealed record Prepared(ILiveSpeechWorker Mic, ILiveSpeechWorker System) : IAsyncDisposable
+    {
+        public bool Invalid;
+        public bool Healthy => !Invalid && Mic.Healthy && System.Healthy;
+        public async ValueTask DisposeAsync()
+        {
+            await System.DisposeAsync().ConfigureAwait(false);
+            await Mic.DisposeAsync().ConfigureAwait(false);
+        }
     }
     private sealed record Packet(byte[] Data, WaveFormat Format, bool Silent, long OffsetMs);
     private sealed class Run(CancellationTokenSource source)
