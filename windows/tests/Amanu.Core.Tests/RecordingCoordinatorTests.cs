@@ -95,6 +95,40 @@ public sealed class RecordingCoordinatorTests
         Assert.Empty(Directory.GetDirectories(root.Path));
     }
 
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(44, true)]
+    [InlineData(45, false)]
+    public async Task Default_three_second_start_still_discards_only_short_automatic_recordings(
+        int recordedCallSeconds, bool discard)
+    {
+        using var root = new TemporaryDirectory();
+        var capture = new InspectableCapture();
+        var defaults = new Amanu.Core.Configuration.AutoRecordSettings();
+        var options = new AutoRecordOptions(true,
+            TimeSpan.FromSeconds(defaults.StartDelaySeconds), TimeSpan.FromSeconds(defaults.StopDelaySeconds),
+            TimeSpan.FromSeconds(defaults.MinimumDurationSeconds), TimeSpan.FromMinutes(defaults.SilenceStopMinutes),
+            TimeSpan.FromMinutes(defaults.MaximumDurationMinutes));
+        await using var coordinator = new RecordingCoordinator(
+            new SessionStore(root.Path, processId: 99), new AutoRecordPolicy(options), capture);
+        bool? discarded = null;
+        coordinator.RecordingCompleted += (_, recording) => discarded = recording.Discarded;
+
+        await coordinator.ObserveAsync(Observation(Started, "Zoom.exe"));
+        await coordinator.ObserveAsync(Observation(Started.AddSeconds(2), "Zoom.exe"));
+        Assert.False(coordinator.State.IsRecording);
+        await coordinator.ObserveAsync(Observation(Started.AddSeconds(3), "Zoom.exe"));
+        Assert.True(coordinator.State.IsRecording);
+
+        var released = Started.AddSeconds(3 + recordedCallSeconds);
+        await coordinator.ObserveAsync(Released(released));
+        await coordinator.ObserveAsync(Released(released.AddSeconds(15)));
+
+        Assert.False(coordinator.State.IsRecording);
+        Assert.Equal(discard, discarded);
+        Assert.Equal(!discard, Directory.Exists(capture.StartedSession!.Directory));
+    }
+
     [Fact]
     public async Task A_failing_automatic_start_backs_off_instead_of_retrying_every_second()
     {

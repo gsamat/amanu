@@ -117,7 +117,7 @@ public sealed class AutoRecordSettings
     public bool MicrophoneActivity { get; set; } = true;
 
     [JsonPropertyName("start_delay_seconds")]
-    public int StartDelaySeconds { get; set; } = 12;
+    public int StartDelaySeconds { get; set; } = 3;
 
     [JsonPropertyName("stop_delay_seconds")]
     public int StopDelaySeconds { get; set; } = 15;

@@ -124,6 +124,31 @@ struct ManualStopAutoRecordTests {
         var date = Date(timeIntervalSince1970: 1_800_000_000)
     }
 
+    @Test("The default start waits three seconds rather than losing twelve seconds of the call")
+    func defaultStartWaitsThreeSeconds() {
+        let clock = Clock()
+        let settings = Config.AutoRecordSettings()
+        var starts = 0
+        let controller = AutoRecordController(
+            settings: settings,
+            calendar: nil,
+            loadSettings: { settings },
+            checkMic: { _ in
+                MicActivityMonitor.Result(active: true, names: ["zoom.us"],
+                    families: ["us.zoom.xos"], allHolders: ["zoom.us"])
+            },
+            now: { clock.date }
+        )
+        controller.startRecording = { _, _ in starts += 1; return true }
+        controller.tick()
+        clock.date.addTimeInterval(2)
+        controller.tick()
+        #expect(starts == 0)
+        clock.date.addTimeInterval(1)
+        controller.tick()
+        #expect(starts == 1)
+    }
+
     private func controller(
         clock: Clock,
         micActive: @escaping () -> Bool,
