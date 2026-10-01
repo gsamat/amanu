@@ -26,7 +26,7 @@ internal sealed class TrayIconService : IDisposable
     private readonly MenuItem stateItem = new() { IsEnabled = false };
     private readonly MenuItem recordItem = new();
     private readonly MenuItem pauseItem = new();
-    private readonly MenuItem autoRecordItem = new() { Header = T("Record meetings automatically", "Записывать встречи сама"), IsCheckable = true };
+    private readonly MenuItem autoRecordItem = new() { Header = T("Record meetings automatically", "Записывать встречи автоматически"), IsCheckable = true };
     private readonly ContextMenu menu = new();
     private readonly System.Windows.Threading.DispatcherTimer clock = new() { Interval = TimeSpan.FromSeconds(1) };
 

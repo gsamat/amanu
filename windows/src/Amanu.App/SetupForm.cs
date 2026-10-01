@@ -86,7 +86,7 @@ internal sealed class SetupForm
     private readonly CheckBox tray = Ui.Switch(T("In the notification area", "В области уведомлений"));
     private readonly CheckBox taskbar = Ui.Switch(T("On the taskbar", "На панели задач"));
     private readonly TextBlock noIconsNote = Ui.Status();
-    private readonly CheckBox autoRecord = Ui.Switch(T("Record meetings automatically", "Записывать встречи сама"));
+    private readonly CheckBox autoRecord = Ui.Switch(T("Record meetings automatically", "Записывать встречи автоматически"));
     private readonly TextBlock autoRecordDetail = Ui.Detail("");
     private readonly CheckBox analytics = Ui.Switch(T("Send usage statistics", "Отправлять статистику об использовании"));
 
@@ -155,7 +155,7 @@ internal sealed class SetupForm
             noIconsNote)));
 
         var autoBox = Ui.Box(Ui.Row(autoRecord,
-            Ui.Title(T("Start recording automatically when a call app takes the mic", "Начинать запись, когда приложение звонка берёт микрофон")),
+            Ui.Title(T("Record meetings automatically", "Записывать встречи автоматически")),
             autoRecordDetail));
         autoBox.Margin = new Thickness(0, 0, 0, Ui.SectionGap);
         View.Children.Add(autoBox);
@@ -750,7 +750,7 @@ internal sealed class SetupForm
             noIconsNote.Visibility = noIconsNote.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             autoRecord.IsChecked = settings.AutoRecord.Enabled;
             autoRecordDetail.Text = T($"And stop when it lets go. A call shorter than {settings.AutoRecord.MinimumDurationSeconds} seconds is thrown away.",
-                $"И заканчивать, когда отпустит. Звонок короче {settings.AutoRecord.MinimumDurationSeconds} секунд выбрасывается.");
+                $"Звонки короче {settings.AutoRecord.MinimumDurationSeconds} секунд игнорируются.");
             analytics.IsChecked = settings.Analytics;
         }
         finally

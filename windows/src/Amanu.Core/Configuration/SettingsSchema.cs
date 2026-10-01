@@ -64,7 +64,7 @@ public static class SettingsSchema
         new(T("Recording by itself", "Запись сама по себе"),
         [
             new("auto_record.enabled",
-                T("Record meetings automatically", "Записывать встречи сама"),
+                T("Record meetings automatically", "Записывать встречи автоматически"),
                 T("Start and stop on their own when a call begins and ends.",
                   "Запись начинается и заканчивается сама, вместе со звонком."),
                 SettingKind.Toggle, AskedInSetup: true),

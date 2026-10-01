@@ -33,7 +33,7 @@ internal sealed class StatusWindow : Window
     private readonly TextBlock problemLine = Ui.Status("", Ui.Caution);
     private readonly System.Windows.Controls.Button record;
     private readonly System.Windows.Controls.Button pause;
-    private readonly CheckBox autoRecord = new ClickCheckBox { Content = T("Record meetings automatically", "Записывать встречи сама") };
+    private readonly CheckBox autoRecord = new ClickCheckBox { Content = T("Record meetings automatically", "Записывать встречи автоматически") };
     private readonly TextBlock decision = Ui.Status();
     private readonly CheckBox live = new ClickCheckBox { Content = T("Live transcript", "Расшифровка на ходу") };
     private readonly TextBlock liveStatus = Ui.Status();
