@@ -337,7 +337,7 @@ struct CloudHTTPTests {
 
     // MARK: -
 
-    /// One stereo recording in a folder of its own, and a record of every
+    /// One mono recording in a folder of its own, and a record of every
     /// pause the engine asked for instead of taking it.
     private struct Fixture {
         let dir: URL
@@ -349,7 +349,7 @@ struct CloudHTTPTests {
                 .appendingPathComponent("amanu-cloud-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             audio = dir.appendingPathComponent("multichannel.caf")
-            try Self.stereo(audio, seconds: 1)
+            try Self.stereo(audio, seconds: 1, channels: 1)
         }
 
         var sleeps: [Duration] { slept.withLock { $0 } }
@@ -359,7 +359,7 @@ struct CloudHTTPTests {
         }
 
         func jobFile(for engine: AssemblyAIEngine) async -> URL {
-            await engine.cacheURL(for: audio, multichannel: true)
+            await engine.cacheURL(for: audio, multichannel: false)
                 .deletingPathExtension().appendingPathExtension("job.json")
         }
 
@@ -397,18 +397,18 @@ struct CloudHTTPTests {
             }
         }
 
-        private static func stereo(_ url: URL, seconds: Double) throws {
+        private static func stereo(_ url: URL, seconds: Double, channels: AVAudioChannelCount = 2) throws {
             let rate = 16_000.0
             let format = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 2, interleaved: false)!
+                commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: channels, interleaved: false)!
             let file = try AVAudioFile(
                 forWriting: url,
-                settings: AudioFormats.pcmSettings(sampleRate: rate, channels: 2),
+                settings: AudioFormats.pcmSettings(sampleRate: rate, channels: channels),
                 commonFormat: .pcmFormatFloat32, interleaved: false)
             let frames = AVAudioFrameCount(seconds * rate)
             let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
             buffer.frameLength = frames
-            for channel in 0..<2 {
+            for channel in 0..<Int(channels) {
                 for i in 0..<Int(frames) {
                     buffer.floatChannelData![channel][i] = 0.2 * Float(sin(Double(i) * 0.05))
                 }

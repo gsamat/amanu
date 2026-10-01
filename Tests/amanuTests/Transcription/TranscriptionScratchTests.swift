@@ -101,7 +101,7 @@ struct TranscriptionScratchTests {
 
         let transcript = try #require(PostProcessor.readTranscript(dir))
         #expect(transcript.segments.map(\.text) == ["what the new model heard"])
-        #expect(service.requests(to: "/v2/upload").count == 1)
+        #expect(service.requests(to: "/v2/upload").count == 2)
     }
 
     @Test("A finished transcription leaves no cached answer and no echo folder behind")

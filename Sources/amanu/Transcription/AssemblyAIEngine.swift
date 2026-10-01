@@ -2,9 +2,10 @@ import AVFoundation
 import CryptoKit
 import Foundation
 
-/// AssemblyAI, with speaker diarization, over aligned two-channel audio.
+/// AssemblyAI detects language and diarizes each channel of aligned audio
+/// independently, so a long English call cannot force a Russian mic into English.
 ///
-/// The one part of amanu that isn't local: the mix is uploaded, transcribed
+/// The one part of amanu that isn't local: each channel is uploaded, transcribed
 /// server-side, and polled until done. In exchange you get a model that
 /// handles Russian properly and real diarization — so a call with three people
 /// on the far side comes back as three speakers instead of one "them".
@@ -83,8 +84,8 @@ actor AssemblyAIEngine: TranscriptionEngine {
     nonisolated let input: TranscriptionInput = .multichannel
 
     private let apiKey: String
-    /// The languages this meeting may be in. The API is told to detect within
-    /// them rather than to assume the first: `language_code` is a pin, and a
+    /// The languages this meeting may be in. They guide detection rather
+    /// than forcing the first: `language_code` is a pin, and a
     /// pin on the wrong language is where this engine returns fluent phonetic
     /// garbage instead of failing.
     private let expected: [String]
@@ -124,8 +125,42 @@ actor AssemblyAIEngine: TranscriptionEngine {
         // for mono, which turned channel-qualified labels into bare "A" and
         // "B" and quietly switched off the echo filter downstream.
         let channels = try AVAudioFile(forReading: audio).processingFormat.channelCount
-        let multichannel = channels > 1
-        let cache = cacheURL(for: audio, multichannel: multichannel)
+        if channels > 1 {
+            var all: [TranscriptSegment] = []
+            for index in 0..<Int(channels) {
+                let cache = channelCacheURL(for: audio, channel: index)
+                let extracted = FileManager.default.temporaryDirectory.appendingPathComponent(
+                    "amanu-assemblyai-\(UUID().uuidString)-channel\(index + 1).m4a")
+                defer { try? FileManager.default.removeItem(at: extracted) }
+                do {
+                    try await Task.detached(priority: .utility) {
+                        try AudioChannelExtractor.extract(channel: index, from: audio, to: extracted)
+                    }.value
+                    let segments = try await transcribeMono(extracted, duration: audioDuration, cache: cache)
+                    all += segments.map {
+                        TranscriptSegment(start: $0.start, end: $0.end, text: $0.text,
+                            speaker: "\(index + 1)" + String(($0.speaker ?? "").drop(while: { $0.isNumber })))
+                    }
+                } catch let error as EngineError {
+                    switch error {
+                    case .empty: continue
+                    case .transcriptFailed(let message) where message.lowercased().contains("no spoken audio"):
+                        // Keep the silent verdict if the other channel later
+                        // needs a retry; it must not be uploaded again.
+                        try? Data(#"{"status":"completed","text":"","utterances":[]}"#.utf8).write(to: cache, options: .atomic)
+                        continue
+                    default: throw error
+                    }
+                }
+            }
+            guard !all.isEmpty else { throw EngineError.empty }
+            return all.sorted { $0.start < $1.start }
+        }
+        return try await transcribeMono(audio, duration: audioDuration,
+            cache: cacheURL(for: audio, multichannel: false))
+    }
+
+    private func transcribeMono(_ audio: URL, duration audioDuration: TimeInterval, cache: URL) async throws -> [TranscriptSegment] {
         let job = cache.deletingPathExtension().appendingPathExtension("job.json")
 
         let response: TranscriptResponse
@@ -135,7 +170,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
             note("reusing cached \(cache.lastPathComponent)")
             response = decoded
         } else {
-            let (decoded, raw) = try await result(of: audio, multichannel: multichannel, job: job)
+            let (decoded, raw) = try await result(of: audio, multichannel: false, job: job)
             try? raw.write(to: cache, options: .atomic)
             try? FileManager.default.removeItem(at: job)
             response = decoded
@@ -263,9 +298,14 @@ actor AssemblyAIEngine: TranscriptionEngine {
         ProviderCache.url(
             in: audio.deletingLastPathComponent(), provider: .assemblyAI,
             parts: [
-                audio.lastPathComponent, speechModel ?? "universal",
+                "independent-channels-code-switching-v2", audio.lastPathComponent, speechModel ?? "universal",
                 expected.joined(separator: "+"), multichannel ? "multichannel" : "mono",
             ])
+    }
+
+    func channelCacheURL(for audio: URL, channel: Int) -> URL {
+        cacheURL(for: audio, multichannel: true).deletingPathExtension()
+            .appendingPathExtension("channel\(channel + 1).json")
     }
 
     // MARK: - API
@@ -321,12 +361,14 @@ actor AssemblyAIEngine: TranscriptionEngine {
             // any hint applies independently to every channel.
         ]
         if multichannel { body["multichannel"] = true }
+        // Detection alone chooses the dominant language. Universal-2 needs
+        // code switching explicitly, including on the automatic setting.
+        var detection: [String: Any] = ["code_switching": true]
         if let primary = expectedLanguages.first {
-            body["language_detection_options"] = [
-                "expected_languages": expectedLanguages,
-                "fallback_language": primary,
-            ]
+            detection["expected_languages"] = expectedLanguages
+            detection["fallback_language"] = primary
         }
+        body["language_detection_options"] = detection
         if let speechModel { body["speech_model"] = speechModel }
         return body
     }
