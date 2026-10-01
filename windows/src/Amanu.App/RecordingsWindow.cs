@@ -34,8 +34,8 @@ internal sealed class RecordingsWindow : Window
     };
     private readonly TextBlock title = Ui.Title("");
     private readonly TextBlock problem = Ui.Status("", Ui.Caution);
-    private readonly TextBox summary = ReadOnlyText();
-    private readonly TextBox transcript = ReadOnlyText();
+    private readonly MarkdownPreview summary = new();
+    private readonly MarkdownPreview transcript = new();
     private readonly TabControl engineTabs = new() { Margin = new Thickness(0, 8, 0, 0), Visibility = Visibility.Collapsed };
     private readonly TextBlock processingStatus = Ui.Status("");
     private readonly StackPanel speakers = new() { Margin = new Thickness(12) };
@@ -176,17 +176,6 @@ internal sealed class RecordingsWindow : Window
         Width = width > 0 ? new DataGridLength(width) : new DataGridLength(1, DataGridLengthUnitType.Star),
     };
 
-    private static TextBox ReadOnlyText() => new()
-    {
-        IsReadOnly = true,
-        TextWrapping = TextWrapping.Wrap,
-        AcceptsReturn = true,
-        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        BorderThickness = new Thickness(0),
-        Padding = new Thickness(12),
-        FontSize = 14,
-    };
-
     private async Task ReloadAsync()
     {
         if (loading) { reloadRequested = true; return; }
@@ -228,8 +217,8 @@ internal sealed class RecordingsWindow : Window
         if (Selected is not { } row)
         {
             title.Text = "";
-            summary.Clear();
-            transcript.Clear();
+            summary.ShowText("");
+            transcript.ShowText("");
             return;
         }
         var item = row.Item;
@@ -275,8 +264,8 @@ internal sealed class RecordingsWindow : Window
             var emptySummary = item is null ? "" : await ReadAsync(Path.Combine(item.Directory, "summary.md"))
                 ?? T("No summary yet.", "Саммари пока нет.");
             if (version != transcriptShown) return;
-            transcript.Text = T("No transcript yet.", "Расшифровки пока нет.");
-            summary.Text = emptySummary;
+            transcript.ShowText(T("No transcript yet.", "Расшифровки пока нет."));
+            summary.ShowMarkdown(emptySummary);
             speakers.Children.Add(Ui.Detail(T("Speakers appear once there is a transcript.", "Участники появятся, когда будет расшифровка.")));
             return;
         }
@@ -284,8 +273,8 @@ internal sealed class RecordingsWindow : Window
         var directory = choice.Version.Directory;
         if (choice.Version.State != ProcessingStep.Done)
         {
-            transcript.Text = choice.Label + "\n\n" + (item?.Problem ?? T("Earlier transcripts are available in the tabs above.", "Предыдущие расшифровки доступны во вкладках выше."));
-            summary.Text = T("No summary for this transcript yet.", "Саммари этой расшифровки пока нет.");
+            transcript.ShowText(choice.Label + "\n\n" + (item?.Problem ?? T("Earlier transcripts are available in the tabs above.", "Предыдущие расшифровки доступны во вкладках выше.")));
+            summary.ShowText(T("No summary for this transcript yet.", "Саммари этой расшифровки пока нет."));
             speakers.Children.Add(Ui.Detail(T("Speakers appear once this transcript is ready.", "Участники появятся, когда эта расшифровка будет готова.")));
             return;
         }
@@ -295,8 +284,8 @@ internal sealed class RecordingsWindow : Window
         if (File.Exists(Path.Combine(directory, "summary.stale")))
             summaryText = T("This summary refers to the previous transcript.\n\n", "Это саммари предыдущей расшифровки.\n\n") + summaryText;
         if (version != transcriptShown) return;
-        transcript.Text = text;
-        summary.Text = summaryText;
+        transcript.ShowMarkdown(text);
+        summary.ShowMarkdown(summaryText);
         await ShowSpeakersAsync(directory, item?.Title ?? "", version);
     }
 

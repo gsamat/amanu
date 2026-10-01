@@ -1,3 +1,11 @@
+# Amanu for Windows 0.6.1
+
+- Transcript and summary previews render Markdown headings, emphasis, lists,
+  quotes, code, links, task lists and tables. Text can be selected and copied,
+  including previews of earlier transcript versions.
+- Existing Markdown files display with formatting immediately; meetings do not
+  need to be transcribed or summarized again.
+
 # Amanu for Windows 0.6.0
 
 Amanu records meeting audio on Windows 11 x64, transcribes conversations,

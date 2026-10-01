@@ -22,6 +22,10 @@ license texts are included in every application bundle under
 Amanu itself is available under the [MIT license](LICENSE), retaining the
 copyright and license notice of the quill project from which it began.
 
+The Windows edition also uses [Markdig 1.4.0](https://github.com/xoofx/markdig)
+under the BSD 2-Clause license to parse Markdown previews. Its license is
+included in the Windows distribution at `Licenses/Markdig.txt`.
+
 The LocalVQE build uses a small Amanu macOS packaging patch to produce one
 self-contained Intel dylib instead of runtime-loaded CPU-variant libraries.
 The inference implementation and model are otherwise the pinned upstream work.
