@@ -30,7 +30,7 @@ BUILT = $(shell swift build -c release --arch arm64 --arch x86_64 --show-bin-pat
 # nothing here.
 APP        = .build/Amanu.app
 APP_NAME   = Amanu
-VERSION   ?= 0.4.29
+VERSION   ?= 0.4.30
 MINIMUM_MACOS ?= 14.2
 # A build number that only ever goes up, and says which commit it was.
 BUILD     ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)

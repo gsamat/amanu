@@ -263,7 +263,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
         ProviderCache.url(
             in: audio.deletingLastPathComponent(), provider: .assemblyAI,
             parts: [
-                audio.lastPathComponent, speechModel ?? "universal",
+                "code-switching-v1", audio.lastPathComponent, speechModel ?? "universal",
                 expected.joined(separator: "+"), multichannel ? "multichannel" : "mono",
             ])
     }
@@ -321,12 +321,14 @@ actor AssemblyAIEngine: TranscriptionEngine {
             // any hint applies independently to every channel.
         ]
         if multichannel { body["multichannel"] = true }
+        // Detection alone selects the dominant language. Universal-2 needs
+        // this option even when the user has chosen automatic detection.
+        var detection: [String: Any] = ["code_switching": true]
         if let primary = expectedLanguages.first {
-            body["language_detection_options"] = [
-                "expected_languages": expectedLanguages,
-                "fallback_language": primary,
-            ]
+            detection["expected_languages"] = expectedLanguages
+            detection["fallback_language"] = primary
         }
+        body["language_detection_options"] = detection
         if let speechModel { body["speech_model"] = speechModel }
         return body
     }

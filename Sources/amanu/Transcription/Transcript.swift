@@ -35,7 +35,8 @@ struct Transcript: Codable {
     /// for ever, and the readable file is regenerated from it whenever a name
     /// is learned or corrected.
     func writeMarkdown(to dir: URL, names: SpeakerNames?) throws {
-        try Data(rendered(title: dir.lastPathComponent, names: names).utf8)
+        let title = SessionState.value(dir, "transcript_session_name") as? String ?? dir.lastPathComponent
+        try Data(rendered(title: title, names: names).utf8)
             .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
     }
 

@@ -146,7 +146,9 @@ enum SessionInventory {
         let names = SpeakerNames.read(from: dir)
 
         let transcriptStep: Step
-        if transcript != nil {
+        if TranscriptVersions.isRequested(dir) {
+            transcriptStep = TranscriptVersions.requestState(dir)
+        } else if transcript != nil {
             transcriptStep = .done
         } else if let failure = meta[SessionState.Key.transcriptionFailed] as? String {
             transcriptStep = .failed(failure)

@@ -46,7 +46,7 @@ struct TranscriptionScratchTests {
         return planted + [aec, slices]
     }
 
-    @Test("Re-transcribing discards the summary, the names and every cached answer")
+    @Test("Re-transcribing retains results and discards every cached service answer")
     func retranscriptionClearsEverything() throws {
         let recordings = try TestRecordings()
         defer { recordings.remove() }
@@ -64,12 +64,12 @@ struct TranscriptionScratchTests {
         PostProcessor.markForRetranscription(dir)
 
         for name in ["transcript.json", "transcript.md", SpeakerNames.file] {
-            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path),
-                    "\(name) survived")
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path),
+                    "\(name) was lost")
         }
         // Kept until a new summary replaces it, but no longer this session's.
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("summary.md").path))
-        #expect(!PostProcessor.hasCurrentSummary(dir))
+        #expect(PostProcessor.hasCurrentSummary(dir))
         for url in planted {
             #expect(!FileManager.default.fileExists(atPath: url.path), "\(url.lastPathComponent) survived")
         }
@@ -79,7 +79,7 @@ struct TranscriptionScratchTests {
             SessionState.Key.summaryStatus, SessionState.Key.summaryFailedFor,
             SessionState.Key.speakersStatus, SessionState.Key.speakersFailedFor,
         ] {
-            #expect(meta[key] == nil, "\(key) survived")
+            #expect(meta[key] != nil, "\(key) was prematurely reset")
         }
     }
 

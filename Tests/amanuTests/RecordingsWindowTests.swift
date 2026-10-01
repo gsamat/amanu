@@ -114,7 +114,7 @@ struct RecordingsWindowTests {
         window.setContentSize(NSSize(width: 980, height: 900))
         view.layoutSubtreeIfNeeded()
         #expect(split.frame.height >= before + 190)
-        #expect(split.frame.minY < 30, "unused space should belong to the recording panes")
+        #expect(split.frame.minY < 7, "unused space should belong to the recording panes")
         split.setPosition(250, ofDividerAt: 0)
         view.layoutSubtreeIfNeeded()
         #expect(abs(split.arrangedSubviews[0].frame.height - 250) < 2,

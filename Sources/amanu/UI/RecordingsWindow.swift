@@ -44,6 +44,18 @@ final class RecordingsWindow: NSObject {
     private let openRootButton = NSButton()
     private let rootPath = NSTextField(labelWithString: "")
     private let detailTabs = NSTabView()
+    private let versionSelector = NSPopUpButton()
+    private var versions: [TranscriptVersions.Version] = []
+    private var versionSession: URL?
+    private var versionKey: String?
+    private var selectedVersion: TranscriptVersions.Version? {
+        let index = versionSelector.indexOfSelectedItem
+        return versions.indices.contains(index) ? versions[index] : nil
+    }
+    private var artifactDirectory: URL? { selectedVersion?.dir ?? selected?.dir }
+    private func key(_ version: TranscriptVersions.Version) -> String {
+        version.dir.path + (version.isRequest ? "#request" : "#result")
+    }
     private let summaryText = NSTextView()
     private let transcriptText = NSTextView()
     private let busyLabel = NSTextField(labelWithString: "")
@@ -263,7 +275,11 @@ final class RecordingsWindow: NSObject {
             detailTabs.addTabViewItem(tab)
         }
 
-        let detail = NSStackView(views: [detailTitle, detailTabs, processingButtons, busyLabel])
+        versionSelector.identifier = .init("transcript-versions")
+        versionSelector.target = self
+        versionSelector.action = #selector(versionSelected(_:))
+        versionSelector.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let detail = NSStackView(views: [detailTitle, versionSelector, detailTabs, processingButtons, busyLabel])
         detail.orientation = .vertical
         detail.distribution = .fill
         detail.alignment = .leading
@@ -272,6 +288,7 @@ final class RecordingsWindow: NSObject {
         NSLayoutConstraint.activate([
             detailTitle.widthAnchor.constraint(equalTo: detail.widthAnchor),
             detailTabs.widthAnchor.constraint(equalTo: detail.widthAnchor),
+            versionSelector.widthAnchor.constraint(lessThanOrEqualTo: detail.widthAnchor),
             detail.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
         ])
         detailTabs.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -294,7 +311,7 @@ final class RecordingsWindow: NSObject {
         content.distribution = .fill
         content.alignment = .leading
         content.spacing = 10
-        content.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 12, right: 14)
+        content.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 6, right: 14)
         content.translatesAutoresizingMaskIntoConstraints = false
 
         let container = MediaDropView()
@@ -407,7 +424,31 @@ final class RecordingsWindow: NSObject {
         showDetail()
     }
 
+    @objc private func versionSelected(_ sender: NSPopUpButton) {
+        versionKey = selectedVersion.map(key)
+        showDetail()
+    }
+
     private func showDetail() {
+        if versionSession != selected?.dir {
+            versionSession = selected?.dir
+            versionKey = nil
+        }
+        versions = selected.map { TranscriptVersions.read($0.dir) } ?? []
+        versionSelector.removeAllItems()
+        for (index, version) in versions.enumerated() {
+            let item = NSMenuItem(title: "\(index + 1) · \(version.title)", action: nil, keyEquivalent: "")
+            item.toolTip = "\(version.engine) · \(version.model) · \(version.createdAt)"
+            versionSelector.menu?.addItem(item)
+        }
+        if let index = versions.firstIndex(where: { key($0) == versionKey }) {
+            versionSelector.selectItem(at: index)
+        } else if let index = versions.lastIndex(where: { !$0.isRequest }) {
+            versionSelector.selectItem(at: index)
+        }
+        versionSelector.isHidden = versions.count < 2
+        versionKey = selectedVersion.map(key)
+
         speakersStack.arrangedSubviews.forEach {
             speakersStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
@@ -424,21 +465,32 @@ final class RecordingsWindow: NSObject {
         }
 
         detailTitle.stringValue = item.title ?? item.name
-        let summary = try? String(contentsOf: item.dir.appendingPathComponent("summary.md"), encoding: .utf8)
+        let dir = artifactDirectory ?? item.dir
+        if let request = selectedVersion, request.isRequest {
+            summaryText.string = ""
+            openingLabel.stringValue = ""
+            transcriptText.string = request.title
+            if case .failed(let reason) = request.state { transcriptText.string += "\n\n" + reason }
+            summaryText.identifier = nil
+            transcriptText.identifier = nil
+            updateButtons()
+            return
+        }
+        let summary = try? String(contentsOf: dir.appendingPathComponent("summary.md"), encoding: .utf8)
         var summaryPreview = summary ?? (item.summary == .off
             ? localised("Summaries are off.", "Саммари выключены.")
             : localised("No summary yet.", "Саммари пока нет."))
         summaryText.identifier = summary == nil ? nil : .init("meeting-words")
-        if summary != nil && !PostProcessor.hasCurrentSummary(item.dir) {
+        if summary != nil && !PostProcessor.hasCurrentSummary(dir) {
             summaryPreview = localised(
                 "This summary belongs to the previous transcript.\n\n",
                 "Это саммари предыдущей расшифровки.\n\n") + summaryPreview
         }
         summaryText.textStorage?.setAttributedString(MarkdownPreview.render(summaryPreview))
-        let transcript = PostProcessor.readTranscript(item.dir)
-        let markdown = try? String(contentsOf: item.dir.appendingPathComponent("transcript.md"), encoding: .utf8)
+        let transcript = PostProcessor.readTranscript(dir)
+        let markdown = try? String(contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8)
         let transcriptPreview = markdown ?? transcript?.rendered(
-            title: item.title ?? item.name, names: SpeakerNames.read(from: item.dir))
+            title: item.title ?? item.name, names: SpeakerNames.read(from: dir))
             ?? localised("No transcript yet.", "Расшифровки пока нет.")
         transcriptText.textStorage?.setAttributedString(MarkdownPreview.render(transcriptPreview))
         transcriptText.identifier = markdown != nil || transcript != nil ? .init("meeting-words") : nil
@@ -453,11 +505,11 @@ final class RecordingsWindow: NSObject {
             return
         }
 
-        let names = SpeakerNames.read(from: item.dir)
+        let names = SpeakerNames.read(from: dir)
         openingLabel.stringValue = SessionInventory.opening(of: transcript, names: names)
             .replacingOccurrences(of: "\n", with: " · ")
         for sample in SessionInventory.samples(transcript: transcript, names: names) {
-            speakersStack.addArrangedSubview(speakerRow(sample, in: item.dir))
+            speakersStack.addArrangedSubview(speakerRow(sample, in: dir))
         }
         updateButtons()
     }
@@ -512,18 +564,17 @@ final class RecordingsWindow: NSObject {
 
     private func updateButtons() {
         let item = selected
-        finishButton.isEnabled = !working && (item?.isOutstanding ?? false)
-        // Nothing to transcribe again once the audio is gone — and offering it
-        // would be the cruellest button in the window, since pressing it
-        // throws away the transcript that is now the only record there is.
+        finishButton.isEnabled = !working && (selectedVersion?.isRequest == true
+            ? item?.transcript.isOutstanding ?? false
+            : artifactDirectory.map { !PostProcessor.outstanding($0).isEmpty } ?? item?.isOutstanding ?? false)
         retranscribeButton.isEnabled = !working && (item?.hasAudio ?? false)
-        openTranscriptButton.isEnabled = item.map {
-            $0.transcript == .done
-                || FileManager.default.fileExists(
-                    atPath: $0.dir.appendingPathComponent("transcript.md").path)
-        } ?? false
+        openTranscriptButton.isEnabled = selectedVersion?.isRequest != true && (artifactDirectory.map {
+            PostProcessor.readTranscript($0) != nil || FileManager.default.fileExists(
+                atPath: $0.appendingPathComponent("transcript.md").path)
+        } ?? false)
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
+        busyLabel.isHidden = !working
         busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
     }
 
@@ -596,6 +647,16 @@ final class RecordingsWindow: NSObject {
 
     @objc private func finishClicked() {
         guard let item = selected else { return }
+        if let version = selectedVersion, !version.isRequest, version.dir != item.dir {
+            working = true
+            updateButtons()
+            Task {
+                await PostProcessor.finish(version.dir)
+                working = false
+                reload()
+            }
+            return
+        }
         switch Self.decision(for: item) {
         case .refuse(let why):
             say(why, about: item)
@@ -667,9 +728,8 @@ final class RecordingsWindow: NSObject {
         alert.runModal()
     }
 
-    /// Re-transcribing throws away a transcript that already exists, so it
-    /// asks first — and says what survives, because the answer ("the audio")
-    /// is the part that makes it safe.
+    /// Confirm recognition because a cloud engine can incur a charge. Existing
+    /// results survive both successful and failed attempts.
     @objc private func retranscribeClicked() {
         confirmRetranscription(engine: nil)
     }
@@ -686,12 +746,12 @@ final class RecordingsWindow: NSObject {
             "Расшифровать «\(item.title ?? item.name)» заново?")
         alert.informativeText = localised(
             """
-            The current transcript, its speaker names and the summary are discarded \
-            and made again from the audio, which is kept either way.
+            A new transcript is made from the audio. The current transcript, its speaker \
+            names and summary remain available as a separate version.
             """,
             """
-            Нынешняя расшифровка, имена говорящих и саммари будут отброшены \
-            и сделаны заново из звука, который остаётся в любом случае.
+            Из звука будет сделана новая расшифровка. Нынешняя расшифровка, имена \
+            участников и саммари сохранятся отдельным вариантом.
             """)
         alert.addButton(withTitle: localised("Transcribe again", "Расшифровать заново"))
         alert.addButton(withTitle: localised("Cancel", "Отмена"))
@@ -743,8 +803,9 @@ final class RecordingsWindow: NSObject {
     }
 
     @objc private func openTranscriptClicked() {
-        guard let item = selected else { return }
-        guard let file = Self.readableTranscript(in: item.dir) else { return }
+        guard selected != nil else { return }
+        guard let dir = artifactDirectory, selectedVersion?.isRequest != true,
+              let file = Self.readableTranscript(in: dir) else { return }
         Self.openTranscript(file,
             openDefault: { file in
                 guard NSWorkspace.shared.urlForApplication(toOpen: file) != nil else { return false }
