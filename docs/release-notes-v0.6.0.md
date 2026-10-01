@@ -1,4 +1,6 @@
-# Amanu 0.4.30
+# Amanu 0.6.0
+
+This release aligns the macOS version number with Windows 0.6.0. Each platform retains its own installer and update feed.
 
 ## Automatic recording
 
