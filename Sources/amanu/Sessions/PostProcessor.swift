@@ -64,7 +64,7 @@ enum PostProcessor {
             return failedFor == MeetingEgress.fingerprint(for: purpose)
         }
 
-        guard exists("transcript.json") else { return Work() }
+        guard exists("transcript.json"), !TranscriptVersions.isRequested(dir) else { return Work() }
 
         var work = Work()
         work.names = policy.names
@@ -357,54 +357,27 @@ enum PostProcessor {
         return .transcribe(clearingFirst: again)
     }
 
-    /// Offer a session to the transcription queue again.
-    ///
-    /// Clears the marks that retired it and removes what was made from the
-    /// old transcript — the transcript itself and the names — so the queue
-    /// treats it as untranscribed at the next scan and nothing of the old
-    /// answer survives next to the new one. The summary is the exception: it
-    /// is kept, marked stale, and replaced only when the new transcript has a
-    /// summary of its own. It used to be deleted here, before anything was
-    /// known about whether the new transcript would ever exist, and a retry
-    /// that failed for good cost the one summary the meeting had. The services' cached
-    /// responses go too: they used to be kept on purpose, to make a second
-    /// run free, which made it a second rendering of the first answer rather
-    /// than a second transcription — whatever had changed since, the engine's
-    /// model, the expected languages, the audio.
-    ///
-    /// A session somebody else is working on is left exactly as it is: deleting
-    /// the transcript out from under a run in flight is how a summarizer ends
-    /// up reading a file that no longer exists, and the run it would have
-    /// interrupted is producing the very transcript being asked for.
-    ///
-    /// Returns whether the session was cleared.
+    /// Request a fresh result without removing the completed one. Only successful
+    /// recognition archives and replaces it; failure leaves every artifact readable.
     @discardableResult
     static func markForRetranscription(_ dir: URL) -> Bool {
-        guard !SessionClaim.isHeld(dir) else {
-            appendSessionLog(
-                "not clearing for re-transcription — another amanu has this session", to: dir)
+        do {
+            try SessionClaim.acquire(dir, stage: .transcribe)
+            defer { SessionClaim.release(dir) }
+            let engine = EngineResolver.configuredEngine(for: dir)
+            try Data(engine.utf8).write(to: dir.appendingPathComponent(TranscriptVersions.requestFile), options: .atomic)
+            try SessionState.amend(dir, with: [
+                SessionState.Key.transcriptionFailed: nil,
+                SessionState.Key.transcriptionAttempts: nil,
+                SessionState.Key.transcriptionDeferred: nil,
+            ])
+            TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
+            appendSessionLog("queued a new transcript version", to: dir)
+            return true
+        } catch {
+            appendSessionLog("couldn't request re-transcription — \(error)", to: dir)
             return false
         }
-
-        let fm = FileManager.default
-        for file in ["transcript.json", "transcript.md", SpeakerNames.file] {
-            try? fm.removeItem(at: dir.appendingPathComponent(file))
-        }
-        TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
-        let summaryKept = fm.fileExists(atPath: dir.appendingPathComponent("summary.md").path)
-        SessionState.update(dir, with: [
-            SessionState.Key.summaryStale: summaryKept ? true : nil,
-            SessionState.Key.transcriptionFailed: nil,
-            SessionState.Key.transcriptionAttempts: nil,
-            SessionState.Key.speakersStatus: nil,
-            SessionState.Key.summaryStatus: nil,
-            SessionState.Key.speakersFailedFor: nil,
-            SessionState.Key.summaryFailedFor: nil,
-            SessionState.Key.speakersDeferrals: nil,
-            SessionState.Key.summaryDeferrals: nil,
-        ])
-        appendSessionLog("queued for re-transcription", to: dir)
-        return true
     }
 
     /// Put a name to a label by hand, and re-render the transcript against it.

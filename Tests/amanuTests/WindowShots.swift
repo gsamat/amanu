@@ -476,6 +476,29 @@ struct WindowGallery {
         }
     }
 
+    @Test("Recording variants at the minimum size, in both appearances")
+    @MainActor
+    func recordingsVersionsWindow() throws {
+        _ = NSApplication.shared
+        let root = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("2026.08.20-1030")
+        try TranscriptVersions.archiveCurrent(dir)
+        try Transcript(engine: "whisper", model: "large-v3", created_at: "2026-08-20T12:00:00Z",
+            segments: [.init(speaker: "me", start_ms: 0, end_ms: 1000,
+                text: localised("The second transcript keeps the first result available.", "Вторая расшифровка сохраняет первый результат доступным."))]).write(to: dir)
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let window = RecordingsWindow(root: root)
+            let panel = try #require(window.view?.window)
+            panel.appearance = appearance
+            panel.setContentSize(NSSize(width: 860, height: 560))
+            let tabs = try #require(window.view?.allDescendants.compactMap { $0 as? NSTabView }.first)
+            tabs.selectTabViewItem(withIdentifier: "transcript")
+            try write(panel, "recordings-versions-\(name)")
+            withExtendedLifetime(window) {}
+        }
+    }
+
     // MARK: - what the pictures are of
 
     /// A few lines of a meeting, long enough to fill the transcript pane.

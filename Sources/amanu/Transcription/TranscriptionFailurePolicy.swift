@@ -101,6 +101,7 @@ enum TranscriptionFailurePolicy {
         }
 
         if isEnvironmental(error) {
+            SessionState.update(dir, with: [SessionState.Key.transcriptionDeferred: true])
             report(.deferred)
             log("not counted against this recording — the problem is this Mac's, "
                 + "and the recording is offered again once there is more to transcribe")
@@ -120,7 +121,8 @@ enum TranscriptionFailurePolicy {
             (SessionState.value(dir, SessionState.Key.transcriptionAttempts) as? Int ?? 0) + 1
         let gaveUp = permanent || attempts >= maxAttempts
         report(gaveUp ? .gaveUp : .deferred)
-        var fields: [String: Any?] = [SessionState.Key.transcriptionAttempts: attempts]
+        var fields: [String: Any?] = [SessionState.Key.transcriptionAttempts: attempts,
+            SessionState.Key.transcriptionDeferred: gaveUp ? nil : true]
 
         if gaveUp {
             fields[SessionState.Key.transcriptionFailed] = "\(error)"
