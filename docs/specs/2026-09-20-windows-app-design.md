@@ -22,7 +22,10 @@ It is not a deferred beta item.
 
 ## Supported systems
 
-The first beta targets Windows 11 25H2 on x64. The code and package layout
+The current Windows minimum is Windows 11 24H2 (build 26100) on x64, matching
+the evaluated `SupportedOSPlatformVersion`. The first beta targeted 25H2;
+installation, audio and UI have been tested on 25H2 (build 26200), while a 24H2
+desktop remains unverified. The code and package layout
 must remain architecture-neutral so an ARM64 build can follow without a
 redesign. Windows 10 is not supported.
 

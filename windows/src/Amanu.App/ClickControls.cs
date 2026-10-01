@@ -14,6 +14,10 @@ namespace Amanu.App;
 /// </summary>
 internal sealed class ClickCheckBox : CheckBox
 {
+    // Derived controls do not receive Fluent's implicit CheckBox foreground style.
+    // Keep labels in the native theme palette, including changes while the window is open.
+    public ClickCheckBox() => SetResourceReference(ForegroundProperty, Ui.Primary);
+
     protected override AutomationPeer OnCreateAutomationPeer() => new Peer(this);
 
     private void ClickFromAutomation() => OnClick();

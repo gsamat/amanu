@@ -1,7 +1,11 @@
 # Amanu for Windows
 
-The Windows implementation targets Windows 11 25H2 on x64. Its approved
-architecture and beta gates are documented in
+The Windows implementation requires Windows 11 24H2 (build 26100) or later on x64.
+The app's evaluated `SupportedOSPlatformVersion` is `10.0.26100.0`.
+Local installation, audio and UI checks have run on Windows 11 25H2 (build 26200);
+24H2 is the declared minimum and has not yet been verified on a 24H2 desktop.
+Windows 10 is not supported. Its compatibility research is separate from this release.
+Its approved architecture and beta gates are documented in
 [`docs/specs/2026-09-20-windows-app-design.md`](../docs/specs/2026-09-20-windows-app-design.md).
 
 The solution is split into a cross-platform core, a native WPF desktop shell,
