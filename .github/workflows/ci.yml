@@ -22,12 +22,9 @@ jobs:
       - name: Build and verify LocalVQE assets
         run: make verify-localvqe
       - name: Swift tests
-        # In parallel: the analytics tests that were starved of threads while
-        # the native echo test held them now await their sends instead of
-        # timing them, and the suite passes with a one-thread cooperative
-        # pool (LIBDISPATCH_COOPERATIVE_POOL_STRICT=1), which is harder on
-        # it than any runner.
-        run: swift test
+        # UI suites share NSApplication windows and configuration state.
+        # A suite's .serialized trait does not serialize it against other suites.
+        run: swift test --no-parallel
         env:
           # The assets were built in the step above, so the tests that use
           # them run here whether or not they are found: a missing asset is

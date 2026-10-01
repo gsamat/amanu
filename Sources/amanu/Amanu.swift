@@ -318,7 +318,7 @@ final class AppController {
     /// after it can wait for it: arriving late, it would stop the new run.
     private var importStop: Task<Void, Never>?
 
-    init(root: URL, followsConfiguredRoot: Bool = true) {
+    init(root: URL, followsConfiguredRoot: Bool = true, autoRecord watcher: AutoRecordController? = nil) {
         self.root = root
         self.followsConfiguredRoot = followsConfiguredRoot
         mediaImport = MediaImportCoordinator(root: root)
@@ -328,7 +328,9 @@ final class AppController {
         // trigger: "Integration sync (zoom.us)" beats "20:39" in a folder list
         // whether or not the event is what started the recording.
         calendar = (Config.useCalendar() || settings.calendar) ? CalendarWatcher() : nil
-        autoRecord = AutoRecordController(settings: settings, calendar: calendar)
+        self.autoRecord = watcher ?? AutoRecordController(
+            settings: settings, calendar: calendar,
+            canStartRecording: { SetupPermissions.microphone() == .granted })
         sweeps = SweepScheduler(
             waitForQueue: { [transcription] in await transcription.waitUntilIdle() },
             sweep: { [weak self] in
@@ -434,6 +436,12 @@ final class AppController {
         recordRequestObserver = RecordRequest.observe { [weak self] action in
             self?.perform(action)
         }
+        // The wizard may remain open indefinitely, including after a revoked
+        // permission sent an existing installation back to setup. Watching a
+        // call must not wait for that window or for a calendar permission
+        // prompt. The watcher itself waits for an already-granted microphone.
+        autoRecord.start()
+        showAutoRecord()
         if SetupState.isPending {
             showSetup()
         } else {
@@ -461,9 +469,8 @@ final class AppController {
         if wanted == .regular { NSApp.activate(ignoringOtherApps: true) }
     }
 
-    /// Start the background behavior only after the first-run decision. The
-    /// setup window owns its prompts; starting the calendar watcher behind it
-    /// would make "Later" immediately raise the prompt it just postponed.
+    /// Resume processing and optional calendar prompts after setup. Microphone
+    /// watching starts independently, so this window cannot suppress meetings.
     private func startAutomaticFeatures(requestCalendarAccess: Bool) {
         guard !automaticFeaturesStarted else { return }
         automaticFeaturesStarted = true
@@ -493,17 +500,13 @@ final class AppController {
         monitor.start()
         network = monitor
 
-        // The loop runs whether or not auto-record is on; a tick with it off
-        // reads the switch and does nothing else. Starting it only when the
-        // switch was on at launch is how turning it on later used to do
-        // nothing until the next launch.
-        autoRecord.reloadSettings()
-        Task { [weak self] in
-            if requestCalendarAccess { await self?.calendar?.requestAccess() }
-            self?.autoRecord.start()
+        // A calendar prompt can stay unanswered. It must never hold up the
+        // already-running microphone watcher.
+        if requestCalendarAccess {
+            Task { [weak self] in await self?.calendar?.requestAccess() }
         }
-        menuBar.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
-        window.updateAutoRecord(enabled: autoRecord.enabled, decision: nil)
+        autoRecord.reloadSettings()
+        showAutoRecord()
     }
 
     /// Start or stop by signal — `kill -USR1 $(pgrep -x amanu)` — so a hotkey

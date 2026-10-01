@@ -97,6 +97,7 @@ final class AutoRecordController {
     private let calendar: MeetingCalendar?
     private let loadSettings: () -> Config.AutoRecordSettings
     private let saveEnabled: (Bool) -> Bool
+    private let canStartRecording: () -> Bool
     private let checkMic: (Config.AutoRecordSettings) -> MicActivityMonitor.Result
     private let now: () -> Date
     private var timer: Timer?
@@ -117,7 +118,8 @@ final class AutoRecordController {
     private var observedSession: ObjectIdentifier?
     private var micTakenDuringSession = false
 
-    private static let tick: TimeInterval = 5
+    /// Poll often enough to honour the default three-second start delay.
+    private static let tick: TimeInterval = 1
     /// A calendar query is the expensive part of the loop, and events don't
     /// start more precisely than this anyway.
     private static let calendarInterval: TimeInterval = 25
@@ -149,6 +151,7 @@ final class AutoRecordController {
         calendar: MeetingCalendar?,
         loadSettings: @escaping () -> Config.AutoRecordSettings = Config.autoRecord,
         saveEnabled: @escaping (Bool) -> Bool = AutoRecordController.writeEnabled,
+        canStartRecording: @escaping () -> Bool = { true },
         checkMic: @escaping (Config.AutoRecordSettings) -> MicActivityMonitor.Result = {
             MicActivityMonitor.check(callApps: $0.callApps, ignoring: $0.ignoreApps)
         },
@@ -158,6 +161,7 @@ final class AutoRecordController {
         self.calendar = calendar
         self.loadSettings = loadSettings
         self.saveEnabled = saveEnabled
+        self.canStartRecording = canStartRecording
         self.checkMic = checkMic
         self.now = now
     }
@@ -173,6 +177,7 @@ final class AutoRecordController {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        tick()
     }
 
     func stop() {
@@ -343,6 +348,14 @@ final class AutoRecordController {
             phase = .watching
         case .watching, .recording:
             break
+        }
+
+        // Do not raise microphone permission prompts behind setup or keep
+        // retrying a denied grant. Once access is granted, the next tick can
+        // record the call that is already in progress.
+        guard canStartRecording() else {
+            lastDecision = localised("waiting for microphone access", "жду разрешения на микрофон")
+            return
         }
 
         if settings.calendar, let calendar,

@@ -124,6 +124,31 @@ struct ManualStopAutoRecordTests {
         var date = Date(timeIntervalSince1970: 1_800_000_000)
     }
 
+    @Test("The default start waits three seconds rather than losing twelve seconds of the call")
+    func defaultStartWaitsThreeSeconds() {
+        let clock = Clock()
+        let settings = Config.AutoRecordSettings()
+        var starts = 0
+        let controller = AutoRecordController(
+            settings: settings,
+            calendar: nil,
+            loadSettings: { settings },
+            checkMic: { _ in
+                MicActivityMonitor.Result(active: true, names: ["zoom.us"],
+                    families: ["us.zoom.xos"], allHolders: ["zoom.us"])
+            },
+            now: { clock.date }
+        )
+        controller.startRecording = { _, _ in starts += 1; return true }
+        controller.tick()
+        clock.date.addTimeInterval(2)
+        controller.tick()
+        #expect(starts == 0)
+        clock.date.addTimeInterval(1)
+        controller.tick()
+        #expect(starts == 1)
+    }
+
     private func controller(
         clock: Clock,
         micActive: @escaping () -> Bool,
@@ -221,7 +246,8 @@ final class FakeCalendar: MeetingCalendar {
 }
 
 /// A controller wired to a clock, a microphone and a recorder that are all
-/// just variables, ticked the way the real timer ticks it: every five seconds.
+/// just variables. Coarse five-second samples cover stop and retry behavior;
+/// AutoRecordStartupTests also exercise the real one-second timer.
 @MainActor
 final class AutoRecordHarness {
     var now = Date(timeIntervalSince1970: 1_800_000_000)
@@ -452,7 +478,7 @@ struct AutoRecordLoopTests {
         h.refuseStarts = true
         h.micActive = true
         h.run(for: 5 * 60)
-        // 15 s to the first try, then 30 s, 60 s, 120 s: four in five minutes,
+        // 10 s to the first try, then 30 s, 60 s, 120 s: four in five minutes,
         // where every tick would have been fifty-seven.
         #expect(h.attempts.count == 4)
         if case .backingOff = h.controller.phase {} else {
