@@ -1,5 +1,4 @@
 import Foundation
-import AVFoundation
 import Testing
 
 @testable import amanu
@@ -11,62 +10,6 @@ import Testing
 /// three uploads of the same audio to a paid API for an answer that will not
 /// change.
 struct AssemblyAIEngineTests {
-    @Test("Channels detect independently, keep speaker sides, cache separately and never hide failures", arguments: ["speech", "silent", "failure"])
-    func channelsDetectIndependently(outcome: String) async throws {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("amanu-bilingual-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let audio = folder.appendingPathComponent("audio.caf")
-        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 2))
-        do {
-            let file = try AVAudioFile(forWriting: audio, settings: format.settings)
-            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16000))
-            buffer.frameLength = 16000
-            for channel in 0..<2 {
-                for i in 0..<16000 { buffer.floatChannelData![channel][i] = 0.2 * Float(sin(Double(i) * 0.05)) }
-            }
-            try file.write(from: buffer)
-        }
-        let stub = StubHTTP { request, count in
-            switch (request.method, request.path) {
-            case ("POST", "/v2/upload"):
-                return .json(200, #"{"upload_url":"https://example.test/audio"}"#)
-            case ("POST", "/v2/transcript"):
-                return .json(200, "{\"id\":\"job-\(count)\"}")
-            case ("GET", "/v2/transcript/job-1") where outcome == "silent":
-                return .json(200, #"{"status":"error","error":"language_detection cannot be performed on files with no spoken audio."}"#)
-            case ("GET", "/v2/transcript/job-2") where outcome == "failure":
-                return .json(200, #"{"status":"error","error":"Transcoding failed"}"#)
-            case ("GET", let path):
-                let text = path.hasSuffix("job-1") ? "Привет, это русский текст" : "Hello from the call"
-                return .json(200, "{\"status\":\"completed\",\"utterances\":[{\"speaker\":\"A\",\"text\":\"\(text)\",\"start\":100,\"end\":900}]}")
-            default: return .json(404, "{}")
-            }
-        }
-        let engine = try AssemblyAIEngine(apiKey: "test-key", session: stub.session,
-            timing: .init(pollInterval: .zero), sleep: { _ in try Task.checkCancellation() })
-        // A previous joint-channel answer must not suppress either request.
-        try Data(#"{"status":"completed","text":"old English-only answer"}"#.utf8)
-            .write(to: await engine.cacheURL(for: audio, multichannel: true))
-        if outcome == "failure" {
-            await #expect(throws: AssemblyAIEngine.EngineError.self) { try await engine.transcribe(audio) }
-            let recovered = try await engine.transcribe(audio)
-            #expect(recovered.map(\.text) == ["Привет, это русский текст", "Hello from the call"])
-        } else {
-            let segments = try await engine.transcribe(audio)
-            #expect(segments.map(\.text) == (outcome == "silent" ? ["Hello from the call"] : ["Привет, это русский текст", "Hello from the call"]))
-            #expect(segments.map(\.speaker) == (outcome == "silent" ? ["2A"] : ["1A", "2A"]))
-            let requests = stub.requests.count
-            _ = try await engine.transcribe(audio)
-            #expect(stub.requests.count == requests)
-        }
-        #expect(stub.requests(to: "/v2/upload").count == (outcome == "failure" ? 3 : 2))
-        #expect(FileManager.default.fileExists(atPath: audio.path))
-        let firstCache = await engine.channelCacheURL(for: audio, channel: 0)
-        let secondCache = await engine.channelCacheURL(for: audio, channel: 1)
-        #expect(firstCache != secondCache)
-    }
-
     /// AssemblyAI returned the second utterance below for a 35-second clip.
     /// Keeping it produces transcript text almost thirty seconds after the
     /// recording ended; dropping the first would lose a real boundary phrase.
@@ -116,23 +59,8 @@ struct AssemblyAIEngineTests {
         #expect(body["speaker_labels"] as? Bool == true)
         #expect(body["speech_model"] as? String == "universal-3-pro")
         let detection = try #require(body["language_detection_options"] as? [String: Any])
-        #expect(detection["code_switching"] as? Bool == true)
         #expect(detection["expected_languages"] as? [String] == ["ru", "en"])
         #expect(detection["fallback_language"] as? String == "ru")
-    }
-
-    @Test("Automatic language selection keeps code switching on mono and multichannel audio", arguments: [false, true])
-    func automaticRequestKeepsBothLanguages(multichannel: Bool) throws {
-        let body = AssemblyAIEngine.requestBody(
-            audioURL: "https://example.test/audio.m4a",
-            expectedLanguages: [], speechModel: nil, multichannel: multichannel)
-        #expect(body["language_detection"] as? Bool == true)
-        #expect(body["language_code"] == nil)
-        #expect(body["speech_model"] == nil)
-        #expect(body["multichannel"] as? Bool == (multichannel ? true : nil))
-        let detection = try #require(body["language_detection_options"] as? [String: Any])
-        #expect(detection["code_switching"] as? Bool == true)
-        #expect(detection["expected_languages"] == nil)
     }
 
     @Test("Multichannel responses never reuse a cache made from a mono mix")
@@ -146,9 +74,6 @@ struct AssemblyAIEngineTests {
         let legacy = folder.appendingPathComponent("transcript.assemblyai.json")
         #expect(cache.path != legacy.path)
         #expect(cache != (await engine.cacheURL(for: audio, multichannel: false)))
-        let beforeCodeSwitching = ProviderCache.url(in: folder, provider: .assemblyAI,
-            parts: [audio.lastPathComponent, "universal", "", "multichannel"])
-        #expect(cache != beforeCodeSwitching)
         // Beside the audio it was made from, so it goes wherever the session goes.
         #expect(cache.deletingLastPathComponent().path == folder.path)
     }

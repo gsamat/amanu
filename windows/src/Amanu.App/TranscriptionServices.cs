@@ -246,11 +246,10 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
 }
 
 /// <summary>
-/// AssemblyAI detects language and diarizes each track independently. A long
-/// English call must not force a short Russian microphone track into English.
-/// Expected languages guide detection;
-/// code switching keeps a minority language from being transcribed as the
-/// dominant one. A language pin would instead force phonetic garbage.
+/// AssemblyAI over aligned two-channel audio: mic on channel 1, the call on
+/// channel 2, each diarized on its own. Detection is narrowed to the expected
+/// languages rather than pinned, because a pin on the wrong language returns
+/// fluent phonetic garbage instead of failing.
 /// </summary>
 public sealed class AssemblyAiTranscriptionEngine(
     HttpClient httpClient,
@@ -267,26 +266,30 @@ public sealed class AssemblyAiTranscriptionEngine(
 
     public async Task<TranscriptDocument> TranscribeAsync(SessionAudio audio, CancellationToken cancellationToken)
     {
-        var tracks = audio.BothSides
-            ? new[] { (audio.Microphone!, SpeakerLabels.Me, audio.MicrophoneOffsetMs), (audio.System!, SpeakerLabels.Them, audio.SystemOffsetMs) }
-            : [audio.Only];
-        var all = new List<TranscriptSegment>();
-        foreach (var (source, side, offset) in tracks)
-            all.AddRange(await TranscribeTrackAsync(audio.Directory, source, side, offset, audio.BothSides, cancellationToken).ConfigureAwait(false));
-        return new TranscriptDocument("assemblyai", Model, DateTimeOffset.UtcNow,
-            SpeakerLabels.Assign(all.OrderBy(segment => segment.StartMs).ToArray()));
-    }
-
-    private async Task<IReadOnlyList<TranscriptSegment>> TranscribeTrackAsync(
-        string directory, string source, string side, int shift, bool allowSilent, CancellationToken cancellationToken)
-    {
-        var temporary = Path.Combine(directory, ".assemblyai-input.wav");
+        var temporary = Path.Combine(audio.Directory, ".assemblyai-input.wav");
         try
         {
-            AudioPreprocessor.ConvertToMono16k(source, temporary);
+            string source;
+            string side;
+            if (audio.BothSides)
+            {
+                AudioPreprocessor.CreateAlignedStereo16k(
+                    audio.Microphone!, audio.System!, audio.MicrophoneOffsetMs, audio.SystemOffsetMs, temporary);
+                source = temporary;
+                side = "*";
+            }
+            else
+            {
+                var only = audio.Only;
+                AudioPreprocessor.ConvertToMono16k(only.Path, temporary);
+                source = temporary;
+                side = only.Side;
+            }
+            var multichannel = side == "*";
+            var shift = audio.BothSides ? Math.Min(audio.MicrophoneOffsetMs, audio.SystemOffsetMs) : audio.Only.OffsetMs;
             var cachePath = cache
-                ? ProviderCache.PathFor(directory, "assemblyai", "independent-channels-code-switching-v2", Model,
-                    string.Join('+', expectedLanguages), "mono", side, new FileInfo(temporary).Length.ToString())
+                ? ProviderCache.PathFor(audio.Directory, "assemblyai", Model, string.Join('+', expectedLanguages),
+                    multichannel ? "multichannel" : "mono", side, new FileInfo(source).Length.ToString())
                 : null;
 
             JsonElement result;
@@ -294,8 +297,8 @@ public sealed class AssemblyAiTranscriptionEngine(
                 result = JsonDocument.Parse(await File.ReadAllTextAsync(cachePath, cancellationToken).ConfigureAwait(false)).RootElement.Clone();
             else
             {
-                var id = await ResumableJobAsync(directory, cachePath)
-                         ?? await SubmitAsync(temporary, false, directory, cachePath, cancellationToken).ConfigureAwait(false);
+                var id = await ResumableJobAsync(audio.Directory, cachePath)
+                         ?? await SubmitAsync(source, multichannel, audio.Directory, cachePath, cancellationToken).ConfigureAwait(false);
                 try
                 {
                     result = await PollAsync(id, cancellationToken).ConfigureAwait(false);
@@ -303,20 +306,17 @@ public sealed class AssemblyAiTranscriptionEngine(
                 catch (ProcessingFailure failure) when (failure.Kind == FailureKind.Recording)
                 {
                     // A job that errored or is gone is not resumed: the next attempt submits afresh.
-                    File.Delete(Path.Combine(directory, ".assemblyai-job.json"));
-                    if (!allowSilent || !failure.Message.Contains("no spoken audio", StringComparison.OrdinalIgnoreCase)) throw;
-                    // A silent side is normal; cache that verdict for a retry
-                    // of the other side. Every other error must stop completion.
-                    result = JsonSerializer.SerializeToElement(new { status = "completed", text = "", utterances = Array.Empty<object>() });
+                    File.Delete(Path.Combine(audio.Directory, ".assemblyai-job.json"));
+                    throw;
                 }
                 if (cachePath is not null)
                     await AtomicFiles.WriteTextAsync(cachePath, result.GetRawText(), cancellationToken).ConfigureAwait(false);
-                File.Delete(Path.Combine(directory, ".assemblyai-job.json"));
+                File.Delete(Path.Combine(audio.Directory, ".assemblyai-job.json"));
             }
             var segments = Segments(result, side);
             if (shift != 0)
                 segments = segments.Select(segment => segment with { StartMs = segment.StartMs + shift, EndMs = segment.EndMs + shift }).ToArray();
-            return segments;
+            return new TranscriptDocument("assemblyai", Model, DateTimeOffset.UtcNow, SpeakerLabels.Assign(segments));
         }
         finally
         {
@@ -360,7 +360,18 @@ public sealed class AssemblyAiTranscriptionEngine(
         var uploadUrl = (await upload.Content.ReadFromJsonAsync<JsonElement>(cancellationToken).ConfigureAwait(false))
             .GetProperty("upload_url").GetString();
 
-        var body = RequestBody(uploadUrl!, multichannel, expectedLanguages, speechModel);
+        var body = new Dictionary<string, object?>
+        {
+            ["audio_url"] = uploadUrl,
+            ["speaker_labels"] = true,
+            ["punctuate"] = true,
+            ["format_text"] = true,
+            ["language_detection"] = true,
+        };
+        if (multichannel) body["multichannel"] = true;
+        if (expectedLanguages.Count > 0)
+            body["language_detection_options"] = new { expected_languages = expectedLanguages, fallback_language = expectedLanguages[0] };
+        if (speechModel is not null) body["speech_model"] = speechModel;
 
         using var created = await Http.SendAsync(httpClient, () =>
         {
@@ -374,31 +385,6 @@ public sealed class AssemblyAiTranscriptionEngine(
             await AtomicFiles.WriteJsonAsync(Path.Combine(directory, ".assemblyai-job.json"),
                 new { id, key = ProviderCache.KeyDigest(apiKey), cache = Path.GetFileName(cachePath) }, cancellationToken).ConfigureAwait(false);
         return id;
-    }
-
-    internal static Dictionary<string, object?> RequestBody(string audioUrl, bool multichannel,
-        IReadOnlyList<string> expectedLanguages, string? speechModel)
-    {
-        // Automatic language detection alone selects the dominant language.
-        // Universal-2 requires this option even when no language hint is set.
-        var detection = new Dictionary<string, object?> { ["code_switching"] = true };
-        if (expectedLanguages.Count > 0)
-        {
-            detection["expected_languages"] = expectedLanguages;
-            detection["fallback_language"] = expectedLanguages[0];
-        }
-        var body = new Dictionary<string, object?>
-        {
-            ["audio_url"] = audioUrl,
-            ["speaker_labels"] = true,
-            ["punctuate"] = true,
-            ["format_text"] = true,
-            ["language_detection"] = true,
-            ["language_detection_options"] = detection,
-        };
-        if (multichannel) body["multichannel"] = true;
-        if (speechModel is not null) body["speech_model"] = speechModel;
-        return body;
     }
 
     /// <summary>

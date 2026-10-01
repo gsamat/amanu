@@ -12,8 +12,6 @@ and prepares summaries with the configured local or cloud service.
   between recordings. Turning it off releases them. Idle live decoders allow
   completed recordings to be processed.
 - Local and cloud engines for final transcripts, with speaker names and summaries.
-  AssemblyAI detects language separately for the microphone and call, preserving
-  Russian speech alongside English call audio; language switching is enabled.
   Long Windows Parakeet tracks are processed in bounded portions with overlapping
   context and meeting-relative word timestamps to limit memory use.
 - Recordings management, import, playback, and re-transcription.
