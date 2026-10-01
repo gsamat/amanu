@@ -38,6 +38,7 @@ internal sealed class MarkdownPreview : RichTextBox
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
         BorderThickness = new Thickness(0);
+        SetResourceReference(BackgroundProperty, "CardBackgroundFillColorDefaultBrush");
         Padding = new Thickness(0);
         var menu = new ContextMenu();
         menu.Items.Add(new MenuItem { Header = T("Copy", "Копировать"), Command = ApplicationCommands.Copy, CommandTarget = this });

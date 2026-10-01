@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Documents;
+using System.Windows.Media;
 using Amanu.App;
 using Amanu.Core.Processing;
 using Xunit;
@@ -93,6 +94,21 @@ public sealed class MarkdownPreviewTests
         Assert.Contains("Файл", text);
         Assert.Contains("Диаграмма", text);
         Assert.Contains("<script>сохранить как текст</script>", text);
+    });
+
+    [Fact]
+    public void Background_and_text_follow_theme_resources_instead_of_the_default_white_editor() => OnSta(() =>
+    {
+        var preview = new MarkdownPreview();
+        preview.Resources["CardBackgroundFillColorDefaultBrush"] = Brushes.Black;
+        preview.Resources["TextFillColorPrimaryBrush"] = Brushes.White;
+        preview.ShowMarkdown("# Заголовок\n\nТекст");
+        Assert.Equal(Brushes.Black, preview.Background);
+        Assert.Equal(Brushes.White, preview.Document.Foreground);
+        preview.Resources["CardBackgroundFillColorDefaultBrush"] = Brushes.White;
+        preview.Resources["TextFillColorPrimaryBrush"] = Brushes.Black;
+        Assert.Equal(Brushes.White, preview.Background);
+        Assert.Equal(Brushes.Black, preview.Document.Foreground);
     });
 
     [Fact]
