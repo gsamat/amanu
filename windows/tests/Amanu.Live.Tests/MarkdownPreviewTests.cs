@@ -102,13 +102,18 @@ public sealed class MarkdownPreviewTests
         var preview = new MarkdownPreview();
         preview.Resources["CardBackgroundFillColorDefaultBrush"] = Brushes.Black;
         preview.Resources["TextFillColorPrimaryBrush"] = Brushes.White;
-        preview.ShowMarkdown("# Заголовок\n\nТекст");
+        preview.Resources["AccentTextFillColorPrimaryBrush"] = Brushes.SkyBlue;
+        preview.ShowMarkdown("# Заголовок\n\n[Сайт](https://example.test/)");
         Assert.Equal(Brushes.Black, preview.Background);
         Assert.Equal(Brushes.White, preview.Document.Foreground);
+        var link = Assert.IsType<Hyperlink>(Assert.IsType<Paragraph>(preview.Document.Blocks.LastBlock).Inlines.FirstInline);
+        Assert.Equal(Brushes.SkyBlue, link.Foreground);
         preview.Resources["CardBackgroundFillColorDefaultBrush"] = Brushes.White;
         preview.Resources["TextFillColorPrimaryBrush"] = Brushes.Black;
+        preview.Resources["AccentTextFillColorPrimaryBrush"] = Brushes.DarkBlue;
         Assert.Equal(Brushes.White, preview.Background);
         Assert.Equal(Brushes.Black, preview.Document.Foreground);
+        Assert.Equal(Brushes.DarkBlue, link.Foreground);
     });
 
     [Fact]

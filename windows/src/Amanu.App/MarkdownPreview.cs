@@ -174,6 +174,7 @@ internal sealed class MarkdownPreview : RichTextBox
                     && uri.Scheme is "http" or "https" or "mailto")
                 {
                     var hyperlink = new Hyperlink { NavigateUri = uri, ToolTip = uri.AbsoluteUri };
+                    hyperlink.SetResourceReference(TextElement.ForegroundProperty, "AccentTextFillColorPrimaryBrush");
                     AddInlines(hyperlink.Inlines, link);
                     hyperlink.RequestNavigate += (_, args) => { AmanuRuntime.Open(args.Uri.AbsoluteUri); args.Handled = true; };
                     target.Add(hyperlink);
@@ -185,6 +186,7 @@ internal sealed class MarkdownPreview : RichTextBox
                 if (Uri.TryCreate(url, UriKind.Absolute, out var autoUri) && autoUri.Scheme is "http" or "https" or "mailto")
                 {
                     var hyperlink = new Hyperlink(TextRun(link.Url)) { NavigateUri = autoUri, ToolTip = url };
+                    hyperlink.SetResourceReference(TextElement.ForegroundProperty, "AccentTextFillColorPrimaryBrush");
                     hyperlink.RequestNavigate += (_, args) => { AmanuRuntime.Open(args.Uri.AbsoluteUri); args.Handled = true; };
                     target.Add(hyperlink);
                 }
