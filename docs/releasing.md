@@ -1,7 +1,8 @@
 # Releasing Amanu
 
-This runbook covers the **macOS** release. Windows uses a separate version
-sequence, `windows-v<version>` tags, Microsoft Artifact Signing, and a stable
+This runbook covers the **macOS** release. Both platforms read their shared
+version from the root `VERSION` file. Windows uses `windows-v<version>` tags,
+Microsoft Artifact Signing, and a stable
 Velopack update feed. See [Windows build and release packaging](../windows/README.md#signing-and-release-packaging)
 for its source branch, workflow, signing configuration, and signed test builds.
 Do not use the macOS release script or Sparkle appcast for a Windows release.
@@ -62,7 +63,7 @@ diagnosis later.
 ## Doing it
 
 ```sh
-# 1. Decide the version. Edit VERSION in the Makefile if this is not a rebuild.
+# 1. Decide the shared version. Edit the root VERSION file if this is not a rebuild.
 # 2. Write the notes. The file name must match the tag exactly.
 $EDITOR docs/release-notes-vX.Y.Z.md
 # 3. Commit and push. The release refuses to run from a dirty tree.
@@ -73,7 +74,7 @@ make release-dry
 make release
 ```
 
-`VERSION` in the Makefile is the marketing version and the tag. The build
+The root `VERSION` file supplies the marketing version and the tag. The build
 number is `git rev-list --count HEAD` and only ever goes up; Sparkle compares
 build numbers, so two releases must never be built from the same commit.
 

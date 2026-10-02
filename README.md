@@ -9,8 +9,8 @@ speakers, writes a detailed summary, and keeps the complete record in an ordinar
 on your computer.
 
 [Website](https://amanu.me/) ·
-[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.1/amanu-v0.6.1-macos-universal.dmg) ·
-[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.2/Amanu-stable-Setup.exe) ·
+[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.3/amanu-v0.6.3-macos-universal.dmg) ·
+[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Setup.exe) ·
 [MIT license](LICENSE)
 
 | | macOS | Windows |
@@ -24,8 +24,8 @@ on your computer.
 | Live transcript | Separate local streaming model | Separate local streaming model |
 | Calendar context | Optional | No calendar integration |
 
-macOS and Windows have separate version sequences and update feeds. The
-current public downloads are macOS **0.6.1** and Windows **0.6.2**.
+macOS and Windows share version **0.6.3**, read from the root `VERSION` file.
+Their release tags and automatic update feeds remain separate.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="landing/assets/shots/en/status-recording-dark.png?v=36e030d5a322">
@@ -194,14 +194,14 @@ brew install --cask gsamat/tap/amanu
 ```
 
 Or download the disk image from the
-[macOS release](https://github.com/gsamat/amanu/releases/download/v0.6.1/amanu-v0.6.1-macos-universal.dmg), drag
+[macOS release](https://github.com/gsamat/amanu/releases/download/v0.6.3/amanu-v0.6.3-macos-universal.dmg), drag
 `Amanu.app` to Applications, and open it. The first-run setup requests
 microphone, system-audio, and optional calendar access, then asks how meetings
 should be transcribed and summarized.
 
 ### Windows
 
-Download [Amanu-stable-Setup.exe](https://github.com/gsamat/amanu/releases/download/windows-v0.6.2/Amanu-stable-Setup.exe)
+Download [Amanu-stable-Setup.exe](https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Setup.exe)
 and run it. The installer includes the .NET and native transcription runtimes;
 you do not need a separate .NET SDK or Python installation.
 
@@ -220,7 +220,7 @@ Start at sign-in can be changed in Settings. Installed copies check the stable
 Windows update feed automatically.
 
 For a copy without an installer, download
-[Amanu-stable-Portable.zip](https://github.com/gsamat/amanu/releases/download/windows-v0.6.2/Amanu-stable-Portable.zip),
+[Amanu-stable-Portable.zip](https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Portable.zip),
 extract the entire archive, and open the top-level `Amanu.exe`. Portable copies
 use the same settings and recordings folders and require manual updates.
 
@@ -235,7 +235,7 @@ scoop install .\amanu.json
 ```
 
 The manifest installs the portable release, verifies its SHA-256, and creates
-an Amanu Start menu shortcut. It is pinned to Windows 0.6.2. To upgrade, quit
+an Amanu Start menu shortcut. It is pinned to Windows 0.6.3. To upgrade, quit
 Amanu, run `scoop uninstall amanu`, then install the updated manifest. Recordings
 and settings live outside Scoop's application directory and are retained.
 
@@ -323,9 +323,9 @@ Windows source currently lives on a separate branch. To reproduce the public
 release, check out its tag:
 
 ```powershell
-git clone --branch windows-v0.6.2 https://github.com/gsamat/amanu.git amanu-windows
+git clone --branch windows-v0.6.3 https://github.com/gsamat/amanu.git amanu-windows
 cd amanu-windows\windows
-.\scripts\Build-Release.ps1 -Version 0.6.2
+.\scripts\Build-Release.ps1 -Version 0.6.3
 .\artifacts\publish\Amanu.exe
 ```
 
