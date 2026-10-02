@@ -1,5 +1,12 @@
 # Amanu agent instructions
 
+## Windows release source
+
+- The current Windows app and release scripts live on `origin/codex/ready-0.6.3`, including the versioned installer implementation merged in PR #29. The branch name reflects its origin, not the version of the next release.
+- Before preparing a Windows release, fetch that branch and use a clean checkout based on its latest commit. Until the Windows source is integrated into `master`, do not use the old Windows workflow on `master` or stale untracked `windows/` files in a local macOS checkout.
+- Dispatch `windows-beta.yml` with an explicit `--ref` pointing to the prepared Windows release branch. Set its root `VERSION` to the agreed shared release version and commit the release changes before building; local packaging rejects a version that differs from `VERSION`.
+- Follow `docs/releasing.md` for the release route and post-publication download-link checks.
+
 ## Release installer filenames
 
 - Future Windows releases must publish the installer with its version in the filename: `Amanu-<version>-Setup.exe` (for example, `Amanu-0.6.4-Setup.exe`), using the root `VERSION` file.
