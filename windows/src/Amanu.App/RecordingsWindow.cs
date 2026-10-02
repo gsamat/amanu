@@ -53,7 +53,6 @@ internal sealed class RecordingsWindow : Window
     private string? selectedTranscriptKey;
     private string? selectedTranscriptSession;
     private int transcriptShown;
-    private int shown;
 
     public RecordingsWindow(AmanuRuntime runtime)
     {
@@ -115,6 +114,7 @@ internal sealed class RecordingsWindow : Window
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
         foreach (var button in new[] { finish, retranscribe, listen, folder, delete })
         {
+            ToolTipService.SetShowOnDisabled(button, true);
             button.Margin = new Thickness(0, 0, 8, 0);
             actions.Children.Add(button);
         }
@@ -210,22 +210,43 @@ internal sealed class RecordingsWindow : Window
 
     private async Task ShowSelectedAsync()
     {
-        // Each showing counts; one overtaken by a newer while it read files draws nothing.
-        var version = ++shown;
+        // Action availability follows the selection immediately, before reading previews.
         ++transcriptShown;
         speakers.Children.Clear();
         if (Selected is not { } row)
         {
+            foreach (var button in new[] { finish, retranscribe, listen, folder, delete }) button.IsEnabled = false;
             title.Text = "";
             summary.ShowText("");
             transcript.ShowText("");
             return;
         }
         var item = row.Item;
+        var recording = item.Transcript == ProcessingStep.Recording;
+        var busy = row.Status?.IsBusy == true;
+        var canFinish = item.Transcript is ProcessingStep.Failed or ProcessingStep.Deferred
+            || item.SpeakerNames is ProcessingStep.Failed or ProcessingStep.Deferred
+            || item.Summary is ProcessingStep.Failed or ProcessingStep.Deferred or ProcessingStep.Stale
+            || item.Transcript == ProcessingStep.Pending && item.HasAudio
+            || item.Transcript == ProcessingStep.Done && (item.SpeakerNames == ProcessingStep.Pending && runtime.Settings.SpeakerNames.Enabled
+                || item.Summary == ProcessingStep.Pending && runtime.Settings.Summary.Enabled);
+        finish.IsEnabled = !recording && !busy && canFinish;
+        retranscribe.IsEnabled = !recording && item.HasAudio && !busy;
+        listen.IsEnabled = item.HasAudio && !recording;
+        folder.IsEnabled = true;
+        delete.IsEnabled = !recording && !busy;
+        var noAudio = T("The audio was not kept for this recording.", "Звук этой записи не сохранён.");
+        retranscribe.ToolTip = !item.HasAudio ? noAudio : busy ? row.Status!.Message : null;
+        listen.ToolTip = !item.HasAudio ? noAudio : null;
+        finish.ToolTip = busy ? row.Status!.Message : !canFinish
+            ? T("There is no unfinished processing for this recording.", "Для этой записи нет незавершённой обработки.")
+            : T("Try again whatever gave up or is waiting, keeping the transcript and every name typed by hand.",
+                "Ещё раз попробовать то, что не получилось или ждёт, — расшифровка и имена, введённые вручную, остаются.");
         title.Text = item.Title;
         problem.Text = item.Problem ?? "";
         problem.Visibility = item.Problem is null ? Visibility.Collapsed : Visibility.Visible;
         processingStatus.Text = row.Status is { IsBusy: true } status ? status.Message : row.TranscriptText;
+        if (!item.HasAudio && !recording) processingStatus.Text += "\n" + noAudio;
         if (selectedTranscriptSession != item.Directory)
         {
             selectedTranscriptSession = item.Directory;
@@ -243,15 +264,6 @@ internal sealed class RecordingsWindow : Window
         tabs.Margin = new Thickness(0, choices.Count > 1 ? 0 : 8, 0, 0);
         updatingChoices = false;
         await ShowTranscriptAsync();
-        if (version != shown) return;
-
-        var recording = item.Transcript == ProcessingStep.Recording;
-        finish.IsEnabled = !recording && row.Status?.IsBusy != true && (item.Transcript is ProcessingStep.Failed or ProcessingStep.Deferred
-            || item.SpeakerNames is ProcessingStep.Failed or ProcessingStep.Deferred
-            || item.Summary is ProcessingStep.Failed or ProcessingStep.Deferred or ProcessingStep.Stale);
-        retranscribe.IsEnabled = !recording && item.HasAudio && row.Status?.IsBusy != true;
-        listen.IsEnabled = item.HasAudio && !recording;
-        delete.IsEnabled = !recording && row.Status?.IsBusy != true;
     }
 
     private async Task ShowTranscriptAsync()
@@ -462,8 +474,8 @@ internal sealed class RecordingsWindow : Window
 
         public ProcessingStep StateFor(TranscriptVersion version) => version.State != ProcessingStep.Done ? Status?.Stage switch
         {
-            "transcribing" => ProcessingStep.Transcribing,
-            "queued" => ProcessingStep.Pending,
+            "transcribing" when Status.IsBusy => ProcessingStep.Transcribing,
+            "queued" when Status.IsBusy => ProcessingStep.Pending,
             "deferred" => ProcessingStep.Deferred,
             "failed" => ProcessingStep.Failed,
             _ => version.State,
@@ -476,13 +488,15 @@ internal sealed class RecordingsWindow : Window
             ProcessingStep.Done => T("done", "готово") + (Item.Engine is { } engine ? $" ({engine})" : ""),
             ProcessingStep.Recording => T("recording", "идёт запись"),
             ProcessingStep.Off => T("off", "выключено"),
-            _ => Step(Item.Transcript),
+            _ => Step(Status is { IsBusy: true, Stage: "transcribing" } ? ProcessingStep.Transcribing : Item.Transcript),
         };
 
         public string NamesText => Item.SpeakerCount > 0 ? $"{Item.NamedSpeakerCount}/{Item.SpeakerCount}"
             : Item.Transcript == ProcessingStep.Done ? Step(Item.SpeakerNames) : "";
 
-        public string SummaryText => Item.Summary switch
+        public string SummaryText => Status is { IsBusy: true, Stage: "summary" } ? Status.Message
+            : Item.Summary == ProcessingStep.Pending && Item.Transcript is ProcessingStep.Pending or ProcessingStep.Transcribing
+                ? T("after transcription", "после расшифровки") : Item.Summary switch
         {
             ProcessingStep.Stale => T("out of date", "устарело"),
             _ => Step(Item.Summary),

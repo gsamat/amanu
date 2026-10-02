@@ -1,3 +1,22 @@
+# Amanu for Windows 0.6.5
+
+- The recordings table shows the active transcription and summary stage consistently with the selected recording's details.
+- A skipped failed recording no longer stays marked as busy. Old queue statuses do not hide failed transcripts; final failed and deferred states remain visible.
+- Action buttons update immediately when selecting another recording. Completed recordings with retained audio can be played or queued for retranscription while another recording is processing.
+- Finish retries unfinished work on an idle recording. Active, queued, and preparing recordings are protected from file changes and deletion. Processing remains serial.
+- Disabled actions explain when audio was not retained or there is no unfinished processing.
+- Includes the OpenAI, Anthropic, and OpenAI-compatible provider choices released in Windows 0.6.4.
+- The signed installer is named **Amanu-0.6.5-Setup.exe**, with matching inventory and checksums. Updates remain on the stable channel.
+
+## Validation
+
+- On the connected Windows computer: Release build succeeded without warnings; 141 core tests, 38 live tests, and five installer filename/inventory/checksum tests passed on the combined release source.
+- The signed release workflow completed successfully. Downloaded public installer, portable ZIP, and full update package match SHA256SUMS. Setup and first-party payloads, launcher, and updater have valid Fands Software LLC signatures with timestamps; packaged application version is 0.6.5.
+- The production Velopack GithubSource on the stable channel detected 0.6.4 to 0.6.5, downloaded and verified the full package, and extracted the signed updater into an isolated test directory. The update was not applied to the working installation.
+- The 0.6.5 WinGet manifest set passed local validation and is submitted as draft PR #445793 pending Microsoft's validation and publisher review. Scoop pins the public portable ZIP and its verified SHA-256.
+- Queue and action regressions were checked red-to-green on the connected Windows computer. The recordings UI was checked through Computer Use with isolated synthetic sessions and controlled local transcription and summary dependencies.
+- Full installation, upgrade, and uninstall testing in a separate Windows account or Sandbox could not run: this host has no Windows Sandbox and the current account cannot create an isolated test account.
+
 # Amanu for Windows 0.6.4
 
 - The **My own key** card now offers **OpenAI**, **Anthropic**, and **OpenAI-compatible** separately.
@@ -12,13 +31,10 @@
 - The actual setup form was checked through Computer Use using isolated settings: all three providers, URL/model visibility, neutral key hint, custom URL retention, and legacy configuration in light and dark themes.
 - The 0.6.4 WinGet manifests passed local validation. Installation, upgrade and uninstall in an isolated Windows profile were not tested because no isolated environment was available.
 
-- Packaging tools should use **assets.versioned.stable.json** for the installer inventory. The original published inventory is preserved; the stable application update feed is unchanged.
-
 # Amanu for Windows 0.6.3
 
 - The recording status says **ready** in English and **готов** in Russian
   when no recording is running, in the status window and tray menu.
-- The Russian live transcription label is now **Расшифровка на лету**.
 - Windows and macOS share version **0.6.3**, read from the same `VERSION` file.
   The Windows installer and stable update feed remain separate from macOS.
 - Includes the checkbox label fixes shipped in Windows 0.6.2 for the

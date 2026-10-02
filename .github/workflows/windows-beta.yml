@@ -241,10 +241,10 @@ jobs:
           $assets = Get-ChildItem -LiteralPath "${{ runner.temp }}/amanu-release" -File | ForEach-Object { $_.FullName }
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag @assets --clobber
-          } else {
-            gh release create $tag @assets --target '${{ github.sha }}' --title "Amanu Windows ${{ env.AMANU_VERSION }}" --notes-file windows/RELEASE_NOTES.md
+            throw "Release $tag already exists; published assets must not be replaced."
           }
+          gh release create $tag @assets --target '${{ github.sha }}' --title "Amanu Windows ${{ env.AMANU_VERSION }}" --notes-file windows/RELEASE_NOTES.md
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish Windows release $tag." }
 
       - name: Remove temporary certificate
         if: always() && steps.certificate.outputs.available == 'true'
