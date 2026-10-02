@@ -2,6 +2,7 @@
 
 - The recording status says **ready** in English and **готов** in Russian
   when no recording is running, in the status window and tray menu.
+- The Russian live transcription label is now **Расшифровка на лету**.
 - Windows and macOS share version **0.6.3**, read from the same `VERSION` file.
   The Windows installer and stable update feed remain separate from macOS.
 - Includes the checkbox label fixes shipped in Windows 0.6.2 for the
