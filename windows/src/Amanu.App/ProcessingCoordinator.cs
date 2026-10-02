@@ -81,7 +81,29 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
 
     public LanguageModels LanguageModels => languageModels;
 
-    public ProcessingStatus? StatusFor(string directory) => statuses.GetValueOrDefault(Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar));
+    public ProcessingStatus? StatusFor(string directory)
+    {
+        directory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
+        lock (queueLock)
+        {
+            if (preparing.Contains(directory))
+                return new(directory, "preparing", T("Preparing processing…", "Подготавливаю обработку…"), true);
+            return statuses.GetValueOrDefault(directory) is { } status
+                ? status with { IsBusy = queued.Contains(directory) } : null;
+        }
+    }
+
+    /// <summary>Reserve this session while an action changes its files; other sessions can still queue.</summary>
+    internal bool TryUseIdleSession(string directory, Action action)
+    {
+        directory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
+        lock (queueLock)
+        {
+            if (queued.Contains(directory) || !preparing.Add(directory)) return false;
+        }
+        try { action(); return true; }
+        finally { lock (queueLock) preparing.Remove(directory); }
+    }
 
     public bool IsBusy
     {
@@ -198,10 +220,14 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
     /// </summary>
     public void Finish(string directory)
     {
-        foreach (var marker in new[] { "transcribe.failed", "transcribe.deferred", "speakers.failed", "speakers.deferred", "speakers.off",
+        directory = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar);
+        if (!TryUseIdleSession(directory, () =>
+        {
+            foreach (var marker in new[] { "transcribe.failed", "transcribe.deferred", "speakers.failed", "speakers.deferred", "speakers.off",
                      "summary.failed", "summary.deferred", "summary.off" })
-            File.Delete(Path.Combine(directory, marker));
-        WriteLedger(directory, ReadLedger(directory) with { TranscribeAttempts = 0, NamesAttempts = 0, SummaryAttempts = 0, LastError = null });
+                File.Delete(Path.Combine(directory, marker));
+            WriteLedger(directory, ReadLedger(directory) with { TranscribeAttempts = 0, NamesAttempts = 0, SummaryAttempts = 0, LastError = null });
+        })) return;
         Enqueue(directory);
     }
 

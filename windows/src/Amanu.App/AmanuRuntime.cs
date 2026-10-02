@@ -501,8 +501,9 @@ public sealed class AmanuRuntime : IAsyncDisposable
     {
         if (State.SessionDirectory is { } recording && string.Equals(recording, directory, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException(T("This session is still recording.", "Эта встреча ещё записывается."));
-        Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(directory,
-            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+        if (!processing.TryUseIdleSession(directory, () => Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(directory,
+            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs, Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin)))
+            throw new InvalidOperationException(T("This recording is queued or being processed.", "Эта запись в очереди или обрабатывается."));
         SessionsChanged?.Invoke(this, EventArgs.Empty);
     }
 
