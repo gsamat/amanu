@@ -1,3 +1,19 @@
+# Amanu for Windows 0.6.4
+
+- The **My own key** card now offers **OpenAI**, **Anthropic**, and **OpenAI-compatible** separately.
+- Choose the compatible option to enter the service’s API URL, model, and token. Switching to OpenAI retains the saved custom URL and selects OpenAI’s own API and key.
+- API token hints now say **API key** rather than requiring a `sk-` prefix.
+- Existing custom endpoint configurations continue to select the compatible service automatically.
+- The installer is named **Amanu-0.6.4-Setup.exe**. The stable update channel is unchanged.
+
+## Validation
+
+- On the connected Windows computer: build without warnings, 141 core tests and 28 live tests passed, and installer version, Authenticode signature and SHA-256 verified.
+- The actual setup form was checked through Computer Use using isolated settings: all three providers, URL/model visibility, neutral key hint, custom URL retention, and legacy configuration in light and dark themes.
+- The 0.6.4 WinGet manifests passed local validation. Installation, upgrade and uninstall in an isolated Windows profile were not tested because no isolated environment was available.
+
+- Packaging tools should use **assets.versioned.stable.json** for the installer inventory. The original published inventory is preserved; the stable application update feed is unchanged.
+
 # Amanu for Windows 0.6.3
 
 - The recording status says **ready** in English and **готов** in Russian
