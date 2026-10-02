@@ -10,6 +10,7 @@
 
 ## Validation
 
+- On the connected Windows computer: Release build succeeded without warnings; 141 core tests, 38 live tests, and five installer filename/inventory/checksum tests passed on the combined release source.
 - Queue and action regressions were checked red-to-green on the connected Windows computer. The recordings UI was checked through Computer Use with isolated synthetic sessions and controlled local transcription and summary dependencies.
 - Full installation, upgrade, and uninstall testing in a separate Windows account or Sandbox could not run: this host has no Windows Sandbox and the current account cannot create an isolated test account.
 
