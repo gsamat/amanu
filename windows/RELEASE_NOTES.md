@@ -8,8 +8,9 @@
 
 ## Validation
 
-- Managed builds and automated tests run on the Windows release runner.
-- The connected Windows test computer was unavailable during preparation; the new selector has not been verified interactively on that computer.
+- On the connected Windows computer: build without warnings, 141 core tests and 28 live tests passed, and installer version, Authenticode signature and SHA-256 verified.
+- The actual setup form was checked through Computer Use using isolated settings: all three providers, URL/model visibility, neutral key hint, custom URL retention, and legacy configuration in light and dark themes.
+- The 0.6.4 WinGet manifests passed local validation. Installation, upgrade and uninstall in an isolated Windows profile were not tested because no isolated environment was available.
 
 # Amanu for Windows 0.6.3
 
