@@ -500,3 +500,14 @@ grew. Hash approved diffs with `--binary --full-index`; the expected digests
 must use that same representation. Do not accept a newly observed digest
 without comparing the actual source changes. The regression test varies
 `core.abbrev` and still requires unrelated staged and unstaged edits to fail.
+
+## Windows installer renaming must update Velopack's inventory
+
+Renaming `Amanu-stable-Setup.exe` after `vpk pack` also requires updating the
+Installer entry in `assets.stable.json` before computing `SHA256SUMS`.
+The application updater reads `releases.stable.json`, which references the
+versioned full package and is unaffected by installer naming.
+`windows/scripts/Finalize-ReleaseArtifacts.ps1` now rewrites the inventory and
+refuses missing referenced files; `Windows packaging metadata` tests this on Windows.
+The original Windows 0.6.4 assets remain immutable. Its corrected installer
+inventory was added as `assets.versioned.stable.json` with a separate checksum.
