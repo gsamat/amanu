@@ -40,7 +40,7 @@ struct Sessions: ParsableCommand {
 struct FormatTranscripts: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "format-transcripts",
-        abstract: "Rebuild AssemblyAI and ElevenLabs transcript.md in existing recording folders."
+        abstract: "Rebuild diarized transcript.md in existing recording folders."
     )
 
     @Option(name: .long, help: "Recordings root directory (overrides the config file).")
@@ -64,7 +64,7 @@ struct FormatTranscripts: ParsableCommand {
         throw ExitCode(1)
     }
 
-    /// Rewrite every AssemblyAI `transcript.md` under `root` that differs from
+    /// Rewrite every diarized `transcript.md` under `root` that differs from
     /// what its `transcript.json` renders to, and return the folders changed.
     ///
     /// One session that cannot be read is reported through `onFailure` and

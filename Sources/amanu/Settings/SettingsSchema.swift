@@ -123,12 +123,12 @@ enum SettingsSchema {
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
                           "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
-                      .choice(["auto", "assemblyai", "openai", "elevenlabs"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "fishaudio"]), default: "auto", askedInSetup: true),
                 Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                       localised(
                           "Which service auto uploads to when a key is available.",
                           "В какой сервис auto отправляет запись, когда есть ключ."),
-                      .choice(["assemblyai", "openai", "elevenlabs"]), default: "assemblyai", askedInSetup: true),
+                      .choice(["assemblyai", "openai", "elevenlabs", "fishaudio"]), default: "assemblyai", askedInSetup: true),
                 Entry(["transcription", "local_engine"],
                       localised("Local engine", "Локальный движок"),
                       localised(
@@ -158,12 +158,12 @@ enum SettingsSchema {
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
                       "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
-                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "fishaudio", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                   localised(
                       "Which service auto uploads to when a key is available.",
                       "В какой сервис auto отправляет запись, когда есть ключ."),
-                  .choice(["assemblyai", "openai", "elevenlabs"]), default: "assemblyai", askedInSetup: true),
+                  .choice(["assemblyai", "openai", "elevenlabs", "fishaudio"]), default: "assemblyai", askedInSetup: true),
             Entry(["transcription", "local_engine"],
                   localised("Local engine", "Локальный движок"),
                   localised(
@@ -351,6 +351,12 @@ enum SettingsSchema {
                       "Where the ElevenLabs key is read from. ELEVENLABS_API_KEY wins over it.",
                       "Откуда читается ключ ElevenLabs. ELEVENLABS_API_KEY важнее."),
                   .text, describedAs: "~/.config/amanu/keys/elevenlabs"),
+            Entry(["transcription", "fishaudio", "api_key_path"],
+                  localised("Fish Audio key file", "Файл ключа Fish Audio"),
+                  localised(
+                      "Where the Fish Audio key is read from. FISH_API_KEY wins over it.",
+                      "Откуда читается ключ Fish Audio. FISH_API_KEY важнее."),
+                  .text, describedAs: "~/.config/amanu/keys/fishaudio"),
         ]),
 
         Section(title: localised("Summaries", "Саммари"), entries: [
@@ -713,13 +719,13 @@ enum SettingsSchema {
 
     /// Settings the program reads but the window deliberately doesn't show.
     ///
-    /// One entry, and it earns the exception: an API key pasted into the
-    /// config file is a secret, and a text field would put it on screen and
-    /// into a screenshot. The path to a key file is offered instead. Keys
-    /// listed here still count as known — a setting amanu obeys must never be
-    /// reported as one it ignores.
+    /// An API key pasted into the config file is a secret, and a text field
+    /// would put it on screen and into a screenshot. The path to a key file
+    /// is offered instead. Keys listed here still count as known — a setting
+    /// amanu obeys must never be reported as one it ignores.
     static let unrenderedKeys = [
         "transcription.assemblyai.api_key", "transcription.elevenlabs.api_key",
+        "transcription.fishaudio.api_key",
     ]
 
     /// Older releases exposed these choices. Retained audio now always becomes

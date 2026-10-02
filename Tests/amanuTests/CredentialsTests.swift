@@ -50,6 +50,60 @@ struct CredentialsTests {
 
     // MARK: - where a key goes
 
+    @Test("Fish credentials prefer nonblank overrides and never bypass a named missing or empty file")
+    func fishKeyPrecedence() throws {
+        try withFreshHome { home in
+            #expect(Config.fishAudioKey() == nil)
+            let shared = Config.fishAudioSharedKeyPaths
+            let firstShared = try #require(shared.first)
+            let secondShared = try #require(shared.dropFirst().first)
+            let configured = Home.current.expanding("~/secrets/fish")
+            try Credentials.writeSecret(" \n shared-first \t", to: firstShared)
+            try Credentials.writeSecret(" \t shared-second \n", to: secondShared)
+            try Credentials.writeSecret(" \n owned-key \t", to: Config.fishAudioKeyPath)
+            try Credentials.writeSecret(" \t configured-key \n", to: configured)
+            var fish: [String: Any] = [
+                "api_key": " \n inline-key \t",
+                "api_key_path": "~/secrets/fish",
+            ]
+            try home.writeConfig(["transcription": ["fishaudio": fish]])
+            #expect(Config.fishAudioKey() == "inline-key")
+
+            for (value, expected) in [
+                (" \n environment-key \t", "environment-key"),
+                (" \t\n", "inline-key"),
+            ] {
+                let environment = Home(
+                    url: Home.current.url, environment: ["FISH_API_KEY": value],
+                    discoversTools: false, languageModels: { _ in [] })
+                Home.$scoped.withValue(environment) {
+                    #expect(Config.fishAudioKey() == expected)
+                }
+            }
+
+            fish["api_key"] = " \t\n"
+            try home.writeConfig(["transcription": ["fishaudio": fish]])
+            #expect(Config.fishAudioKey() == "configured-key")
+            try FileManager.default.removeItem(at: configured)
+            #expect(Config.fishAudioKey() == nil,
+                    "a named missing file must not borrow the owned or shared key")
+            try Credentials.writeSecret(" \t\n", to: configured)
+            #expect(Config.fishAudioKey() == nil,
+                    "a named empty file is just as authoritative as a missing one")
+            #expect(!Credentials.hasTranscriptionKey(for: "fishaudio"))
+
+            fish.removeValue(forKey: "api_key_path")
+            try home.writeConfig(["transcription": ["fishaudio": fish]])
+            #expect(Config.fishAudioKey() == "owned-key")
+            try Credentials.writeSecret(" \t\n", to: Config.fishAudioKeyPath)
+            #expect(Config.fishAudioKey() == "shared-first")
+            try Credentials.writeSecret(" \t\n", to: firstShared)
+            #expect(Config.fishAudioKey() == "shared-second")
+            try Credentials.writeSecret(" \t\n", to: secondShared)
+            #expect(Config.fishAudioKey() == nil)
+        }
+    }
+
     @Test("The summary key for OpenAI itself shares the transcription key's file")
     func officialOpenAISharesTheSlot() throws {
         try withFreshHome { _ in
@@ -206,6 +260,158 @@ struct CredentialsTests {
 
     // MARK: - the form, end to end
 
+    @Test("Fish stays pending until its wallet authenticates, then saves privately and becomes the provider",
+          arguments: [false, true])
+    @MainActor
+    func fishSelectionWaitsForAcceptedKey(namedOwnedSlot: Bool) async throws {
+        var transcription: [String: Any] = [
+            "engine": "assemblyai", "cloud": "assemblyai",
+            "assemblyai": ["api_key": "saved-assembly"],
+        ]
+        if namedOwnedSlot {
+            transcription["fishaudio"] = ["api_key_path": "~/.config/amanu/keys/work/fish"]
+        }
+        try await withFreshHome(config: ["transcription": transcription]) { home in
+            let destination = Credentials.transcriptionSlot(
+                for: "fishaudio", in: Config.raw()).path
+            let form = Self.fishForm(in: home)
+            defer { form.stop() }
+            let card = try Self.fishCard(in: form)
+            let key = try Self.field("transcription.key", in: form)
+            let before = try Data(contentsOf: Config.path)
+
+            #expect(card.accessibilityPerformPress())
+            form.refresh()
+            #expect(card.isSelected)
+            #expect(!key.isHiddenOrHasHiddenAncestor)
+            #expect(Config.transcriptionEngine() == "assemblyai")
+            #expect(Config.transcriptionCloudProvider() == "assemblyai")
+            key.stringValue = " \t\n"
+            await form.saveCloudKey()
+            #expect(try Data(contentsOf: Config.path) == before)
+            #expect(Config.fishAudioKey() == nil)
+
+            let wallet = Self.fishWallet(
+                .json(200, #"{"credit":0}"#), accepting: "checked-fish")
+            form.checkKey = { await $0.ask(session: wallet.session) }
+            key.stringValue = " \n checked-fish \t"
+            await form.saveCloudKey()
+
+            #expect(wallet.requests.count == 1)
+            #expect(Config.fishAudioKey() == "checked-fish")
+            #expect(try Data(contentsOf: destination) == Data("checked-fish".utf8))
+            #expect(Config.transcriptionCloudProvider() == "fishaudio")
+            #expect(Config.transcriptionEngine() == "fishaudio")
+            #expect(Config.assemblyAIKey() == "saved-assembly")
+            #expect(Config.value(.fishAudioKey, in: Config.raw()) == nil,
+                    "the secret belongs in its owned file, not in the displayed config")
+            if namedOwnedSlot {
+                #expect(!FileManager.default.fileExists(atPath: Config.fishAudioKeyPath.path))
+            }
+            let fileMode = try FileManager.default.attributesOfItem(
+                atPath: destination.path)[.posixPermissions] as? NSNumber
+            let directoryMode = try FileManager.default.attributesOfItem(
+                atPath: destination.deletingLastPathComponent().path)[.posixPermissions] as? NSNumber
+            #expect(fileMode?.intValue == 0o600)
+            #expect(directoryMode?.intValue == 0o700)
+            #expect(key.stringValue.isEmpty)
+            #expect(key.isHiddenOrHasHiddenAncestor)
+
+            let reopened = Self.fishForm(in: home)
+            defer { reopened.stop() }
+            #expect(try Self.fishCard(in: reopened).isSelected)
+            #expect(try Self.field("transcription.key", in: reopened).isHiddenOrHasHiddenAncestor)
+        }
+    }
+
+    @Test("A refused, offline, or unexpected Fish probe neither saves a key nor changes the working provider",
+          arguments: [false, true])
+    @MainActor
+    func fishProbeFailuresKeepSavedState(replacingSaved: Bool) async throws {
+        let failures: [(StubHTTP.Reply, Credentials.Verdict)] = [
+            (.status(401), .refused),
+            (.status(403), .refused),
+            (.failure(.notConnectedToInternet), .unreachable),
+            (.status(204), .unexpected(status: 204)),
+            (.status(429), .unexpected(status: 429)),
+            (.status(503), .unexpected(status: 503)),
+        ]
+        let provider = replacingSaved ? "fishaudio" : "assemblyai"
+        for (reply, verdict) in failures {
+            try await withFreshHome(config: [
+                "transcription": ["engine": provider, "cloud": provider],
+            ]) { home in
+                try Credentials.writeSecret("saved-assembly", to: Config.assemblyAIKeyPath)
+                if replacingSaved {
+                    try Credentials.writeSecret("saved-fish", to: Config.fishAudioKeyPath)
+                }
+                let form = Self.fishForm(in: home)
+                defer { form.stop() }
+                let card = try Self.fishCard(in: form)
+                #expect(card.accessibilityPerformPress())
+                let beforeConfig = try Data(contentsOf: Config.path)
+                let beforeKey = try? Data(contentsOf: Config.fishAudioKeyPath)
+                let wallet = Self.fishWallet(reply, accepting: "replacement-fish")
+                form.checkKey = { await $0.ask(session: wallet.session) }
+                let key = try Self.field("transcription.key", in: form)
+                key.stringValue = "replacement-fish"
+                await form.saveCloudKey()
+
+                #expect(wallet.requests.count == 1)
+                #expect(try Data(contentsOf: Config.path) == beforeConfig)
+                #expect((try? Data(contentsOf: Config.fishAudioKeyPath)) == beforeKey)
+                #expect(Config.fishAudioKey() == (replacingSaved ? "saved-fish" : nil))
+                #expect(Config.assemblyAIKey() == "saved-assembly")
+                #expect(Config.transcriptionEngine() == provider)
+                #expect(Config.transcriptionCloudProvider() == provider)
+                #expect(key.stringValue == "replacement-fish")
+                #expect(try Self.field("transcription.key.status", in: form).stringValue
+                    == verdict.sentence(keepingSaved: replacingSaved))
+                form.refresh()
+                #expect(card.isSelected)
+                #expect(Config.transcriptionCloudProvider() == provider)
+            }
+        }
+    }
+
+    @Test("Fish setup never creates or overwrites an externally owned configured key file",
+          arguments: [false, true])
+    @MainActor
+    func fishExternalKeyFileIsNotWritten(existing: Bool) async throws {
+        let provider = existing ? "fishaudio" : "assemblyai"
+        try await withFreshHome(config: [
+            "transcription": [
+                "engine": provider, "cloud": provider,
+                "fishaudio": ["api_key_path": "~/shared/fish-token"],
+            ],
+        ]) { home in
+            let external = Home.current.expanding("~/shared/fish-token")
+            if existing { try Credentials.writeSecret("external-fish", to: external) }
+            try Credentials.writeSecret("saved-assembly", to: Config.assemblyAIKeyPath)
+            let beforeKey = try? Data(contentsOf: external)
+            let beforeConfig = try Data(contentsOf: Config.path)
+            let form = Self.fishForm(in: home)
+            defer { form.stop() }
+            #expect(try Self.fishCard(in: form).accessibilityPerformPress())
+            let wallet = Self.fishWallet(
+                .json(200, #"{"credit":0}"#), accepting: "replacement-fish")
+            form.checkKey = { await $0.ask(session: wallet.session) }
+            let key = try Self.field("transcription.key", in: form)
+            key.stringValue = "replacement-fish"
+            await form.saveCloudKey()
+
+            #expect(wallet.requests.isEmpty, "a key that cannot be saved is not checked")
+            #expect((try? Data(contentsOf: external)) == beforeKey)
+            #expect(try Data(contentsOf: Config.path) == beforeConfig)
+            #expect(!FileManager.default.fileExists(atPath: Config.fishAudioKeyPath.path))
+            #expect(Config.fishAudioKey() == (existing ? "external-fish" : nil))
+            #expect(Config.assemblyAIKey() == "saved-assembly")
+            #expect(Config.transcriptionEngine() == provider)
+            #expect(Config.transcriptionCloudProvider() == provider)
+            #expect(key.stringValue == "replacement-fish")
+        }
+    }
+
     @Test("Switching between OpenAI and a compatible service keeps endpoints and keys separate")
     @MainActor
     func summaryProviderSwitchKeepsEndpointsAndKeys() async throws {
@@ -338,6 +544,47 @@ struct CredentialsTests {
             #expect(status == Credentials.Verdict.unreachable.sentence(keepingSaved: true))
             #expect(!status.contains("refused"))
         }
+    }
+
+    private static func fishWallet(
+        _ reply: StubHTTP.Reply, accepting key: String
+    ) -> StubHTTP {
+        StubHTTP { request, _ in
+            guard request.method == "GET",
+                  request.url.absoluteString == "https://api.fish.audio/wallet/self/api-credit",
+                  request.header("authorization") == "Bearer \(key)"
+            else { return .status(400) }
+            return reply
+        }
+    }
+
+    /// Config notifications are process-wide, including those from another
+    /// test's home while a wallet probe is suspended. Keep this form's
+    /// read/write seam attached to the home it was built for.
+    @MainActor
+    private static func fishForm(in home: Home) -> SetupForm {
+        let form = SetupForm()
+        form.storedTranscription = {
+            Home.$scoped.withValue(home) {
+                TranscriptionChoice.read(
+                    engine: Config.transcriptionEngine(),
+                    cloudProvider: Config.transcriptionCloudProvider(),
+                    enabled: Config.transcriptionEnabled(),
+                    localModels: Platform.supportsLocalModels,
+                    localEngine: Config.transcriptionLocalEngine())
+            }
+        }
+        form.write = { path, value in
+            Home.$scoped.withValue(home) { Config.update(path: path, value: value) }
+        }
+        form.refresh()
+        return form
+    }
+
+    @MainActor
+    private static func fishCard(in form: SetupForm) throws -> ChoiceCard {
+        try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "fishaudio" })
     }
 
     @MainActor

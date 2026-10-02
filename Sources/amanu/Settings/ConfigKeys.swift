@@ -32,6 +32,8 @@ extension Config {
         case assemblyAISpeechModel = "transcription.assemblyai.speech_model"
         case elevenLabsKey = "transcription.elevenlabs.api_key"
         case elevenLabsKeyPath = "transcription.elevenlabs.api_key_path"
+        case fishAudioKey = "transcription.fishaudio.api_key"
+        case fishAudioKeyPath = "transcription.fishaudio.api_key_path"
         case liveTranscription = "live_transcription.enabled"
         case micVoiceProcessing = "mic_voice_processing"
         case transcriptEchoFilter = "transcript_echo_filter"

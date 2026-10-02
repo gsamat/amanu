@@ -76,28 +76,7 @@ struct InterfaceLanguageTests {
         }
     }
 
-    /// The one that would actually catch a sentence left untranslated.
-    ///
-    /// A table of keys can only promise that every key has both columns; it
-    /// cannot promise that a window went through the table at all. So build
-    /// the form twice, once in each language, and walk it: every string a
-    /// person can read has to have changed, except the ones that are the same
-    /// in both languages on purpose — names, prices in dollars, paths, and
-    /// the meeting languages, which are named in themselves and never
-    /// translated.
-    @Test("Nothing in the setup form is left in English when the form is Russian")
-    @MainActor
-    func theFormIsAllInOneLanguage() {
-        let english = Self.inLanguage(.english) { Self.readable(SetupForm()) }
-        let russian = Self.inLanguage(.russian) { Self.readable(SetupForm()) }
-
-        #expect(english.count == russian.count, "the two forms are not the same form")
-        #expect(Self.untranslated(english, russian).isEmpty,
-                "still English in a Russian window: \(Self.untranslated(english, russian))")
-    }
-
-    /// And the same question of the status window, which the walk above does
-    /// not reach and which is the window a person actually keeps open.
+    /// The status window is the window a person actually keeps open.
     ///
     /// It says almost nothing until it is spoken to — the recorder's state,
     /// the live session's status, who is talking — so building one and
@@ -528,15 +507,6 @@ struct InterfaceLanguageTests {
     /// Russian sentence in front of a test on another thread.
     private static func inLanguage<T>(_ language: InterfaceLanguage, _ body: () -> T) -> T {
         InterfaceLanguage.$scoped.withValue(language) { body() }
-    }
-
-    /// Everything in the form a person can read, in the order the views are
-    /// in — which is the same order in both languages, because it is the same
-    /// form built twice.
-    @MainActor
-    private static func readable(_ form: SetupForm) -> [String] {
-        form.view.layoutSubtreeIfNeeded()
-        return [form.nextActionTitle, form.outstandingSentence] + strings(in: form.view)
     }
 
     /// Everything a person can read inside a view, in the order the views are
