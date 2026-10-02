@@ -6,6 +6,14 @@
 Этот документ передаёт сессии на Mac оставшуюся работу по подписанному релизу macOS.
 Публикация обеих платформ уже разрешена пользователем.
 
+Оба релиза опубликованы: [macOS 0.6.3](https://github.com/gsamat/amanu/releases/tag/v0.6.3)
+и [Windows 0.6.3](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.3).
+Mac-сессия сообщила об успешных 764 Swift-тестах, 16 Python-тестах, проверках
+сайта и реального GUI, Developer ID подписи, нотариализации, stapling и Gatekeeper.
+Публичный macOS appcast независимо проверен из Windows: версия 0.6.3, build 424.
+На момент последней проверки Windows-кнопки сайта ещё ведут на 0.6.2;
+готовое обновление находится в коммите `bd64dbd`, описанном ниже.
+
 ## Исходники для Mac
 
 Репозиторий: <https://github.com/gsamat/amanu>.
