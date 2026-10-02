@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)] [string] $PublishDirectory,
-    [Parameter(Mandatory = $true)] [string] $ReleaseDirectory
+    [Parameter(Mandatory = $true)] [string] $ReleaseDirectory,
+    [string] $Version = (Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../VERSION') -Raw).Trim()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,7 +25,7 @@ $payloadPaths = @('Amanu.exe', 'Amanu.dll', 'Amanu.Core.dll', 'local-runtime/tra
 foreach ($relativePath in $payloadPaths) {
     Assert-CompanySignature (Join-Path $PublishDirectory $relativePath)
 }
-Assert-CompanySignature (Join-Path $ReleaseDirectory 'Amanu-stable-Setup.exe')
+Assert-CompanySignature (Join-Path $ReleaseDirectory "Amanu-$Version-Setup.exe")
 
 $packages = @(Get-ChildItem -LiteralPath $ReleaseDirectory -File | Where-Object {
     $_.Name -like '*-full.nupkg' -or $_.Name -like '*-Portable.zip'

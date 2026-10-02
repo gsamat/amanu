@@ -18,6 +18,8 @@ $publishDirectory = Join-Path $windowsRoot "artifacts\publish"
 $releaseDirectory = Join-Path $windowsRoot "artifacts\release"
 $toolDirectory = Join-Path $windowsRoot ".tools"
 
+& (Join-Path $windowsRoot 'tests/Test-ReleaseInstallerName.ps1')
+
 dotnet restore (Join-Path $windowsRoot "Amanu.Windows.slnx")
 if ($LASTEXITCODE -ne 0) { throw "Could not restore the Windows solution." }
 dotnet test (Join-Path $windowsRoot "tests\Amanu.Core.Tests\Amanu.Core.Tests.csproj") --configuration Release --no-restore
@@ -63,4 +65,7 @@ if ($CertificatePath) {
 
 & (Join-Path $toolDirectory "vpk.exe") @arguments
 if ($LASTEXITCODE -ne 0) { throw "Could not package the Windows installer." }
+$installerPath = & (Join-Path $PSScriptRoot 'Set-ReleaseInstallerName.ps1') `
+    -ReleaseDirectory $releaseDirectory -Version $Version
+Write-Host "Amanu installer: $installerPath"
 Write-Host "Amanu release artifacts: $releaseDirectory"

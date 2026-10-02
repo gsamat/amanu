@@ -23,10 +23,10 @@ function New-ReleaseFixture {
     return $directory
 }
 
-function Assert-Rejected([scriptblock] $Action) {
-    $rejected = $false
-    try { & $Action | Out-Null } catch { $rejected = $true }
-    Assert-True $rejected 'Expected unsafe release inputs to be rejected.'
+function Assert-Rejected([scriptblock] $Action, [string] $ExpectedMessage) {
+    $message = ''
+    try { & $Action | Out-Null } catch { $message = $_.Exception.Message }
+    Assert-True ($message -like "*$ExpectedMessage*") "Expected rejection '$ExpectedMessage', got '$message'."
 }
 
 $tests = @(
@@ -64,7 +64,7 @@ $tests = @(
             $path = Join-Path $directory 'Amanu-0.6.4-Setup.exe'
             [IO.File]::WriteAllText($path, 'existing installer')
             $metadata = [IO.File]::ReadAllText((Join-Path $directory 'assets.stable.json'))
-            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '0.6.4' }
+            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '0.6.4' } 'already exists'
             Assert-True ([IO.File]::ReadAllText($path) -eq 'existing installer') 'Existing installer was overwritten.'
             Assert-True (Test-Path -LiteralPath (Join-Path $directory 'Amanu-stable-Setup.exe')) 'Original installer was lost.'
             Assert-True ([IO.File]::ReadAllText((Join-Path $directory 'assets.stable.json')) -eq $metadata) 'Metadata changed after a rejected rename.'
@@ -76,7 +76,7 @@ $tests = @(
             param($directory)
             Remove-Item -LiteralPath (Join-Path $directory 'Amanu-stable-Setup.exe')
             $metadata = [IO.File]::ReadAllText((Join-Path $directory 'assets.stable.json'))
-            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '0.6.4' }
+            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '0.6.4' } 'missing'
             Assert-True ([IO.File]::ReadAllText((Join-Path $directory 'assets.stable.json')) -eq $metadata) 'Metadata changed without an installer.'
         }
     },
@@ -84,7 +84,7 @@ $tests = @(
         Name = 'Invalid version cannot rename files'
         Run = {
             param($directory)
-            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '../0.6.4' }
+            Assert-Rejected { & $ScriptPath -ReleaseDirectory $directory -Version '../0.6.4' } 'Invalid release version'
             Assert-True (Test-Path -LiteralPath (Join-Path $directory 'Amanu-stable-Setup.exe')) 'Invalid version changed the installer.'
         }
     },

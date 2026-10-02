@@ -72,6 +72,15 @@ flow. The release notes record the checks performed for each shipped version.
 ## Signing and release packaging
 
 Local builds are unsigned by default. `Build-Release.ps1` accepts
+the shared version from `VERSION`. After Velopack packaging, both the local
+script and the release workflow run `Set-ReleaseInstallerName.ps1` to produce
+`Amanu-<version>-Setup.exe`, update `assets.stable.json`, and generate
+`SHA256SUMS` for the final filenames. Renaming preserves the installer's signed
+bytes. Use a clean release output directory for a new build; an existing
+versioned installer is never overwritten. The published 0.6.3 installer retains
+its original filename; future releases use the versioned name.
+
+`Build-Release.ps1` also accepts
 `-CertificatePath` and `-CertificatePassword` for local certificate signing.
 Do not put signing credentials in the repository or public logs.
 
