@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = "0.6.0",
+    [string]$Version,
 
     [Parameter(Mandatory = $false)]
     [string]$CertificatePath,
@@ -11,6 +11,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $windowsRoot = Split-Path -Parent $PSScriptRoot
+$sourceVersion = (Get-Content -LiteralPath (Join-Path $windowsRoot "..\VERSION") -Raw).Trim()
+if ([string]::IsNullOrWhiteSpace($Version)) { $Version = $sourceVersion }
+if ($Version -ne $sourceVersion) { throw "Package version must match VERSION ($sourceVersion)." }
 $publishDirectory = Join-Path $windowsRoot "artifacts\publish"
 $releaseDirectory = Join-Path $windowsRoot "artifacts\release"
 $toolDirectory = Join-Path $windowsRoot ".tools"

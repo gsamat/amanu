@@ -1,3 +1,12 @@
+# Amanu for Windows 0.6.3
+
+- The recording status says **ready** in English and **готов** in Russian
+  when no recording is running, in the status window and tray menu.
+- Windows and macOS share version **0.6.3**, read from the same `VERSION` file.
+  The Windows installer and stable update feed remain separate from macOS.
+- Includes the checkbox label fixes shipped in Windows 0.6.2 for the
+  Windows light and dark themes.
+
 # Amanu for Windows 0.6.1
 
 - Transcript and summary previews render Markdown headings, emphasis, lists,

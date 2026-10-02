@@ -5,14 +5,16 @@ namespace Amanu.Core.Tests;
 
 public sealed class RecordingDisplayTests
 {
-    [Fact]
-    public void Ready_state_offers_start_and_disables_pause()
+    [Theory]
+    [InlineData(InterfaceLanguage.Russian, "готов", "Начать запись")]
+    [InlineData(InterfaceLanguage.English, "ready", "Start recording")]
+    public void Ready_state_offers_start_and_disables_pause(InterfaceLanguage language, string heading, string action)
     {
-        using var russian = Localized.Use(InterfaceLanguage.Russian);
+        using var localized = Localized.Use(language);
         var display = RecordingDisplay.From(RecordingState.Ready, TimeSpan.Zero);
 
-        Assert.Equal("не записывает", display.Heading);
-        Assert.Equal("Начать запись", display.RecordAction);
+        Assert.Equal(heading, display.Heading);
+        Assert.Equal(action, display.RecordAction);
         Assert.False(display.CanPause);
         Assert.Empty(display.Elapsed);
     }

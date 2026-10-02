@@ -13,7 +13,7 @@ class WindowsBetaWorkflowSafetyTests(unittest.TestCase):
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
         steps = workflow["jobs"]["build"]["steps"]
         upload = next(step for step in steps if step.get("name") == "Upload installer and update feed")
-        release = next(step for step in steps if step.get("name") == "Publish GitHub beta release and update feed")
+        release = next(step for step in steps if step.get("name") == "Publish GitHub release and update feed")
 
         self.assertEqual(inputs["publish_release"]["default"], "false")
         self.assertEqual(inputs["upload_artifact"]["default"], "true")

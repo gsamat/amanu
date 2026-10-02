@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: SemVer package version
-        required: true
-        default: 0.6.0
+        description: Package version (leave empty to use VERSION)
+        required: false
+        default: ''
       publish_release:
         description: Publish/update a stable GitHub release and update feed
         required: true
@@ -35,6 +35,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Resolve shared release version
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          $version = (Get-Content -LiteralPath VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Invalid VERSION: $version" }
+          if ($env:REQUESTED_VERSION -and $env:REQUESTED_VERSION -ne $version) {
+            throw "Package version must match VERSION ($version)."
+          }
+          "AMANU_VERSION=$version" >> $env:GITHUB_ENV
+
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
@@ -59,7 +71,7 @@ jobs:
           --configuration Release
           --runtime win-x64
           --self-contained true
-          --property:Version=${{ inputs.version }}
+          --property:Version=${{ env.AMANU_VERSION }}
           --output ${{ runner.temp }}/amanu-publish
 
       - name: Build pinned local transcription CLI
@@ -135,7 +147,7 @@ jobs:
         run: >-
           & "${{ runner.temp }}/velopack/vpk.exe" pack
           --packId Amanu
-          --packVersion "${{ inputs.version }}"
+          --packVersion "${{ env.AMANU_VERSION }}"
           --packDir "${{ runner.temp }}/amanu-publish"
           --mainExe Amanu.exe
           --packTitle "Amanu"
@@ -158,7 +170,7 @@ jobs:
           } | ConvertTo-Json
           [IO.File]::WriteAllText($metadataPath, $metadata, [Text.UTF8Encoding]::new($false))
           $packArgs = @(
-            'pack', '--packId', 'Amanu', '--packVersion', '${{ inputs.version }}',
+            'pack', '--packId', 'Amanu', '--packVersion', '${{ env.AMANU_VERSION }}',
             '--packDir', '${{ runner.temp }}/amanu-publish', '--mainExe', 'Amanu.exe',
             '--packTitle', 'Amanu', '--packAuthors', 'Amanu',
             '--icon', 'windows/src/Amanu.App/Assets/Amanu.ico',
@@ -178,7 +190,7 @@ jobs:
         run: >-
           & "${{ runner.temp }}/velopack/vpk.exe" pack
           --packId Amanu
-          --packVersion "${{ inputs.version }}"
+          --packVersion "${{ env.AMANU_VERSION }}"
           --packDir "${{ runner.temp }}/amanu-publish"
           --mainExe Amanu.exe
           --packTitle "Amanu"
@@ -202,7 +214,7 @@ jobs:
         if: inputs.upload_artifact
         uses: actions/upload-artifact@v5
         with:
-          name: Amanu-Windows-${{ inputs.version }}-x64
+          name: Amanu-Windows-${{ env.AMANU_VERSION }}-x64
           path: ${{ runner.temp }}/amanu-release/*
           if-no-files-found: error
           retention-days: 30
@@ -213,13 +225,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "windows-v${{ inputs.version }}"
+          $tag = "windows-v${{ env.AMANU_VERSION }}"
           $assets = Get-ChildItem -LiteralPath "${{ runner.temp }}/amanu-release" -File | ForEach-Object { $_.FullName }
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber
           } else {
-            gh release create $tag @assets --target '${{ github.sha }}' --title "Amanu Windows ${{ inputs.version }}" --notes-file windows/RELEASE_NOTES.md
+            gh release create $tag @assets --target '${{ github.sha }}' --title "Amanu Windows ${{ env.AMANU_VERSION }}" --notes-file windows/RELEASE_NOTES.md
           }
 
       - name: Remove temporary certificate

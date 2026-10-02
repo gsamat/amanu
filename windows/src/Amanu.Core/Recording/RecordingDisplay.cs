@@ -13,7 +13,7 @@ public sealed record RecordingDisplay(
     public static RecordingDisplay From(RecordingState state, TimeSpan elapsed)
     {
         if (!state.IsRecording)
-            return new(T("idle", "не записывает"), T("Start recording", "Начать запись"), T("Pause", "Пауза"), false, "");
+            return new(T("ready", "готов"), T("Start recording", "Начать запись"), T("Pause", "Пауза"), false, "");
 
         var time = Clock(elapsed);
         return new(
