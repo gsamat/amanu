@@ -150,6 +150,8 @@ Microsoft's validation checks have passed; it is awaiting review. A public
 are kept here for subsequent Windows releases. Amanu has no published
 Chocolatey package yet.
 
-The signed 0.6.5 installer is submitted in [draft PR #445793](https://github.com/microsoft/winget-pkgs/pull/445793).
-Local manifest validation passed. Microsoft's validation and publisher review remain pending;
+The signed 0.6.5 installer is submitted in [PR #445793](https://github.com/microsoft/winget-pkgs/pull/445793).
+Local manifest validation and all Microsoft validation checks passed. Clean installation,
+native upgrade from 0.6.4, and uninstall were verified in a temporary Windows profile.
+The PR is ready for review;
 WinGet availability will be confirmed after the catalog PR is merged.
