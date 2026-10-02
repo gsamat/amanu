@@ -1,12 +1,12 @@
 {
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Automatic meeting recording, transcription, and summaries for Windows 11.",
   "homepage": "https://amanu.me/",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Portable.zip",
-      "hash": "965b9ecf2e555bed8975f55416cd9be13433b193486d08e696a15164cfefef97"
+      "url": "https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-stable-Portable.zip",
+      "hash": "050fb501ba90063018adca385cda64cf989ae82143766398b4f3d331bb361786"
     }
   },
   "shortcuts": [

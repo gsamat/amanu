@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
                     await route.fulfill({ status: 204 });
                 });
                 await page.goto(`${base}/${language}/`);
-                const windows = page.locator('a[href$="/Amanu-stable-Setup.exe"]');
+                const windows = page.locator('a[href$="/Amanu-0.6.4-Setup.exe"]');
                 assert.equal(await windows.count(), 2, `${language}: Windows download in hero and footer`);
                 const mac = page.locator('a[href$="-macos-universal.dmg"]');
                 assert.equal(await mac.count(), 2, `${language}: macOS download in hero and footer`);
