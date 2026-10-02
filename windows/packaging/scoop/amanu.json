@@ -1,23 +1,23 @@
 {
-    "version": "0.6.2",
-    "description": "Automatic meeting recording, transcription, and summaries for Windows 11.",
-    "homepage": "https://amanu.me/",
-    "license": "MIT",
-    "architecture": {
-        "64bit": {
-            "url": "https://github.com/gsamat/amanu/releases/download/windows-v0.6.2/Amanu-stable-Portable.zip",
-            "hash": "d6b8412285bf0eade5061b326355b1dcda7b15b8035347357e1dc4815a4f82f4"
-        }
-    },
-    "shortcuts": [
-        [
-            "Amanu.exe",
-            "Amanu"
-        ]
-    ],
-    "notes": [
-        "Requires Windows 11 24H2 or later on x64. Open Amanu from the Start menu.",
-        "This portable package does not update itself. Install a newer manifest to upgrade.",
-        "Quit Amanu before upgrading or uninstalling. Recordings and settings are kept outside the package directory."
+  "version": "0.6.3",
+  "description": "Automatic meeting recording, transcription, and summaries for Windows 11.",
+  "homepage": "https://amanu.me/",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Portable.zip",
+      "hash": "965b9ecf2e555bed8975f55416cd9be13433b193486d08e696a15164cfefef97"
+    }
+  },
+  "shortcuts": [
+    [
+      "Amanu.exe",
+      "Amanu"
     ]
+  ],
+  "notes": [
+    "Requires Windows 11 24H2 or later on x64. Open Amanu from the Start menu.",
+    "This portable package does not update itself. Install a newer manifest to upgrade.",
+    "Quit Amanu before upgrading or uninstalling. Recordings and settings are kept outside the package directory."
+  ]
 }
