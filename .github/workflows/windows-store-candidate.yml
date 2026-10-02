@@ -1,0 +1,127 @@
+name: Windows Store candidate
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: Validate an existing candidate run without rebuilding (empty builds candidate)
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+jobs:
+  package:
+    if: inputs.candidate_run == ''
+    runs-on: windows-2025
+    environment: windows-signing
+    env:
+      ARTIFACT_SIGNING_ENDPOINT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+      ARTIFACT_SIGNING_PROFILE: ${{ secrets.AZURE_ARTIFACT_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Fetch released payload and select unsigned PE files
+        shell: pwsh
+        run: |
+          if ((Get-Content VERSION -Raw).Trim() -ne '0.6.3') { throw 'Candidate must use released 0.6.3.' }
+          Invoke-WebRequest 'https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Portable.zip' -OutFile "$env:RUNNER_TEMP/released.zip"
+          if ((Get-FileHash "$env:RUNNER_TEMP/released.zip" -Algorithm SHA256).Hash -ne '965B9ECF2E555BED8975F55416CD9BE13433B193486D08E696A15164CFEFEF97') { throw 'Released payload checksum mismatch.' }
+          Expand-Archive "$env:RUNNER_TEMP/released.zip" "$env:RUNNER_TEMP/released"
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/reports" | Out-Null
+          & windows/scripts/Get-PeSignatureInventory.ps1 -Directory "$env:RUNNER_TEMP/released/current" -Output "$env:RUNNER_TEMP/reports/before.json" -SigningCatalog "$env:RUNNER_TEMP/sign-targets.txt"
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Sign missing or invalid embedded signatures
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: ${{ env.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ env.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.ARTIFACT_SIGNING_PROFILE }}
+          files-catalog: ${{ runner.temp }}/sign-targets.txt
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+      - name: Verify payload and preserve vendor signatures
+        shell: pwsh
+        run: |
+          & windows/scripts/Get-PeSignatureInventory.ps1 -Directory "$env:RUNNER_TEMP/released/current" -Output "$env:RUNNER_TEMP/reports/after.json" -RequireValid
+          $before = Get-Content "$env:RUNNER_TEMP/reports/before.json" -Raw | ConvertFrom-Json
+          $after = Get-Content "$env:RUNNER_TEMP/reports/after.json" -Raw | ConvertFrom-Json
+          foreach ($file in $before | Where-Object Valid) {
+            if (($after | Where-Object Path -eq $file.Path).Sha256 -ne $file.Sha256) { throw "Previously signed file changed: $($file.Path)" }
+          }
+      - name: Package standalone installer
+        shell: pwsh
+        run: |
+          dotnet tool install --tool-path "$env:RUNNER_TEMP/velopack" vpk --version 1.2.0
+          if ($LASTEXITCODE) { throw 'Velopack install failed.' }
+          $metadata = @{ Endpoint = $env:ARTIFACT_SIGNING_ENDPOINT; CodeSigningAccountName = $env:ARTIFACT_SIGNING_ACCOUNT; CertificateProfileName = $env:ARTIFACT_SIGNING_PROFILE } | ConvertTo-Json
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP/signing.json", $metadata, [Text.UTF8Encoding]::new($false))
+          & "$env:RUNNER_TEMP/velopack/vpk.exe" pack --packId Amanu --packVersion 0.6.3 --packDir "$env:RUNNER_TEMP/released/current" --mainExe Amanu.exe --packTitle Amanu --packAuthors Amanu --icon windows/src/Amanu.App/Assets/Amanu.ico --channel stable --runtime win-x64 --releaseNotes windows/RELEASE_NOTES.md --outputDir "$env:RUNNER_TEMP/candidate" --azureTrustedSignFile "$env:RUNNER_TEMP/signing.json" --signExclude '(?i)\.dll$'
+          if ($LASTEXITCODE) { throw 'Packaging failed.' }
+          Move-Item "$env:RUNNER_TEMP/candidate/Amanu-stable-Setup.exe" "$env:RUNNER_TEMP/candidate/Amanu-0.6.3-Setup.exe"
+      - name: Verify all packaged PE files
+        shell: pwsh
+        run: |
+          $packages = @(Get-ChildItem "$env:RUNNER_TEMP/candidate" -File | Where-Object { $_.Name -like '*-full.nupkg' -or $_.Name -like '*-Portable.zip' })
+          if ($packages.Count -ne 2) { throw 'Expected update package and portable ZIP.' }
+          foreach ($package in $packages) {
+            $destination = "$env:RUNNER_TEMP/verify-$($package.Name)"
+            [IO.Compression.ZipFile]::ExtractToDirectory($package.FullName, $destination)
+            & windows/scripts/Get-PeSignatureInventory.ps1 -Directory $destination -Output "$env:RUNNER_TEMP/reports/$($package.Name).json" -RequireValid
+          }
+          & windows/scripts/Get-PeSignatureInventory.ps1 -Directory "$env:RUNNER_TEMP/candidate" -Output "$env:RUNNER_TEMP/reports/installer.json" -RequireValid
+          Get-ChildItem "$env:RUNNER_TEMP/candidate" -File | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash | ConvertTo-Json | Set-Content "$env:RUNNER_TEMP/reports/SHA256.json"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Amanu-Store-0.6.3-x64
+          path: |
+            ${{ runner.temp }}/candidate/*
+            ${{ runner.temp }}/reports/*
+          if-no-files-found: error
+          retention-days: 30
+  validate:
+    if: inputs.candidate_run != ''
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: Amanu-Store-0.6.3-x64
+          path: ${{ runner.temp }}/existing-candidate
+          run-id: ${{ inputs.candidate_run }}
+          github-token: ${{ github.token }}
+      - name: Verify embedded signatures against Authenticode policy
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/bin' -Filter signtool.exe -Recurse | Where-Object FullName -match '/x64/|\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'Windows SDK SignTool missing.' }
+          $reports = "$env:RUNNER_TEMP/existing-candidate/reports"
+          $candidate = "$env:RUNNER_TEMP/existing-candidate/candidate"
+          $unpack = "$env:RUNNER_TEMP/verify-store-payload"
+          Expand-Archive "$candidate/Amanu-stable-Portable.zip" $unpack
+          $files = @(Get-ChildItem $unpack -Recurse -File | Where-Object Extension -in '.dll', '.exe')
+          $files += Get-Item "$candidate/Amanu-0.6.3-Setup.exe"
+          foreach ($file in $files) {
+            & $signtool.FullName verify /pa /all /v /tw $file.FullName >> "$reports/signtool-embedded.txt" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Embedded signature validation failed: $($file.Name)" }
+          }
+      - name: Exercise quiet install and uninstall in disposable Windows profile
+        shell: pwsh
+        run: |
+          & windows/scripts/Test-StoreCandidateInstall.ps1 -Installer "$env:RUNNER_TEMP/existing-candidate/candidate/Amanu-0.6.3-Setup.exe" -ReportDirectory "$env:RUNNER_TEMP/existing-candidate/reports"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: Amanu-Store-0.6.3-validation
+          path: ${{ runner.temp }}/existing-candidate/reports/*
+          if-no-files-found: error
+          retention-days: 30
