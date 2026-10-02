@@ -3,9 +3,30 @@
 This runbook covers the **macOS** release. Both platforms read their shared
 version from the root `VERSION` file. Windows uses `windows-v<version>` tags,
 Microsoft Artifact Signing, and a stable
-Velopack update feed. See [Windows build and release packaging](../windows/README.md#signing-and-release-packaging)
+Velopack update feed. The current Windows source and release scripts are on
+`origin/codex/ready-0.6.3`, including the versioned installer fix from PR #29.
+Fetch it and prepare a clean release checkout from its latest commit; its branch
+name does not constrain the next release version. Until the Windows source is
+integrated into `master`, the old Windows workflow on `master` is not the release
+route. Do not build from stale untracked Windows files in a macOS checkout.
+See [Windows build and release packaging](https://github.com/gsamat/amanu/blob/codex/ready-0.6.3/windows/README.md#signing-and-release-packaging)
 for its source branch, workflow, signing configuration, and signed test builds.
 Do not use the macOS release script or Sparkle appcast for a Windows release.
+
+Set the root `VERSION` on the prepared Windows branch to the agreed shared
+release version and commit the change before building. For GitHub Actions,
+always select that prepared branch explicitly:
+
+```sh
+gh workflow run windows-beta.yml --repo gsamat/amanu --ref <prepared-windows-release-branch>
+```
+
+Local `windows/scripts/Build-Release.ps1` and the workflow both produce
+`Amanu-<VERSION>-Setup.exe`, update installer metadata and generate `SHA256SUMS`.
+After publication, point both landing-page languages, `/win.exe`, README links
+and package manifests at the versioned asset. Read the live URLs back and check
+their redirects and hashes against the published release. Keep already published
+assets intact.
 
 After publishing the signed Windows assets, update the
 [Scoop manifest](../windows/packaging/scoop/amanu.json) and submit the new
