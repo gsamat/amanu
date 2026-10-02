@@ -77,9 +77,22 @@ Windows сохраняет тег `windows-v0.6.3` и отдельный stable 
 - Проверки безопасности workflow: 2 прошли.
 
 [Подписанная Windows-сборка](https://github.com/gsamat/amanu/actions/runs/36996618441)
-запущена из `10c41df` с номером 0.6.3 и `publish_release=false`; сессия Windows проверит
-артефакты и опубликует релиз после завершения сборки.
-Проверка GUI новой Windows-сборки выполняется этой же сессией.
+успешно завершилась из `10c41df` с номером 0.6.3. Windows-сессия повторно
+проверила подписи Setup, приложения, updater и компонентов внутри update package
+и portable ZIP на Windows; все подписи Fands Software LLC действительны,
+с timestamp. Версия подписанного DLL — 0.6.3.0; SHA-1, SHA-256 и размер пакета
+совпали с update feed. GUI проверен в обоих языках: `ready`, «готов» и
+«Расшифровка на лету» отображаются правильно.
+
+[Windows 0.6.3 опубликован](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.3).
+Публичные feed и SHA256SUMS совпадают с проверенными локальными файлами.
+Коммит `bd64dbdd8efd71619c09c7bebb94c13e29bdfd24` в Windows-ветке содержит
+обновлённые Windows-ссылки сайта EN/RU, общую документацию, Scoop manifest и
+подготовленные WinGet manifests 0.6.3. Проверки сайта и `winget validate` прошли.
+Mac-сессия может забрать этот коммит для единственного общего деплоя сайта.
+WinGet manifests 0.6.3 пока не отправлены в каталог Microsoft; существующий
+PR 445053 относится к 0.6.1 и ожидает review. Установка через новый WinGet
+manifest в отдельном Windows-профиле не проверена: этот процесс не elevated.
 
 ## Обмен результатами
 
