@@ -389,6 +389,11 @@ enum SettingsSchema {
                       "Корень API вместе с /v1. Для самого OpenAI оставьте значение по умолчанию. "
                           + "Всё, что не на этом маке, — только https."),
                   .text, default: "https://api.openai.com/v1"),
+            Entry(["summary", "openai_compatible"],
+                  localised("OpenAI-compatible service", "OpenAI-compatible сервис"),
+                  localised("Use the custom server URL and its own key.",
+                            "Использовать URL сервера и его собственный ключ."),
+                  .toggle, default: false, askedInSetup: true),
             Entry(["summary", "ollama_model"],
                   localised("Local model", "Местная модель"),
                   localised("The fully-offline fallback.", "Запасной вариант, целиком без сети."),

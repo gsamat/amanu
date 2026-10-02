@@ -206,6 +206,69 @@ struct CredentialsTests {
 
     // MARK: - the form, end to end
 
+    @Test("Switching between OpenAI and a compatible service keeps endpoints and keys separate")
+    @MainActor
+    func summaryProviderSwitchKeepsEndpointsAndKeys() async throws {
+        let config: [String: Any] = [
+            "summary": ["backend": "openai-api", "openai_base_url": "https://router.example/api/v1"],
+        ]
+        try await withFreshHome(config: config) { _ in
+            try Credentials.writeSecret("openai-key", to: Config.openAIKeyPath)
+            try Credentials.writeSecret("router-key", to: Credentials.openAICompatibleKeyPath)
+            let form = SetupForm()
+            defer { form.stop() }
+            let selector = try #require(form.view.allDescendants.compactMap { $0 as? NSSegmentedControl }
+                .first { $0.label(forSegment: 0) == "OpenAI" })
+            try #require(selector.segmentCount == 3)
+            #expect(selector.selectedSegment == 2, "a legacy custom endpoint must select compatible")
+
+            selector.selectedSegment = 0
+            selector.sendAction(selector.action, to: selector.target)
+            form.refresh()
+            #expect(selector.selectedSegment == 0)
+            #expect(Config.summary().openAIBaseURL == "https://api.openai.com/v1")
+            #expect(Credentials.summaryOpenAIKey() == "openai-key")
+            #expect(try Self.field("summary.key", in: form).placeholderString == "API key")
+
+            selector.selectedSegment = 2
+            selector.sendAction(selector.action, to: selector.target)
+            form.refresh()
+            #expect(selector.selectedSegment == 2)
+            #expect(Config.summary().openAIBaseURL == "https://router.example/api/v1")
+            #expect(Credentials.summaryOpenAIKey() == "router-key")
+            #expect(try Self.field("summary.key", in: form).placeholderString == "API key")
+
+            var asked: [Credentials.Check] = []
+            form.checkKey = { asked.append($0); return .works }
+            try Self.field("summary.key", in: form).stringValue = "replacement-router-key"
+            await form.saveSummaryKey()
+            #expect(asked == [Credentials.Check(
+                service: .openAI(baseURL: "https://router.example/api/v1"), key: "replacement-router-key")])
+            #expect(Config.openAIKey() == "openai-key")
+        }
+    }
+
+    @Test("Choosing a compatible service before entering its URL does not use the OpenAI key")
+    @MainActor
+    func compatibleProviderNeedsItsOwnEndpoint() throws {
+        try withFreshHome(config: ["summary": ["backend": "openai-api"]]) { _ in
+            try Credentials.writeSecret("openai-key", to: Config.openAIKeyPath)
+            let form = SetupForm()
+            defer { form.stop() }
+            let selector = try #require(form.view.allDescendants.compactMap { $0 as? NSSegmentedControl }
+                .first { $0.label(forSegment: 0) == "OpenAI" })
+            try #require(selector.segmentCount == 3)
+            selector.selectedSegment = 2
+            selector.sendAction(selector.action, to: selector.target)
+            form.refresh()
+            #expect(selector.selectedSegment == 2)
+            #expect(Config.summary().openAIBaseURL.isEmpty)
+            #expect(Credentials.summaryOpenAIKey() == nil)
+            #expect(Credentials.summarySlot(for: "openai-api", in: Config.raw()).path
+                == Credentials.openAICompatibleKeyPath)
+        }
+    }
+
     /// The defect itself: a key pasted for OpenRouter was checked against
     /// OpenRouter and then written over the OpenAI key, which the OpenAI
     /// transcription engine reads. Every meeting after it came back 401.

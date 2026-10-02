@@ -462,6 +462,7 @@ enum Config {
         /// is the strong one.
         var openAIModel = Config.defaultString(.summaryOpenAIModel)
         var openAIBaseURL = Config.defaultString(.summaryOpenAIBaseURL)
+        var openAICompatible = false
         /// Language for the summary itself; the transcript's own language is
         /// whatever was spoken. nil means "same language as the meeting".
         var language: String?
@@ -498,6 +499,14 @@ enum Config {
         settings.ollamaModel = string(.summaryOllamaModel, in: root)
         settings.openAIModel = string(.summaryOpenAIModel, in: root)
         settings.openAIBaseURL = string(.summaryOpenAIBaseURL, in: root).trimmed
+        // Older configs chose compatible services through the URL alone.
+        let compatible = (root?["summary"] as? [String: Any])?["openai_compatible"] as? Bool
+        settings.openAICompatible = compatible ?? !Credentials.isOpenAIItself(settings.openAIBaseURL)
+        if let compatible {
+            settings.openAIBaseURL = compatible
+                ? (text(.summaryOpenAIBaseURL, in: root)?.trimmed ?? "")
+                : defaultString(.summaryOpenAIBaseURL)
+        }
         settings.ollamaBaseURL = string(.summaryOllamaBaseURL, in: root).trimmed
         settings.template = string(.summaryTemplate, in: root)
         settings.apiKeyPath = text(.summaryKeyPath, in: root).map { Home.current.expanding($0) }

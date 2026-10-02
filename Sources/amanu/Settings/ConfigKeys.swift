@@ -65,6 +65,7 @@ extension Config {
         case summaryOllamaModel = "summary.ollama_model"
         case summaryOpenAIModel = "summary.openai_model"
         case summaryOpenAIBaseURL = "summary.openai_base_url"
+        case summaryOpenAICompatible = "summary.openai_compatible"
         case summaryOllamaBaseURL = "summary.ollama_base_url"
         case summaryTemplate = "summary.template"
         case summaryKeyPath = "summary.api_key_path"
