@@ -269,7 +269,7 @@ def main():
             any(re.search(r"github\.com/gsamat/amanu/?$", href) for href in page.links),
         )
 
-        check(f"{label}: две кнопки скачивания Windows", page.links.count("https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-0.6.4-Setup.exe") == 2)
+        check(f"{label}: две кнопки скачивания Windows", page.links.count("https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe") == 2)
         check(
             f"{label}: нет формы с сетевым action",
             all(not action or action.startswith("mailto:") for action in page.forms),
