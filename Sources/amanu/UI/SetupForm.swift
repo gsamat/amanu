@@ -182,12 +182,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let summariesOn = NSSwitch()
     private let summaryCards = ChoiceGroup()
     private let keyProvider = NSSegmentedControl(
-        labels: ["Anthropic", "OpenAI"], trackingMode: .selectOne, target: nil, action: nil)
+        labels: ["OpenAI", "Anthropic", "OpenAI-compatible"],
+        trackingMode: .selectOne, target: nil, action: nil)
     private let summaryKey = NSSecureTextField()
     private let summaryKeyStatus = NSTextField(labelWithString: "")
     private let summaryOpenAIBaseURL = NSTextField()
     private let summaryOpenAIModel = NSTextField()
     private let summaryOpenAIOptions = NSStackView()
+    private var summaryOpenAIBaseURLRow: NSView?
     private let summaryOllamaBaseURL = NSTextField()
     private let summaryOllamaModel = NSTextField()
     private lazy var summaryKeyLink = link(
@@ -700,7 +702,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         summariesOn.target = self
         summariesOn.action = #selector(summariesToggled)
 
-        keyProvider.selectedSegment = 0
+        keyProvider.selectedSegment = 1
         keyProvider.target = self
         keyProvider.action = #selector(keyProviderChanged)
         summaryKey.placeholderString = "sk-ant-…"
@@ -717,8 +719,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         summaryOpenAIOptions.orientation = .vertical
         summaryOpenAIOptions.alignment = .leading
         summaryOpenAIOptions.spacing = 6
-        summaryOpenAIOptions.addArrangedSubview(summaryFieldRow(
-            localised("Base URL", "URL сервера"), summaryOpenAIBaseURL))
+        let baseURLRow = summaryFieldRow(localised("Base URL", "URL сервера"), summaryOpenAIBaseURL)
+        summaryOpenAIBaseURLRow = baseURLRow
+        summaryOpenAIOptions.addArrangedSubview(baseURLRow)
         summaryOpenAIOptions.addArrangedSubview(summaryFieldRow(
             localised("Model", "Модель"), summaryOpenAIModel))
         let key = ChoiceCard(
@@ -1086,10 +1089,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // that says a key was saved, and used to wipe "key works" off the
         // screen the moment it appeared.
         summaryKeyStatus.stringValue = ""
-        showKeyProvider()
-        if summaryCards.selected == "api-key" {
-            Config.update(path: ["summary", "backend"], value: selectedKeyBackend)
+        summaryKey.stringValue = ""
+        let backend = selectedKeyBackend
+        let compatible = keyProvider.selectedSegment == 2
+        if backend == "openai-api" {
+            Config.update(path: ["summary", "openai_compatible"], value: compatible)
         }
+        if summaryCards.selected == "api-key" {
+            Config.update(path: ["summary", "backend"], value: backend)
+        }
+        showKeyProvider()
     }
 
     /// Everything the Anthropic/OpenAI control changes about how its card
@@ -1101,8 +1110,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// redraw — which is the whole point of `Config.didChange` — a redraw that
     /// writes is a redraw that never stops.
     private func showKeyProvider() {
-        summaryKey.placeholderString = selectedKeyBackend == "anthropic-api" ? "sk-ant-…" : "sk-…"
+        summaryKey.placeholderString = selectedKeyBackend == "anthropic-api"
+            ? "sk-ant-…" : localised("API key", "API-ключ")
         summaryOpenAIOptions.isHidden = selectedKeyBackend != "openai-api"
+        summaryOpenAIBaseURLRow?.isHidden = keyProvider.selectedSegment != 2
+        summaryKeyLink.isHidden = keyProvider.selectedSegment == 2
         summaryKeyLink.identifier = NSUserInterfaceItemIdentifier(
             selectedKeyBackend == "anthropic-api"
                 ? "https://console.anthropic.com/settings/keys"
@@ -1110,7 +1122,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private var selectedKeyBackend: String {
-        keyProvider.selectedSegment == 1 ? "openai-api" : "anthropic-api"
+        keyProvider.selectedSegment == 1 ? "anthropic-api" : "openai-api"
     }
 
     private func configureSummaryField(_ field: NSTextField, id: String) {
@@ -1757,7 +1769,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         summariesOn.state = summary.enabled ? .on : .off
         let backendIsKey = summary.backend == "anthropic-api" || summary.backend == "openai-api"
         summaryCards.select(SetupSelection.summaryChoice(backend: summary.backend))
-        if backendIsKey { keyProvider.selectedSegment = summary.backend == "openai-api" ? 1 : 0 }
+        if backendIsKey {
+            keyProvider.selectedSegment = summary.backend == "anthropic-api" ? 1
+                : (summary.openAICompatible ? 2 : 0)
+        }
         summaryOpenAIBaseURL.stringValue = summary.openAIBaseURL
         summaryOpenAIModel.stringValue = summary.openAIModel
         summaryOllamaBaseURL.stringValue = summary.ollamaBaseURL

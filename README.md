@@ -478,6 +478,11 @@ only values that differ from the defaults. A compact example:
   kept in `~/.config/amanu/keys/openai-compatible`. `amanu doctor` walks the configured summary backend,
   including whether Ollama is answering and has the chosen model. `template` contains
   the complete summary instructions and starts with Amanu's built-in default.
+  In Settings → Setup → My own key, choose OpenAI, Anthropic, or
+  OpenAI-compatible. The compatible option exposes the server URL and uses its
+  own key. `summary.openai_compatible: false` selects OpenAI’s API while keeping
+  a saved custom URL; `true` selects that URL. Older configs infer the choice
+  from `openai_base_url` when the setting is absent.
 - `mic_voice_processing` enables Apple's capture-time voice processing;
   `offline_echo_cancellation` (on by default) instead cleans a copy of the mic
   after recording, using system audio as the playback reference. It never

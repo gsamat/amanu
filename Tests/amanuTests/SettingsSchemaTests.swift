@@ -234,6 +234,8 @@ struct SettingsSchemaTests {
             "recordings_dir",
             // The switch beside the Summaries heading.
             "summary.enabled",
+            // The separate OpenAI / OpenAI-compatible choice in the own-key card.
+            "summary.openai_compatible",
             // The two switches under "Where amanu shows up".
             "menu_bar_icon",
             "dock_icon",
