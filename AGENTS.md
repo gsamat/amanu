@@ -1,5 +1,11 @@
 # Amanu agent instructions
 
+## Release installer filenames
+
+- Future Windows releases must publish the installer with its version in the filename: `Amanu-<version>-Setup.exe` (for example, `Amanu-0.6.4-Setup.exe`), using the root `VERSION` file.
+- Apply this name in Windows packaging and publication, website download links and `/win.exe`, checksums, and package manifests. The Velopack channel can remain `stable`; `stable` alone is not a sufficient installer filename.
+- Preserve already published release assets; apply this naming convention when preparing the next Windows release.
+
 ## Windows testing
 
 - The user has connected a Windows computer to Codex for Amanu development and testing. Treat it as an available testing environment, but confirm that the host is online and the project is accessible before relying on it.
