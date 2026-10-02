@@ -12,6 +12,7 @@ enum Credentials {
         switch provider {
         case "openai": return Config.openAIKey() != nil
         case "elevenlabs": return Config.elevenLabsKey() != nil
+        case "fishaudio": return Config.fishAudioKey() != nil
         default: return Config.assemblyAIKey() != nil
         }
     }
@@ -69,6 +70,11 @@ enum Credentials {
                 return Slot(path: named, isNamedInConfig: true)
             }
             return Slot(path: Config.elevenLabsKeyPath, isNamedInConfig: false)
+        case "fishaudio":
+            if let named = pathSetting(.fishAudioKeyPath, in: config) {
+                return Slot(path: named, isNamedInConfig: true)
+            }
+            return Slot(path: Config.fishAudioKeyPath, isNamedInConfig: false)
         default:
             if let named = pathSetting(.assemblyAIKeyPath, in: config) {
                 return Slot(path: named, isNamedInConfig: true)
@@ -242,6 +248,7 @@ enum Credentials {
         enum Service: Equatable, Sendable {
             case assemblyAI
             case elevenLabs
+            case fishAudio
             case anthropic
             case openAI(baseURL: String)
         }
@@ -253,6 +260,7 @@ enum Credentials {
             switch service {
             case .assemblyAI: return await Credentials.assemblyAI(key, session: session)
             case .elevenLabs: return await Credentials.elevenLabs(key, session: session)
+            case .fishAudio: return await Credentials.fishAudio(key, session: session)
             case .anthropic:
                 return await SummaryKeyProbe.check(provider: .anthropic, key: key, session: session)
             case .openAI(let baseURL):
@@ -287,6 +295,16 @@ enum Credentials {
             + "Content-Disposition: form-data; name=\"model_id\"\r\n\r\n"
             + "scribe_v2\r\n--\(boundary)--\r\n").utf8)
         return await ask(request, accepting: [422], session: session)
+    }
+
+    /// Check authentication without uploading audio or requiring a positive balance.
+    static func fishAudio(_ key: String, session: URLSession = .shared) async -> Verdict {
+        var request = URLRequest(
+            url: URL(string: "https://api.fish.audio/wallet/self/api-credit")!)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 15
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
+        return await ask(request, session: session)
     }
 }
 

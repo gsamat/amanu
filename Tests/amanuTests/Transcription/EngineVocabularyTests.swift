@@ -14,13 +14,14 @@ struct EngineVocabularyTests {
         try withFreshHome { home in
             try FileManager.default.createDirectory(
                 at: home.keysDirectory, withIntermediateDirectories: true)
-            for service in ["assemblyai", "openai", "elevenlabs"] {
+            for service in ["assemblyai", "openai", "elevenlabs", "fishaudio"] {
                 try Data("test-key".utf8).write(
                     to: home.keysDirectory.appendingPathComponent(service))
             }
             return [
                 ParakeetEngine(), WhisperEngine(), GigaAMEngine(),
                 try AssemblyAIEngine(), try OpenAITranscriptionEngine(), try ElevenLabsEngine(),
+                try FishAudioEngine(),
             ]
         }
     }

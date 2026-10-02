@@ -103,7 +103,7 @@ Every event also carries `surface`, which is `app` or `cli`.
 | `backend` | the summary backend's name |
 | `model` | a known public model name, or `default`, `custom`, `custom-local`, `unknown` |
 | `fallback_used` | true or false |
-| `from_engine`, `to_engine` | `assemblyai`, `openai`, `elevenlabs`, `parakeet`, `whisper`, `gigaam`, or `auto` when selection failed before an engine existed |
+| `from_engine`, `to_engine` | `assemblyai`, `openai`, `elevenlabs`, `fishaudio`, `parakeet`, `whisper`, `gigaam`, or `auto` when selection failed before an engine existed |
 | `component` | `system_audio`, `microphone`, or `unknown` |
 | `outcome` | `deferred` or `gave_up` |
 | `asset` | `runtime`, `parakeet-v2`, `parakeet-v3`, `gigaam-v3`, `whisper-large-v3-turbo`, or `nemotron-live` |
@@ -148,6 +148,10 @@ Resent with every event, so it is never stale:
 `transcription_engine`, `transcription_enabled`,
 `transcription_cloud_provider`, `summary_backend`, `summary_enabled`,
 `speaker_names_backend`, `keep_audio`.
+
+`transcription_cloud_provider` accepts `assemblyai`, `openai`, `elevenlabs`,
+or `fishaudio`. Fish's recognized model provenance is `transcribe-1-pro`;
+any other Fish model string is reported as `custom`.
 
 This is how "does anyone use the live transcript" and "does anyone touch
 diarization" get answered without an event of their own.

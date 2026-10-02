@@ -94,6 +94,7 @@ struct TranscriptionChoice: Equatable {
         switch provider {
         case "openai": return "OpenAI"
         case "elevenlabs": return "ElevenLabs"
+        case "fishaudio": return "Fish Audio"
         default: return "AssemblyAI"
         }
     }

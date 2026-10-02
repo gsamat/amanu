@@ -565,6 +565,7 @@ enum DoctorReport {
         switch provider {
         case "openai": return Config.openAIKey()
         case "elevenlabs": return Config.elevenLabsKey()
+        case "fishaudio": return Config.fishAudioKey()
         default: return Config.assemblyAIKey()
         }
     }
@@ -573,6 +574,7 @@ enum DoctorReport {
         switch provider {
         case "openai": return Config.openAIKeyPath
         case "elevenlabs": return Config.elevenLabsKeyPath
+        case "fishaudio": return Config.fishAudioKeyPath
         default: return Config.assemblyAIKeyPath
         }
     }

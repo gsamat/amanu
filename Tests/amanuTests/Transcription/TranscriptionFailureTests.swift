@@ -175,6 +175,159 @@ struct TranscriptionFailureTests {
         #expect(Self.attempts(dir) == nil)
     }
 
+    @Test("Fish key and credit failures on a later channel leave the recording pending",
+          arguments: [401, 403, 402])
+    func fishAccountFailuresDoNotRetireSession(status: Int) async throws {
+        try await withFreshHome(config: Self.fishConfig) { _ in
+            let recordings = try TestRecordings()
+            defer { recordings.remove() }
+            let dir = try recordings.session("2026-10-02-fish")
+            let stub = StubHTTP { _, count in
+                count == 1 ? .json(200, Self.fishSpeech("Mic sentence.")) : .json(status, "account refused")
+            }
+            let engine = try FishAudioEngine(apiKey: "fish-test", session: stub.session)
+            let coordinator = TranscriptionCoordinator(engine: engine, onStop: { nil })
+
+            // Environmental trouble must not consume the retry allowance,
+            // even after more attempts than would retire a failing recording.
+            for _ in 0..<4 {
+                let error = await #expect(throws: CloudHTTP.Failure.self) {
+                    try await coordinator.transcribeNow(dir)
+                }
+                #expect(error?.status == status)
+                #expect(error?.isEnvironmental == true)
+                #expect(Self.attempts(dir) == nil)
+                #expect(SessionState.value(dir, SessionState.Key.transcriptionFailed) == nil)
+                #expect(SessionState.value(dir, SessionState.Key.transcriptionDeferred) as? Bool == true)
+                #expect(PostProcessor.readTranscript(dir) == nil)
+                #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.md").path))
+                #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+                #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+                #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(
+                    TranscriptionScratch.fishAudioSliceFolder, isDirectory: true).path))
+                #expect(!SessionClaim.isHeld(dir))
+            }
+            #expect(stub.requests.count == 5, "the completed mic response must not be paid for again")
+            #expect(ProviderCache.files(in: dir).count == 1)
+            #expect(TranscriptionCoordinator.pendingSessions(in: recordings.root)
+                .map(\.lastPathComponent) == [dir.lastPathComponent])
+        }
+    }
+
+    @Test("A missing Fish key does not spend an attempt or touch the session audio")
+    func missingFishKeyDoesNotRetireSession() async throws {
+        try await withFreshHome(config: Self.fishConfig) { _ in
+            let recordings = try TestRecordings()
+            defer { recordings.remove() }
+            let dir = try recordings.session("2026-10-02-fish")
+            let stub = StubHTTP { _, _ in .json(200, Self.fishSpeech("Unexpected upload.")) }
+            let resolver = EngineResolver(environment: .fake(cloud: { _ in
+                try FishAudioEngine(session: stub.session)
+            }))
+            let coordinator = TranscriptionCoordinator(engines: resolver, onStop: { nil })
+
+            let error = await #expect(throws: FishAudioEngine.EngineError.self) {
+                try await coordinator.transcribeNow(dir)
+            }
+
+            guard case .noAPIKey = error else {
+                Issue.record("expected missing Fish key, got \(String(describing: error))")
+                return
+            }
+            #expect(Self.attempts(dir) == nil)
+            #expect(SessionState.value(dir, SessionState.Key.transcriptionFailed) == nil)
+            #expect(TranscriptionCoordinator.pendingSessions(in: recordings.root)
+                .map(\.lastPathComponent) == [dir.lastPathComponent])
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+            #expect(PostProcessor.readTranscript(dir) == nil)
+            #expect(stub.requests.isEmpty)
+        }
+    }
+
+    @Test("A failed later Fish piece publishes nothing and resumes from the completed cache")
+    func fishLaterPieceResumesWithoutPartialPublication() async throws {
+        try await withFreshHome(config: Self.fishConfig) { _ in
+            let recordings = try TestRecordings()
+            defer { recordings.remove() }
+            let dir = recordings.root.appendingPathComponent("2026-10-02-import", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let audio = dir.appendingPathComponent("source.wav")
+            try TestAudio.writeTone(to: audio, seconds: 5, frequency: 440, sampleRate: 48_000)
+            try JSONSerialization.data(withJSONObject: [
+                "files": ["source": "source.wav"],
+                "start_offset_ms": ["source": 0],
+                "trigger": "import",
+                "duration_seconds": 5,
+                SessionState.Key.speakersStatus: "failed",
+                SessionState.Key.summaryStatus: "failed",
+            ]).write(to: dir.appendingPathComponent("meta.json"))
+            let stub = StubHTTP { _, count in
+                switch count {
+                case 1: return .json(200, Self.fishSpeech("Piece one."))
+                case 2: return .json(503, "temporarily busy")
+                case 3: return .json(200, Self.fishSpeech("Piece two."))
+                default: return .json(200, Self.fishSpeech("Piece three."))
+                }
+            }
+            let engine = try FishAudioEngine(
+                apiKey: "fish-test", session: stub.session, maxPieceDuration: 2, retry: .once)
+            let coordinator = TranscriptionCoordinator(engine: engine, onStop: { nil })
+
+            let error = await #expect(throws: CloudHTTP.Failure.self) {
+                try await coordinator.transcribeNow(dir)
+            }
+            #expect(error?.status == 503)
+            #expect(Self.attempts(dir) == 1)
+            #expect(!TranscriptionFailurePolicy.hasGivenUp(on: dir))
+            #expect(PostProcessor.readTranscript(dir) == nil)
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.md").path))
+            #expect(FileManager.default.fileExists(atPath: audio.path))
+            let firstCache = await engine.cacheURL(for: audio, channel: nil, piece: 0, of: 3)
+            #expect(FileManager.default.fileExists(atPath: firstCache.path))
+            #expect(ProviderCache.files(in: dir).count == 1)
+            #expect(stub.requests.count == 2)
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(
+                TranscriptionScratch.fishAudioSliceFolder, isDirectory: true).path))
+            #expect(!SessionClaim.isHeld(dir))
+            #expect(TranscriptionCoordinator.pendingSessions(in: recordings.root)
+                .map(\.lastPathComponent) == [dir.lastPathComponent])
+
+            try await coordinator.transcribeNow(dir)
+
+            let transcript = try #require(PostProcessor.readTranscript(dir))
+            #expect(transcript.engine == "fishaudio")
+            #expect(transcript.model == "transcribe-1-pro")
+            #expect(transcript.segments.map(\.speaker) == ["P1A", "P2A", "P3A"])
+            #expect(transcript.segments.map(\.text) == ["Piece one.", "Piece two.", "Piece three."])
+            #expect(transcript.segments.map(\.start_ms) == [100, 2100, 4100])
+            #expect(transcript.segments.map(\.end_ms) == [500, 2500, 4500])
+            #expect(stub.requests.count == 4, "piece one was successfully cached before the failure")
+            #expect(ProviderCache.files(in: dir).isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(
+                TranscriptionScratch.fishAudioSliceFolder, isDirectory: true).path))
+            #expect(TranscriptionCoordinator.pendingSessions(in: recordings.root).isEmpty)
+        }
+    }
+
+    private static var fishConfig: [String: Any] {
+        [
+            "offline_echo_cancellation": false,
+            "transcript_echo_filter": false,
+            "keep_audio": true,
+            "summary": ["enabled": false],
+            "speaker_names": ["enabled": false],
+            "transcription": ["engine": "fishaudio"],
+        ]
+    }
+
+    private static func fishSpeech(_ text: String) -> String {
+        """
+        {"text":"\(text)","duration":1,"speaker_turns":[
+          {"speaker":"speaker:0","text":"\(text)","start":0.1,"end":0.5}]}
+        """
+    }
+
     @Test("A mixed engine is handed one mix of both tracks")
     func mixedPathThroughTheCoordinator() async throws {
         let recordings = try TestRecordings()

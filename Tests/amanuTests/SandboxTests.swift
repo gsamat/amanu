@@ -32,11 +32,13 @@ struct SandboxTests {
             "analytics queue": AnalyticsSink.defaultStore,
             "key drawer": Config.keysDir,
             "anthropic key": Config.anthropicKeyPath,
+            "fish audio key": Config.fishAudioKeyPath,
             "default recordings": Config.defaultRoot,
             "recordings from ~": Home.current.expanding("~/Recordings"),
         ]
         let shared = Config.assemblyAISharedKeyPaths + Config.openAISharedKeyPaths
-            + Config.elevenLabsSharedKeyPaths + Config.anthropicSharedKeyPaths
+            + Config.elevenLabsSharedKeyPaths + Config.fishAudioSharedKeyPaths
+            + Config.anthropicSharedKeyPaths
         for (index, url) in shared.enumerated() { paths["shared key \(index)"] = url }
         return paths
     }
@@ -51,6 +53,7 @@ struct SandboxTests {
         #expect(Home.current.variable("OPENAI_API_KEY") == nil)
         #expect(Home.current.variable("ASSEMBLYAI_API_KEY") == nil)
         #expect(Home.current.variable("ELEVENLABS_API_KEY") == nil)
+        #expect(Home.current.variable("FISH_API_KEY") == nil)
     }
 
     @Test("The code under test knows it is under test")

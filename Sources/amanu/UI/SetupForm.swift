@@ -496,7 +496,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             accessories: [link(
                 localised("Get a key", "Получить ключ"),
                 "https://elevenlabs.io/app/developers/api-keys")])
-        providerCards.adopt([assembly, openai, elevenlabs])
+        let fishaudio = ChoiceCard(
+            id: "fishaudio",
+            title: "Fish Audio",
+            detail: localised(
+                "Transcribe-1 Pro. $0.72 an hour for a two-channel call.",
+                "Transcribe-1 Pro. $0,72 за час разговора с двумя каналами."),
+            accessories: [link(
+                localised("Get a key", "Получить ключ"),
+                "https://fish.audio/app/api-keys")])
+        providerCards.adopt([assembly, openai, elevenlabs, fishaudio])
         providerCards.onChange = { [weak self] id in self?.providerPicked(id) }
 
         cloudKey.placeholderString = localised("paste key", "вставьте ключ")
@@ -515,7 +524,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keyLine.spacing = 10
         keyLine.setViews([cloudKey, cloudKeyStatus, NSView()], in: .leading)
 
-        let stack = NSStackView(views: [SetupLayout.cards(providerCards.cards), keyLine])
+        let grid = SetupLayout.group([
+            SetupLayout.cards([assembly, openai]),
+            SetupLayout.cards([elevenlabs, fishaudio]),
+        ], spacing: SetupLayout.cardGap)
+        let stack = NSStackView(views: [grid, keyLine])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -1514,6 +1527,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // the summaries are pointed at.
         case "openai": service = .openAI(baseURL: "https://api.openai.com/v1")
         case "elevenlabs": service = .elevenLabs
+        case "fishaudio": service = .fishAudio
         default: service = .assemblyAI
         }
         let verdict = await checkKey(Credentials.Check(service: service, key: key))
