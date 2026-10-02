@@ -202,6 +202,12 @@ jobs:
           --outputDir "${{ runner.temp }}/amanu-release"
           --signParams "/td sha256 /fd sha256 /f `"${{ steps.certificate.outputs.path }}`" /p `"$env:BETA_CERTIFICATE_PASSWORD`" /tr http://timestamp.digicert.com"
 
+      - name: Name versioned installer and checksum release assets
+        shell: pwsh
+        run: >-
+          & windows/scripts/Finalize-ReleaseArtifacts.ps1
+          -ReleaseDirectory '${{ runner.temp }}/amanu-release'
+
       - name: Verify Azure signatures
         if: steps.artifact_signing.outputs.available == 'true'
         shell: pwsh

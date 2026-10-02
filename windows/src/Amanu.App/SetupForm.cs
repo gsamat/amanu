@@ -72,11 +72,13 @@ internal sealed class SetupForm
     private readonly Dictionary<string, RadioButton> summaryCards = [];
     private readonly Dictionary<string, TextBlock> summaryStatus = [];
     private readonly Dictionary<string, (TextBlock Install, Button SignIn)> cliActions = [];
-    private readonly ComboBox keyProvider = new() { Width = 150, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly ComboBox keyProvider = new() { MinWidth = 150, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly PasswordBox summaryKey;
     private readonly FrameworkElement summaryKeyView;
     private readonly TextBlock summaryKeyStatus = Ui.Status();
     private readonly StackPanel openAiOptions = new();
+    private Grid? openAiBaseRow;
+    private TextBlock? summaryKeyLink;
     private readonly TextBox openAiBaseUrl;
     private readonly TextBox openAiModel;
     private readonly TextBox ollamaBaseUrl;
@@ -102,8 +104,8 @@ internal sealed class SetupForm
         localDownload["nemotron-live"] = Ui.Button(T("Download live model…", "Скачать модель лайва…"), () => _ = DownloadAsync("nemotron-live"));
         micSettings = Ui.Button(T("Open settings", "Открыть параметры"), MicrophoneAccess.OpenSettings);
         (var cloudKeyView, cloudKey) = Ui.Secret(T("paste key", "вставьте ключ"), 260);
-        (summaryKeyView, summaryKey) = Ui.Secret("sk-…");
-        (var openAiBaseView, openAiBaseUrl) = Ui.Field("https://api.openai.com/v1");
+        (summaryKeyView, summaryKey) = Ui.Secret(T("API key", "API-ключ"));
+        (var openAiBaseView, openAiBaseUrl) = Ui.Field(T("API server URL", "URL API-сервера"));
         (var openAiModelView, openAiModel) = Ui.Field("gpt-5");
         (var ollamaBaseView, ollamaBaseUrl) = Ui.Field("http://127.0.0.1:11434");
         (var ollamaModelView, ollamaModel) = Ui.Field("qwen3:8b");
@@ -287,14 +289,16 @@ internal sealed class SetupForm
             T("Same deal, on your OpenAI subscription.", "То же самое, но по подписке OpenAI."),
             summaryStatus["codex-cli"], CliActions("codex-cli", "codex", "https://developers.openai.com/codex/cli/"));
 
-        keyProvider.Items.Add(new ComboBoxItem { Content = "Anthropic", Tag = "anthropic-api" });
         keyProvider.Items.Add(new ComboBoxItem { Content = "OpenAI", Tag = "openai-api" });
-        openAiOptions.Children.Add(FieldRow(T("Base URL", "URL сервера"), openAiBaseView));
+        keyProvider.Items.Add(new ComboBoxItem { Content = "Anthropic", Tag = "anthropic-api" });
+        keyProvider.Items.Add(new ComboBoxItem { Content = "OpenAI-compatible", Tag = "openai-compatible" });
+        openAiBaseRow = FieldRow(T("Base URL", "URL сервера"), openAiBaseView);
+        openAiOptions.Children.Add(openAiBaseRow);
+        summaryKeyLink = Ui.Link(T("Get a key", "Получить ключ"), "https://console.anthropic.com/settings/keys");
         openAiOptions.Children.Add(FieldRow(T("Model", "Модель"), openAiModelView));
         summaryCards["api-key"] = Ui.Card("api-key", T("My own key", "Свой ключ"),
             T("Billed per meeting, needs no CLI.", "Оплата за встречу, без CLI."),
-            keyProvider, summaryKeyView, openAiOptions, summaryKeyStatus,
-            Ui.Link(T("Get a key", "Получить ключ"), "https://console.anthropic.com/settings/keys"));
+            keyProvider, summaryKeyView, openAiOptions, summaryKeyStatus, summaryKeyLink);
 
         var ollamaFields = new StackPanel();
         ollamaFields.Children.Add(FieldRow(T("Base URL", "URL сервера"), ollamaBaseView));
@@ -356,8 +360,15 @@ internal sealed class SetupForm
         keyProvider.SelectionChanged += (_, _) =>
         {
             if (refreshing) return;
-            if (summaryCards["api-key"].IsChecked == true) Change(settings => settings.Summary.Backend = SelectedKeyBackend);
-            else Refresh();
+            summaryKey.Clear();
+            var selected = SelectedKeyBackend;
+            var compatible = keyProvider.SelectedIndex == 2;
+            var ownKey = summaryCards["api-key"].IsChecked == true;
+            Change(settings =>
+            {
+                if (selected == "openai-api") settings.Summary.OpenAiCompatible = compatible;
+                if (ownKey) settings.Summary.Backend = selected;
+            });
         };
         summaryKey.KeyDown += (_, args) => { if (args.Key == Key.Enter) _ = SaveSummaryKeyAsync(); };
         summaryKey.LostKeyboardFocus += (_, _) => _ = SaveSummaryKeyAsync();
@@ -372,7 +383,7 @@ internal sealed class SetupForm
         analytics.Click += (_, _) => Change(settings => settings.Analytics = analytics.IsChecked == true);
     }
 
-    private string SelectedKeyBackend => (keyProvider.SelectedItem as ComboBoxItem)?.Tag as string ?? "anthropic-api";
+    private string SelectedKeyBackend => keyProvider.SelectedIndex == 1 ? "anthropic-api" : "openai-api";
 
     private void Change(Action<AppSettings> change)
     {
@@ -434,8 +445,7 @@ internal sealed class SetupForm
     }
 
     private string SummaryKeySlot => SelectedKeyBackend == "anthropic-api" ? SecretNames.Anthropic
-        : Uri.TryCreate(runtime.Settings.Summary.OpenAiBaseUrl, UriKind.Absolute, out var uri) && KeyRouting.IsOpenAi(uri)
-            ? SecretNames.OpenAi : SecretNames.OpenAiCompatible;
+        : keyProvider.SelectedIndex == 2 ? SecretNames.OpenAiCompatible : SecretNames.OpenAi;
 
     private async Task SaveSummaryKeyAsync()
     {
@@ -731,10 +741,17 @@ internal sealed class SetupForm
             };
             summaryAuto.Visibility = summaryAuto.Text.Length > 0 && settings.Summary.Enabled ? Visibility.Visible : Visibility.Collapsed;
             if (backend is "anthropic-api" or "openai-api")
-                keyProvider.SelectedItem = keyProvider.Items.OfType<ComboBoxItem>().First(item => (string)item.Tag == backend);
-            else keyProvider.SelectedIndex = keyProvider.SelectedIndex < 0 ? 0 : keyProvider.SelectedIndex;
+                keyProvider.SelectedIndex = backend == "anthropic-api" ? 1 : settings.Summary.UsesCompatibleOpenAi ? 2 : 0;
+            else keyProvider.SelectedIndex = keyProvider.SelectedIndex < 0 ? 1 : keyProvider.SelectedIndex;
             var openAi = SelectedKeyBackend == "openai-api";
             openAiOptions.Visibility = openAi ? Visibility.Visible : Visibility.Collapsed;
+            if (openAiBaseRow is not null) openAiBaseRow.Visibility = keyProvider.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+            if (summaryKeyLink is not null)
+            {
+                summaryKeyLink.Visibility = keyProvider.SelectedIndex == 2 ? Visibility.Collapsed : Visibility.Visible;
+                if (summaryKeyLink.Inlines.OfType<System.Windows.Documents.Hyperlink>().FirstOrDefault() is { } keyLink)
+                    keyLink.NavigateUri = new Uri(openAi ? "https://platform.openai.com/api-keys" : "https://console.anthropic.com/settings/keys");
+            }
             summaryKeyStatus.Text = HasKey(SummaryKeySlot) ? T("key saved", "ключ сохранён") : T("no key yet", "ключа ещё нет");
             summaryKeyStatus.SetResourceReference(TextBlock.ForegroundProperty, HasKey(SummaryKeySlot) ? Ui.Good : Ui.Secondary);
             if (!openAiBaseUrl.IsKeyboardFocused) openAiBaseUrl.Text = settings.Summary.OpenAiBaseUrl == new SummarySettings().OpenAiBaseUrl ? "" : settings.Summary.OpenAiBaseUrl;

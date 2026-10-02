@@ -63,4 +63,5 @@ if ($CertificatePath) {
 
 & (Join-Path $toolDirectory "vpk.exe") @arguments
 if ($LASTEXITCODE -ne 0) { throw "Could not package the Windows installer." }
+& (Join-Path $PSScriptRoot "Finalize-ReleaseArtifacts.ps1") -ReleaseDirectory $releaseDirectory
 Write-Host "Amanu release artifacts: $releaseDirectory"

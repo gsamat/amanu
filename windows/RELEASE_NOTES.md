@@ -1,3 +1,16 @@
+# Amanu for Windows 0.6.4
+
+- The **My own key** card now offers **OpenAI**, **Anthropic**, and **OpenAI-compatible** separately.
+- Choose the compatible option to enter the service’s API URL, model, and token. Switching to OpenAI retains the saved custom URL and selects OpenAI’s own API and key.
+- API token hints now say **API key** rather than requiring a `sk-` prefix.
+- Existing custom endpoint configurations continue to select the compatible service automatically.
+- The installer is named **Amanu-0.6.4-Setup.exe**. The stable update channel is unchanged.
+
+## Validation
+
+- Managed builds and automated tests run on the Windows release runner.
+- The connected Windows test computer was unavailable during preparation; the new selector has not been verified interactively on that computer.
+
 # Amanu for Windows 0.6.3
 
 - The recording status says **ready** in English and **готов** in Russian
