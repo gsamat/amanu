@@ -5,7 +5,7 @@ C#/.NET 10 and WPF application, a separate core library, WASAPI capture, and
 Velopack packaging. The installer and application are signed as **Fands
 Software LLC** through Microsoft Artifact Signing.
 
-[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-stable-Setup.exe) ·
+[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-0.6.4-Setup.exe) ·
 [Portable ZIP](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-stable-Portable.zip) ·
 [Release notes](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.4)
 
