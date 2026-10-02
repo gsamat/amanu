@@ -61,7 +61,7 @@ internal sealed class SetupForm
 
     private readonly ComboBox language = new() { MinWidth = 220 };
     private readonly TextBlock languageNote = Ui.Status();
-    private readonly CheckBox live = Ui.Switch(T("Live transcript", "Расшифровка на ходу"));
+    private readonly CheckBox live = Ui.Switch(T("Live transcript", "Расшифровка на лету"));
     private readonly TextBlock liveModelStatus = Ui.Status();
 
     private readonly TextBlock folderPath = new() { FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas"), FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };

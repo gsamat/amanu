@@ -35,7 +35,7 @@ internal sealed class StatusWindow : Window
     private readonly System.Windows.Controls.Button pause;
     private readonly CheckBox autoRecord = new ClickCheckBox { Content = T("Record meetings automatically", "Записывать встречи автоматически") };
     private readonly TextBlock decision = Ui.Status();
-    private readonly CheckBox live = new ClickCheckBox { Content = T("Live transcript", "Расшифровка на ходу") };
+    private readonly CheckBox live = new ClickCheckBox { Content = T("Live transcript", "Расшифровка на лету") };
     private readonly TextBlock liveStatus = Ui.Status();
     private readonly Grid livePanel = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 8, 0, 0) };
     private readonly TextBlock livePlaceholder = new()
@@ -129,7 +129,7 @@ internal sealed class StatusWindow : Window
         liveStatus.TextWrapping = TextWrapping.Wrap;
         liveStatus.Margin = new Thickness(0, 4, 0, 0);
         stack.Children.Add(liveStatus);
-        liveReveal.Inlines.Add(new Hyperlink(new Run(T("Show the live transcript", "Показать расшифровку на ходу"))));
+        liveReveal.Inlines.Add(new Hyperlink(new Run(T("Show the live transcript", "Показать расшифровку на лету"))));
         ((Hyperlink)liveReveal.Inlines.FirstInline).Click += (_, _) => ShowLive(true);
         stack.Children.Add(liveReveal);
         livePanel.Children.Add(liveText);
