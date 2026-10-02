@@ -58,9 +58,9 @@ struct InterfaceLanguageTests {
     @Test("A test's Russian stays in the test")
     func scopedLanguageStaysScoped() async {
         await InterfaceLanguage.$scoped.withValue(.russian) {
-            #expect(localised("idle", "не записывает") == "не записывает")
+            #expect(localised("ready", "готов") == "готов")
             await Task.detached {
-                #expect(localised("idle", "не записывает") == "idle")
+                #expect(localised("ready", "готов") == "ready")
             }.value
         }
         #expect(InterfaceLanguage.current == .english)

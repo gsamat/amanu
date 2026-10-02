@@ -27,7 +27,7 @@ final class StatusWindow {
     /// The rows, kept because the window's height is measured from them.
     private let rows = NSStackView()
     private let icon = NSImageView()
-    private let stateLabel = NSTextField(labelWithString: localised("idle", "не записывает"))
+    private let stateLabel = NSTextField(labelWithString: localised("ready", "готов"))
     private let transcriptionLabel = NSTextField(labelWithString: "")
     /// What is wrong with the config file, when something is — see
     /// `Config.Problem`. Hidden, and so no row at all, the rest of the time.
@@ -316,7 +316,7 @@ final class StatusWindow {
         )
         switch state {
         case .idle:
-            stateLabel.stringValue = localised("idle", "не записывает")
+            stateLabel.stringValue = localised("ready", "готов")
             stateLabel.textColor = .labelColor
             toggleButton.title = localised("Start recording", "Начать запись")
             pauseButton.title = localised("Pause", "Пауза")

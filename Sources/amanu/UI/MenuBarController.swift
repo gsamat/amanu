@@ -60,7 +60,7 @@ final class MenuBarController {
         menu.font = NSFont.menuFont(ofSize: 0).tabularFigures
 
         stateLabel = NSMenuItem(
-            title: localised("idle", "не записывает"), action: nil, keyEquivalent: "")
+            title: localised("ready", "готов"), action: nil, keyEquivalent: "")
         stateLabel.isEnabled = false
         menu.addItem(stateLabel)
 
@@ -290,7 +290,7 @@ final class MenuBarController {
         self.elapsed = elapsed
         switch state {
         case .idle:
-            stateLabel.title = localised("idle", "не записывает")
+            stateLabel.title = localised("ready", "готов")
             toggleItem.title = localised("Start recording", "Начать запись")
             pauseItem.title = localised("Pause", "Пауза")
             pauseItem.isEnabled = false

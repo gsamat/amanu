@@ -15,6 +15,7 @@ class ReleasePreflightTests(unittest.TestCase):
             (checkout / "scripts").mkdir()
             shutil.copyfile(ROOT / "scripts/release.sh", checkout / "scripts/release.sh")
             (checkout / "Makefile").write_text("VERSION ?= 0.4.15\n")
+            (checkout / "VERSION").write_text("0.4.15\n")
             subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
             subprocess.run([
                 "git", "-C", str(checkout), "-c", "user.name=Audit fixture",
