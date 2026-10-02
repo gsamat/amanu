@@ -152,7 +152,7 @@ struct SessionInventoryTests {
         #expect(PostProcessor.outstanding(dir).isEmpty)
     }
 
-    @Test("Re-transcribing clears the marks and the derived files")
+    @Test("Re-transcribing clears failure marks and retains the completed files")
     func retranscribeResetsTheSession() throws {
         let dir = try Self.session(speakers: true, summary: true, state: [
             SessionState.Key.transcriptionFailed: "timed out",
@@ -162,8 +162,8 @@ struct SessionInventoryTests {
         PostProcessor.markForRetranscription(dir)
 
         let fm = FileManager.default
-        #expect(!fm.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
-        #expect(!fm.fileExists(atPath: dir.appendingPathComponent(SpeakerNames.file).path))
+        #expect(fm.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        #expect(fm.fileExists(atPath: dir.appendingPathComponent(SpeakerNames.file).path))
         #expect(SessionState.value(dir, SessionState.Key.transcriptionFailed) == nil)
         #expect(SessionInventory.item(for: dir)?.transcript == .pending)
     }

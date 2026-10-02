@@ -1,4 +1,20 @@
-# Releasing amanu
+# Releasing Amanu
+
+This runbook covers the **macOS** release. Windows uses a separate version
+sequence, `windows-v<version>` tags, Microsoft Artifact Signing, and a stable
+Velopack update feed. See [Windows build and release packaging](../windows/README.md#signing-and-release-packaging)
+for its source branch, workflow, signing configuration, and signed test builds.
+Do not use the macOS release script or Sparkle appcast for a Windows release.
+
+After publishing the signed Windows assets, update the
+[Scoop manifest](../windows/packaging/scoop/amanu.json) and submit the new
+[WinGet manifest set](../windows/packaging/winget/README.md). Both must use the
+version-specific public download URL and its verified SHA-256. Test installation,
+upgrade, and uninstall on an isolated Windows profile, and disclose any checks
+that could not run in the catalog PR. Microsoft's pipeline also validates the
+manifest and installer; record its results before marking the PR ready for review.
+Announce WinGet availability only after Microsoft's catalog PR is merged and the package
+is available in the source.
 
 Written for whoever ships the next one — most likely an agent, working alone,
 at night, with nobody to ask. It is the runbook, not the design; the design is

@@ -10,6 +10,7 @@ enum SessionState {
     enum Key {
         /// Present when a session was retired without a transcript.
         static let transcriptionFailed = "transcription_failed"
+        static let transcriptionDeferred = "transcription_deferred"
         static let transcriptionAttempts = "transcription_attempts"
         /// Optional per-session choice made from Recordings' Re-transcribe
         /// context menu. It survives another manual retry as the last choice.

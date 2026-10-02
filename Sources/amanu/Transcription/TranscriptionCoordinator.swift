@@ -151,7 +151,8 @@ actor TranscriptionCoordinator {
         let fm = FileManager.default
         return SessionInventory.sessionFolders(in: root)
             .filter {
-                !fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+                (!fm.fileExists(atPath: $0.appendingPathComponent("transcript.json").path)
+                    || TranscriptVersions.isRequested($0))
                     && !TranscriptionFailurePolicy.hasGivenUp(on: $0)
                     // A session another process is already transcribing is not
                     // pending, it is in progress somewhere else. Queueing it
@@ -352,7 +353,7 @@ actor TranscriptionCoordinator {
         // same folder — transcribes it, and the claim is what makes the
         // answer to "is there a transcript" stay true until we are done.
         if FileManager.default.fileExists(
-            atPath: dir.appendingPathComponent("transcript.json").path) {
+            atPath: dir.appendingPathComponent("transcript.json").path), !TranscriptVersions.isRequested(dir) {
             log(dir, "already transcribed — nothing to do")
             throw AlreadyTranscribed()
         }
@@ -425,13 +426,15 @@ actor TranscriptionCoordinator {
             throw EmptyTranscript()
         }
 
+        let created = ISO8601DateFormatter()
+        created.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let transcript = Transcript(
             engine: engine.name,
             model: engine.model,
-            created_at: ISO8601DateFormatter().string(from: Date()),
+            created_at: created.string(from: Date()),
             segments: merged
         )
-        try transcript.write(to: dir)
+        try TranscriptVersions.commit(transcript, to: dir)
         SessionState.update(dir, with: [
             StopHook.key: StopHook.owed,
             "transcription_input": engine.input.metadataName,

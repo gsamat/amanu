@@ -152,15 +152,14 @@ struct MeetingEgressTests {
             == ["--model", "claude-sonnet-5"])
     }
 
-    @Test("The codex CLI is asked read-only and leaves no session behind")
+    @Test("Codex keeps its own model, runs read-only and leaves no session behind")
     func codexArgumentsArePinned() {
         let output = URL(fileURLWithPath: "/tmp/answer.txt")
-        #expect(LLMBackend.codexArguments(model: "gpt-5", output: output, mcpServers: []) == [
+        #expect(LLMBackend.codexArguments(output: output, mcpServers: []) == [
             "exec",
             "--skip-git-repo-check",
             "--sandbox", "read-only",
             "--ephemeral",
-            "--model", "gpt-5",
             "--output-last-message", "/tmp/answer.txt",
             "-",
         ])
@@ -174,7 +173,7 @@ struct MeetingEgressTests {
     func codexMCPServersAreOff() {
         let output = URL(fileURLWithPath: "/tmp/answer.txt")
         let arguments = LLMBackend.codexArguments(
-            model: "gpt-5", output: output, mcpServers: ["github", "fs-tools"])
+            output: output, mcpServers: ["github", "fs-tools"])
         #expect(arguments == [
             "exec",
             "--skip-git-repo-check",
@@ -182,7 +181,6 @@ struct MeetingEgressTests {
             "--ephemeral",
             "-c", "mcp_servers.github.enabled=false",
             "-c", "mcp_servers.fs-tools.enabled=false",
-            "--model", "gpt-5",
             "--output-last-message", "/tmp/answer.txt",
             "-",
         ])
@@ -191,9 +189,10 @@ struct MeetingEgressTests {
         // named at all: the config file is not read.
         for unnameable in [["my.server"], nil] as [[String]?] {
             let skipped = LLMBackend.codexArguments(
-                model: "gpt-5", output: output, mcpServers: unnameable)
+                output: output, mcpServers: unnameable)
             #expect(skipped.contains("--ignore-user-config"))
             #expect(!skipped.contains("-c"))
+            #expect(!skipped.contains("--model"))
         }
     }
 

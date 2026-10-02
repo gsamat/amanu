@@ -63,7 +63,7 @@ struct PostProcessingTests {
     /// Re-transcription deleted summary.md before it knew whether a new
     /// transcript would ever exist, so a retry that failed for good cost the
     /// meeting its only summary.
-    @Test("A summary outlives re-transcription, marked stale, until a new one replaces it")
+    @Test("A summary remains current until a successful new transcript replaces it")
     func staleSummaryIsKeptUntilReplaced() async throws {
         let dir = try SessionFixture.make()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -77,14 +77,14 @@ struct PostProcessingTests {
 
             #expect(FileManager.default.fileExists(atPath: summary.path),
                     "the only summary went before the retry had produced anything")
-            #expect(!PostProcessor.hasCurrentSummary(dir))
+            #expect(PostProcessor.hasCurrentSummary(dir))
             let cleared = try #require(SessionInventory.item(for: dir, policy: policy))
-            #expect(cleared.summary != .done, "a summary of a discarded transcript shown as done")
+            #expect(cleared.summary == .done, "the completed summary should remain available")
             #expect(PostProcessor.outstanding(dir, policy: policy).isEmpty,
                     "nothing to summarize until there is a transcript again")
 
             // The retry succeeds, and the summary owed is written over the old.
-            try SessionFixture.transcript.write(to: dir)
+            try TranscriptVersions.commit(SessionFixture.transcript, to: dir)
             #expect(PostProcessor.outstanding(dir, policy: policy).summary)
             await PostProcessor.finish(dir, policy: policy)
         }

@@ -11,7 +11,7 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import unquote, urlsplit
 
 LANDING = Path(__file__).resolve().parent.parent
 ROOT = LANDING.parent
@@ -211,8 +211,8 @@ def main():
     readable_ru = ru_html.replace("&nbsp;", " ")
     flat_ru = re.sub(r"\s+", " ", readable_ru)
     check(
-        "RU: бинарник назван нотаризованным Apple",
-        readable_ru.count("нотаризован Apple") == 1
+        "RU: указана подпись Apple и Microsoft",
+        readable_ru.count("подписан Apple и Microsoft") == 1
         and "подписанный бинарник" not in readable_ru,
     )
     check(
@@ -226,7 +226,7 @@ def main():
     )
     check(
         "RU: заголовок честно говорит о локальной библиотеке",
-        "<h2>Ваша библиотека встреч хранится на маке</h2>" in readable_ru,
+        "<h2>Ваша библиотека встреч хранится на компьютере</h2>" in readable_ru,
     )
     check(
         "RU: в футере Самат Галимов со ссылкой на samat.me/ru",
@@ -253,17 +253,7 @@ def main():
         "есть подписка на клод или chatgpt." in flat_ru
         and "нужно экономить наше время" not in flat_ru,
     )
-    check(
-        "EN: Windows-кнопка обещает уведомление",
-        bool(re.search(r">\s*Notify me when Windows is available\s*</a>", en_html))
-        and "Ask about the Windows version" not in en_html,
-    )
-
     # Public links, local resources, scripts, and accessibility on both pages.
-    expected_windows_bodies = {
-        "EN": "Please let me know when the Windows version is available!",
-        "RU": "Сообщите мне, когда появится windows версия, пожалуйста!",
-    }
     for label, path, html, page in pages:
         check(
             f"{label}: обе кнопки ведут прямо на DMG",
@@ -279,19 +269,7 @@ def main():
             any(re.search(r"github\.com/gsamat/amanu/?$", href) for href in page.links),
         )
 
-        windows_mailto = [
-            href for href in page.links
-            if href.startswith("mailto:amanu-windows@samat.me")
-        ]
-        check(f"{label}: mailto для Windows-интереса", bool(windows_mailto))
-        if windows_mailto:
-            query = parse_qs(urlsplit(windows_mailto[0]).query)
-            body = (query.get("body") or [""])[0]
-            check(
-                f"{label}: в письме про Windows готовое тело",
-                body.strip() == expected_windows_bodies[label],
-                f"body={body!r}",
-            )
+        check(f"{label}: две кнопки скачивания Windows", page.links.count("https://github.com/gsamat/amanu/releases/download/windows-v0.6.2/Amanu-stable-Setup.exe") == 2)
         check(
             f"{label}: нет формы с сетевым action",
             all(not action or action.startswith("mailto:") for action in page.forms),
@@ -368,12 +346,12 @@ def main():
     )
 
     expected_en_shots = {
-        "status-recording-light.png": "70c90f0201373d8ed3a5bb9fb89d2be109c69ed9112e2d1d72addb78a6f79687",
-        "status-recording-dark.png": "ce72b49e27743bba25226e851ee57c7ee41b0ece37cafb0781e8da4ff8013172",
-        "recordings-light.png": "9d2749fd675be63c53897b5327dd861a2aff03bdeb8c548781493af1d2f93b78",
-        "recordings-dark.png": "af2d5e69c3133509a6ee3bc882fac29d3ba9a366ec4437a6c8f095a8d4ea29c3",
+        "status-recording-light.png": "8c372c3274ad657c5c507152768cb76adab9244bd620f8d491d02646418fc70c",
+        "status-recording-dark.png": "36e030d5a3226dc58afd9ec58d013fed0f01f770f61e0c6ef79ab1d57430e40e",
+        "recordings-light.png": "0174ba514607a153bae0b21c3bd8ec536f37dde5a0e7231daa6d39e88010c77d",
+        "recordings-dark.png": "5653cdc661de2b6a9aeeffd4007275a3265d3751e4a8d281a34335caaeffcb7d",
     }
-    en_shot_urls = {url for _, url in en.resources if "/shots/" in url}
+    en_shot_urls = {urlsplit(url).path for _, url in en.resources if "/shots/" in url}
     check(
         "EN: страница использует отдельные английские скриншоты",
         en_shot_urls == {

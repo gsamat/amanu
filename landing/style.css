@@ -198,6 +198,9 @@ main {
 
 .cta-row {
     margin: 0 0 0.9rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
 }
 
 .btn {
@@ -215,6 +218,7 @@ main {
 
 .btn svg {
     fill: currentColor;
+    flex-shrink: 0;
 }
 
 .btn:hover {
@@ -351,13 +355,6 @@ main {
     border-bottom: 1px solid var(--hairline);
 }
 
-.windows .entry-body {
-    background: var(--paper-raised);
-    border: 1px solid var(--hairline-faint);
-    border-radius: 14px;
-    padding: 1.8rem 2rem;
-}
-
 /* ── Подвал ── */
 
 footer {
@@ -408,9 +405,6 @@ footer p {
         gap: 1.8rem;
     }
 
-    .windows .entry-body {
-        padding: 1.4rem 1.3rem;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {

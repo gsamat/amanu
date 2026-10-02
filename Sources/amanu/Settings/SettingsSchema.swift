@@ -245,11 +245,22 @@ enum SettingsSchema {
                       "Applies to manual recordings too — whatever this is, it stopped being a meeting.",
                       "Касается и ручных записей: что бы это ни было, встречей оно быть перестало."),
                   .number(unit: localised("minutes", "мин")), default: 300),
+            Entry(["auto_record", "any_app"],
+                  localised("Record any app that opens the mic", "Записывать любое приложение с микрофоном"),
+                  localised(
+                      "Start from microphone activity even for apps outside the call list. "
+                          + "Dictation tools and excluded apps still do not count.",
+                      "Начинать запись по микрофону даже для приложений вне списка звонков. "
+                          + "Диктовка и исключённые приложения по-прежнему не учитываются."),
+                  .toggle, default: false),
             Entry(["auto_record", "apps"], localised("Call apps", "Приложения для звонков"),
                   localised(
-                      "Bundle-id prefixes that count as a call. Empty means any app that opens the mic.",
-                      "Префиксы bundle id, которые считаются звонком. Пусто — любое приложение, "
-                          + "открывшее микрофон."),
+                      "App names (for example, Comet) or bundle-id prefixes. Browser helpers count too. "
+                          + "Blank restores the standard list. Applies when recording any app is off.",
+                      "Названия приложений (например, Comet) или префиксы bundle id. "
+                          + "Вспомогательные процессы браузера тоже учитываются. "
+                          + "Пустое поле возвращает стандартный список. "
+                          + "Применяется, когда запись любого приложения выключена."),
                   .list,
                   describedAs: localised(
                       "known call apps and browsers", "известные звонилки и браузеры")),
@@ -366,10 +377,10 @@ enum SettingsSchema {
                           + "ту модель, на которую настроен Claude Code."),
                   .text, default: "claude-opus-5"),
             Entry(["summary", "openai_model"],
-                  localised("OpenAI model", "Модель OpenAI"),
+                  localised("OpenAI API model", "Модель OpenAI API"),
                   localised(
-                      "Used by the codex CLI and the OpenAI API.",
-                      "Для codex CLI и для OpenAI API."),
+                      "Used by the OpenAI API. Codex uses its own configured model.",
+                      "Для OpenAI API. Codex использует модель из собственных настроек."),
                   .text, default: "gpt-5"),
             Entry(["summary", "openai_base_url"],
                   localised("OpenAI-compatible Base URL", "Base URL OpenAI-compatible API"),

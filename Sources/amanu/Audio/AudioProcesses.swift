@@ -55,9 +55,9 @@ enum AudioProcesses {
     /// process that plays a call's audio is rarely the one you'd name: Chrome
     /// renders it in `com.google.Chrome.helper.Renderer`, Teams and Zoom each
     /// ship several helpers, and matching the family catches all of them,
-    /// including the ones not making any noise yet. A process with no bundle
-    /// id at all (a command-line tool) is matched by its executable name
-    /// instead, exactly.
+    /// including the ones not making any noise yet. Settings may also name
+    /// the app or its helper; a process with no bundle id (a command-line
+    /// tool) is matched by its executable name.
     static func matching(families: [String]) -> [Process] {
         guard let processes = all() else { return [] }
         return matching(families: families, in: processes)
@@ -70,27 +70,40 @@ enum AudioProcesses {
         return processes.filter { belongs($0, to: families) }
     }
 
-    /// Whether a process belongs to one of these families: by bundle-id
-    /// prefix, or — for something with no bundle id, like a command-line tool
-    /// — by an exact match on its executable name.
+    /// Settings accept bundle-id prefixes or display names. A Chromium helper
+    /// can also be named after its browser: "Comet" includes "Comet Helper"
+    /// and "Comet Helper (Renderer)", but never "Cometary".
     static func belongs(_ process: Process, to families: [String]) -> Bool {
-        process.bundleID.isEmpty
-            ? families.contains(process.name)
-            : families.contains { !$0.isEmpty && process.bundleID.hasPrefix($0) }
+        var names = [process.name]
+        if process.bundleID.range(of: ".helper", options: .caseInsensitive) != nil,
+           let helper = process.name.range(of: " Helper", options: .caseInsensitive) {
+            let suffix = process.name[helper.upperBound...]
+            if suffix.isEmpty || (suffix.hasPrefix(" (") && suffix.hasSuffix(")")) {
+                names.append(String(process.name[..<helper.lowerBound]))
+                names.append(String(process.name[..<helper.upperBound]))
+            }
+        }
+        return families.contains { entry in
+            let entry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { return false }
+            return (!process.bundleID.isEmpty && process.bundleID.hasPrefix(entry))
+                || names.contains { $0.caseInsensitiveCompare(entry) == .orderedSame }
+        }
     }
 
     /// The family a process belongs to: the app's own id rather than its
     /// helper's, so tapping "Chrome" doesn't mean tapping one renderer.
     ///
-    /// Derived by matching against the configured call apps first — those are
-    /// already written as family prefixes — then by dropping a trailing
+    /// Derived by matching configured bundle-id prefixes first (display names
+    /// must never become tap identifiers), then by dropping a trailing
     /// `.helper…` segment, and finally, for a process with no bundle id, by
     /// falling back to its executable name.
     static func family(of process: Process, knownApps: [String]) -> String? {
         guard !process.bundleID.isEmpty else {
             return process.name.isEmpty ? nil : process.name
         }
-        if let known = knownApps.first(where: { !$0.isEmpty && process.bundleID.hasPrefix($0) }) {
+        if let known = knownApps.map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty && process.bundleID.hasPrefix($0) }) {
             return known
         }
         if let range = process.bundleID.range(of: ".helper", options: [.caseInsensitive]) {

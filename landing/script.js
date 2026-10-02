@@ -24,6 +24,24 @@
     });
 })();
 
+// Windows visitors see the Windows app. Mac, iPhone, and other devices retain
+// the default macOS screenshots. No platform information is sent to analytics.
+(function () {
+    if (!/Windows/i.test(navigator.userAgent)) return;
+    document.querySelectorAll('picture').forEach(function (picture) {
+        picture.querySelectorAll('source[data-windows-srcset]').forEach(function (source) {
+            source.srcset = source.dataset.windowsSrcset;
+        });
+        var img = picture.querySelector('img[data-windows-src]');
+        if (img) {
+            img.src = img.dataset.windowsSrc;
+            if (img.dataset.windowsAlt) img.alt = img.dataset.windowsAlt;
+            if (img.dataset.windowsWidth) img.width = Number(img.dataset.windowsWidth);
+            if (img.dataset.windowsHeight) img.height = Number(img.dataset.windowsHeight);
+        }
+    });
+})();
+
 // Decorative recording timer. It stays still when reduced motion is enabled.
 (function () {
     var el = document.getElementById('rec-time');

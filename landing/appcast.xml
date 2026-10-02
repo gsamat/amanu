@@ -6,29 +6,30 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.4.29</title>
-            <pubDate>Wed, 30 Sep 2026 19:29:17 +0000</pubDate>
+            <title>0.6.1</title>
+            <pubDate>Thu, 01 Oct 2026 16:44:08 +0000</pubDate>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>Amanu 0.4.29</h2>
-<h3>Manage recordings</h3>
+            <description><![CDATA[<h2>Amanu 0.6.1</h2>
+<h3>Automatic recording</h3>
 <ul>
-<li>Import and Open recordings folder are now at the top of the window. Actions for the selected recording, including Re-transcribe, are grouped below its details.</li>
-<li>Summary, Transcript and Speakers have separate tabs. Summaries and transcripts display Markdown headings, lists, emphasis and links, and their text can be selected and copied.</li>
-<li>The divider between the recording list and details can be moved to give either pane more room.</li>
-<li>Long opening excerpts in Speakers no longer force the window wider or prevent it from being reduced.</li>
-<li>Switching between meetings keeps the Speakers content anchored inside the tab instead of gradually moving it to the right and down.</li>
+<li>The Call apps list now accepts app names as well as bundle-id prefixes. Entries such as Comet and Comet Helper detect the browser&#x27;s microphone activity and follow its helper processes for audio capture.</li>
+<li>Advanced settings now has an optional Record any app that opens the mic switch, off by default. It keeps dictation tools and ignored apps excluded, and turning it off restores the configured call list.</li>
+<li>Clarified that clearing the Call apps field restores the standard list. The new switch stays in Advanced settings.</li>
 </ul>
-<h3>Validation and compatibility</h3>
+<h3>Summaries</h3>
 <ul>
-<li>Checked switching between meetings, resizing and the formatted previews in the macOS app. This release changes the recordings interface; no audio capture changes are included.</li>
+<li>Codex summaries use the model selected in Codex&#x27;s own configuration. Amanu no longer forces the OpenAI API model onto a Codex subscription, which could make summaries fail. The OpenAI API model setting continues to apply to API summaries.</li>
+</ul>
+<h3>Compatibility</h3>
+<ul>
 <li>Universal binary for Apple Silicon and Intel Macs running macOS 14.2 or later. Local transcription requires Apple Silicon; Intel requires a cloud transcription key and has not been tested on physical hardware.</li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.4.29/amanu-v0.4.29-macos-universal.dmg"
-                sparkle:version="407"
-                sparkle:shortVersionString="0.4.29"
-                sparkle:edSignature="9ixJPU8KWXMFAXkaAYJX7IO9d9C7kI4DP3MksU3+BmudmrfTz6pPuSqTMzrgkH/F8v9jhm+mNXbEQHgMpsEaCA=="
-                length="23872355"
+                url="https://github.com/gsamat/amanu/releases/download/v0.6.1/amanu-v0.6.1-macos-universal.dmg"
+                sparkle:version="416"
+                sparkle:shortVersionString="0.6.1"
+                sparkle:edSignature="g13C+rF1HX/f9fNo/D3dp133J5PU0peri3YzFQ9D3qkdZ6O2IfdbUuE0E8rmTw7MlsKQT+2ovj84GbFbBc69DA=="
+                length="24039489"
                 type="application/octet-stream" />
         </item>
     </channel>
