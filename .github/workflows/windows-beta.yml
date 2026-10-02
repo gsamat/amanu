@@ -51,6 +51,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Test installer filenames
+        shell: pwsh
+        run: '& windows/tests/Test-ReleaseInstallerName.ps1'
+
       - name: Restore
         working-directory: windows
         run: dotnet restore Amanu.Windows.slnx
@@ -202,6 +206,13 @@ jobs:
           --outputDir "${{ runner.temp }}/amanu-release"
           --signParams "/td sha256 /fd sha256 /f `"${{ steps.certificate.outputs.path }}`" /p `"$env:BETA_CERTIFICATE_PASSWORD`" /tr http://timestamp.digicert.com"
 
+      - name: Finalize versioned installer and checksums
+        shell: pwsh
+        run: >-
+          & windows/scripts/Set-ReleaseInstallerName.ps1
+          -ReleaseDirectory '${{ runner.temp }}/amanu-release'
+          -Version '${{ env.AMANU_VERSION }}'
+
       - name: Verify Azure signatures
         if: steps.artifact_signing.outputs.available == 'true'
         shell: pwsh
@@ -209,6 +220,7 @@ jobs:
           & windows/scripts/Test-ReleaseSignatures.ps1
           -PublishDirectory '${{ runner.temp }}/amanu-publish'
           -ReleaseDirectory '${{ runner.temp }}/amanu-release'
+          -Version '${{ env.AMANU_VERSION }}'
 
       - name: Upload installer and update feed
         if: inputs.upload_artifact
