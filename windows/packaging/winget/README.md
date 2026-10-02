@@ -7,6 +7,11 @@ Version 0.6.4 is submitted in [draft PR #445780](https://github.com/microsoft/wi
 Its manifests passed local Windows validation. Isolated install, upgrade, and uninstall
 tests could not run because no isolated Windows environment was available; the PR
 remains a draft pending Microsoft validation results.
+Version 0.6.5 is submitted in [draft PR #445793](https://github.com/microsoft/winget-pkgs/pull/445793).
+Its manifests passed local Windows validation and pin the downloaded, signature-verified
+versioned installer and SHA-256. Installation, upgrade, and uninstall in a separate
+Windows profile were unavailable on the connected host. Microsoft's validation and
+publisher review are pending; the package is not yet available in the public catalog.
 
 Each Windows release has a
 three-file manifest set: version, installer, and default locale. The submitted

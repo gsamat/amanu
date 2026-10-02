@@ -11,6 +11,9 @@
 ## Validation
 
 - On the connected Windows computer: Release build succeeded without warnings; 141 core tests, 38 live tests, and five installer filename/inventory/checksum tests passed on the combined release source.
+- The signed release workflow completed successfully. Downloaded public installer, portable ZIP, and full update package match SHA256SUMS. Setup and first-party payloads, launcher, and updater have valid Fands Software LLC signatures with timestamps; packaged application version is 0.6.5.
+- The production Velopack GithubSource on the stable channel detected 0.6.4 to 0.6.5, downloaded and verified the full package, and extracted the signed updater into an isolated test directory. The update was not applied to the working installation.
+- The 0.6.5 WinGet manifest set passed local validation and is submitted as draft PR #445793 pending Microsoft's validation and publisher review. Scoop pins the public portable ZIP and its verified SHA-256.
 - Queue and action regressions were checked red-to-green on the connected Windows computer. The recordings UI was checked through Computer Use with isolated synthetic sessions and controlled local transcription and summary dependencies.
 - Full installation, upgrade, and uninstall testing in a separate Windows account or Sandbox could not run: this host has no Windows Sandbox and the current account cannot create an isolated test account.
 
