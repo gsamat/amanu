@@ -3,6 +3,11 @@
 The package identifier is `FandsSoftware.Amanu`. The initial submission is
 [PR #445053](https://github.com/microsoft/winget-pkgs/pull/445053). Microsoft's
 installation, metadata, and other validation checks have passed; review is pending.
+Version 0.6.4 is submitted in [draft PR #445780](https://github.com/microsoft/winget-pkgs/pull/445780).
+Its manifests passed local Windows validation. Isolated install, upgrade, and uninstall
+tests could not run because no isolated Windows environment was available; the PR
+remains a draft pending Microsoft validation results.
+
 Each Windows release has a
 three-file manifest set: version, installer, and default locale. The submitted
 0.6.1 manifests use the repository's currently recommended schema, 1.12.0.

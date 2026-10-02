@@ -57,10 +57,10 @@ public sealed class LanguageModels(HttpClient httpClient, SecretStore secrets, F
         if (CommandLineTools.Find("codex") is { } codex)
             candidates["codex-cli"] = new("codex-cli", codexModel, false,
                 (system, prompt, token) => CodexCliAsync(codex, codexModel, system, prompt, token));
-        if (KeyRouting.AcceptableServer(summary.OpenAiBaseUrl)
-            && KeyRouting.SummaryOpenAiKey(summary.OpenAiBaseUrl, secrets.Get(SecretNames.OpenAi), secrets.Get(SecretNames.OpenAiCompatible)) is { Length: > 0 } openAiKey)
+        if (KeyRouting.AcceptableServer(summary.EffectiveOpenAiBaseUrl)
+            && KeyRouting.SummaryOpenAiKey(summary.EffectiveOpenAiBaseUrl, secrets.Get(SecretNames.OpenAi), secrets.Get(SecretNames.OpenAiCompatible)) is { Length: > 0 } openAiKey)
             candidates["openai-api"] = new("openai-api", summary.OpenAiModel, false,
-                (system, prompt, token) => OpenAiAsync(openAiKey, summary.OpenAiBaseUrl, summary.OpenAiModel, system, prompt, token));
+                (system, prompt, token) => OpenAiAsync(openAiKey, summary.EffectiveOpenAiBaseUrl, summary.OpenAiModel, system, prompt, token));
         if (KeyRouting.AcceptableServer(summary.OllamaBaseUrl))
             candidates["ollama"] = new("ollama", summary.OllamaModel, route.Preference != "ollama",
                 (system, prompt, token) => OllamaAsync(summary.OllamaBaseUrl, summary.OllamaModel, system, prompt, token));

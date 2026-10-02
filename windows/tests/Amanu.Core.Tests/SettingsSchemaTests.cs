@@ -27,6 +27,7 @@ public sealed class SettingsSchemaTests
         settings.Summary.Language = "ru";
         settings.Summary.Template = "t";
         settings.Summary.Model = "m";
+        settings.Summary.OpenAiCompatible = true;
         settings.SpeakerNames.Model = "m";
         settings.UserName = "me";
 
@@ -46,6 +47,7 @@ public sealed class SettingsSchemaTests
         settings.Summary.Language = "ru";
         settings.Summary.Template = "t";
         settings.Summary.Model = "m";
+        settings.Summary.OpenAiCompatible = true;
         settings.SpeakerNames.Model = "m";
         settings.UserName = "me";
         var node = SettingsDocument.ToNode(settings);
