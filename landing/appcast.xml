@@ -6,25 +6,26 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.6.3</title>
-            <pubDate>Fri, 02 Oct 2026 10:57:36 +0000</pubDate>
+            <title>0.6.4</title>
+            <pubDate>Fri, 02 Oct 2026 15:51:17 +0000</pubDate>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>amanu 0.6.3</h2>
+            <description><![CDATA[<h2>amanu 0.6.4</h2>
 <ul>
-<li>The recording status says <strong>ready</strong> in English and <strong>готов</strong> in Russian when no recording is running, in the status window and menu.</li>
-<li>Windows and macOS now use the same version number, read from the shared <code>VERSION</code> file. Their installers and automatic update feeds remain separate.</li>
-<li>The Russian live transcription label now says <strong>Расшифровка на лету</strong>.</li>
+<li>The <strong>My own key</strong> card now offers three clear choices: <strong>OpenAI</strong>, <strong>Anthropic</strong>, and <strong>OpenAI-compatible</strong>.</li>
+<li>Choose <strong>OpenAI-compatible</strong> to enter a routing service’s API URL, model, and token. Switching to OpenAI uses OpenAI’s API and key while retaining the saved custom URL.</li>
+<li>OpenAI and compatible services now show a neutral <strong>API key</strong> hint instead of implying that every token starts with <code>sk-</code>.</li>
+<li>Existing custom endpoint configurations continue to select the compatible service automatically.</li>
 </ul>
 <h3>Compatibility</h3>
 <ul>
 <li>Universal binary for Apple Silicon and Intel Macs running macOS 14.2 or later. Local transcription requires Apple Silicon; Intel requires a cloud transcription key and has not been tested on physical hardware.</li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.6.3/amanu-v0.6.3-macos-universal.dmg"
-                sparkle:version="424"
-                sparkle:shortVersionString="0.6.3"
-                sparkle:edSignature="Y9eRuC7siffmHel2gs7CC+FTzRBemr5hrxUNHzVNDm1BhsYykWfrlL4rfDgYAtIBBS3eGEWfmyVGfEfH2a27Dw=="
-                length="24040636"
+                url="https://github.com/gsamat/amanu/releases/download/v0.6.4/amanu-v0.6.4-macos-universal.dmg"
+                sparkle:version="429"
+                sparkle:shortVersionString="0.6.4"
+                sparkle:edSignature="zSVGmuX2lsPtOL50wnv+y++DibECgXOKsTkskWn8CP4G7eR21zKlqAPLiqH+d32OXzAWlqf1Pybb/TEDvQe2AQ=="
+                length="24039367"
                 type="application/octet-stream" />
         </item>
     </channel>
