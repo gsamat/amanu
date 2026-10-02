@@ -65,7 +65,7 @@ struct SetupProgress: Equatable {
             // A name, and names are not translated.
             case .localModel(let engine): return SetupProgress.modelName(engine)
             case .liveModel:
-                return localised("live model", "модель для расшифровки на ходу")
+                return localised("live model", "модель для расшифровки на лету")
             case .summaryTool:
                 return localised("something to summarise with", "чем писать саммари")
             }

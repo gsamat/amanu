@@ -41,7 +41,7 @@ final class StatusWindow {
         target: nil, action: nil)
     private let decisionLabel = NSTextField(labelWithString: "")
     private let liveCheckbox = NSButton(
-        checkboxWithTitle: localised("Live transcript", "Расшифровка на ходу"),
+        checkboxWithTitle: localised("Live transcript", "Расшифровка на лету"),
         target: nil, action: nil)
     private let liveStatus = NSTextField(labelWithString: "")
     private let liveReveal = NSButton(title: "", target: nil, action: nil)
