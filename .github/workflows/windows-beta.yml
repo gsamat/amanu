@@ -1,11 +1,19 @@
 name: Windows Store candidate
 on:
   workflow_dispatch:
+    inputs:
+      candidate_run:
+        description: Validate an existing candidate run without rebuilding (empty builds candidate)
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
+  actions: read
   id-token: write
 jobs:
   package:
+    if: inputs.candidate_run == ''
     runs-on: windows-2025
     environment: windows-signing
     env:
@@ -78,5 +86,42 @@ jobs:
           path: |
             ${{ runner.temp }}/candidate/*
             ${{ runner.temp }}/reports/*
+          if-no-files-found: error
+          retention-days: 30
+  validate:
+    if: inputs.candidate_run != ''
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: Amanu-Store-0.6.3-x64
+          path: ${{ runner.temp }}/existing-candidate
+          run-id: ${{ inputs.candidate_run }}
+          github-token: ${{ github.token }}
+      - name: Verify embedded signatures against Authenticode policy
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:/Program Files (x86)/Windows Kits/10/bin' -Filter signtool.exe -Recurse | Where-Object FullName -match '/x64/|\\x64\\' | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw 'Windows SDK SignTool missing.' }
+          $reports = "$env:RUNNER_TEMP/existing-candidate/reports"
+          $candidate = "$env:RUNNER_TEMP/existing-candidate/candidate"
+          $unpack = "$env:RUNNER_TEMP/verify-store-payload"
+          Expand-Archive "$candidate/Amanu-stable-Portable.zip" $unpack
+          $files = @(Get-ChildItem $unpack -Recurse -File | Where-Object Extension -in '.dll', '.exe')
+          $files += Get-Item "$candidate/Amanu-0.6.3-Setup.exe"
+          foreach ($file in $files) {
+            & $signtool.FullName verify /pa /all /v /tw $file.FullName >> "$reports/signtool-embedded.txt" 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "Embedded signature validation failed: $($file.Name)" }
+          }
+      - name: Exercise quiet install and uninstall in disposable Windows profile
+        shell: pwsh
+        run: |
+          & windows/scripts/Test-StoreCandidateInstall.ps1 -Installer "$env:RUNNER_TEMP/existing-candidate/candidate/Amanu-0.6.3-Setup.exe" -ReportDirectory "$env:RUNNER_TEMP/existing-candidate/reports"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: Amanu-Store-0.6.3-validation
+          path: ${{ runner.temp }}/existing-candidate/reports/*
           if-no-files-found: error
           retention-days: 30
