@@ -31,7 +31,7 @@ DRY_RUN=0
 # project amanu was forked from, and gh picks a remote on its own — which meant
 # the first release attempt tried to publish into somebody else's repository.
 REPO="gsamat/amanu"
-VERSION=$(sed -n 's/^VERSION *?= *//p' Makefile)
+VERSION=$(cat VERSION)
 MINIMUM_MACOS=$(sed -n 's/^MINIMUM_MACOS *?= *//p' Makefile)
 BUILD=$(git rev-list --count HEAD)
 TAG="v$VERSION"
@@ -157,7 +157,7 @@ else
     # is not.
     if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
         [ "$(gh release view "$TAG" --repo "$REPO" --json isDraft -q .isDraft)" = "true" ] \
-            || die "$TAG is already published — bump VERSION in the Makefile"
+            || die "$TAG is already published — bump VERSION"
         gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag=false
     fi
     git tag -f "$TAG"
