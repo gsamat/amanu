@@ -43,7 +43,7 @@ enum DoctorReport {
             checkTranscription(),
             checkAutoRecord(),
             checkSummary(),
-        ] + [checkSpeakerNames()].compactMap { $0 }
+        ] + [checkSpeakerNames(), checkDiarization()].compactMap { $0 }
     }
 
     /// A first-run window can repair a denied microphone grant. It cannot
@@ -527,6 +527,36 @@ enum DoctorReport {
             status: .warn("parakeet \(label) models not downloaded (~600 MB)"),
             remediation: "downloads automatically on first transcription — record a short test session while online"
         )
+    }
+
+    /// The far side's local diarizer: a second model on disk, and the one thing
+    /// that turns a flat "them" into "them A" and "them B".
+    ///
+    /// Shown only when the setting is on. A check for a feature nobody asked
+    /// for is a line somebody has to read and dismiss on every launch.
+    static func checkDiarization() -> Check? {
+        guard Config.transcriptionLocalDiarization() else { return nil }
+        guard Platform.supportsLocalModels else {
+            return Check(
+                name: "diarization",
+                status: .warn("local speaker diarization needs Apple Silicon — "
+                    + "the far side stays \"them\""),
+                // Not "turn off the switch": this branch only runs where
+                // Settings does not render the control
+                // (`SettingsSchema.unrenderedLocalModelKeys`), so the config
+                // file is the only place it can be changed.
+                remediation: "edit \(Config.path.path) and set "
+                    + "transcription.local_diarization = false")
+        }
+        guard DiarizationEngine.missingModels().isEmpty else {
+            return Check(
+                name: "diarization",
+                status: .warn("speaker model not downloaded — the far side stays \"them\""),
+                remediation: "downloads automatically on the first transcription — "
+                    + "record a short test session while online"
+            )
+        }
+        return Check(name: "diarization", status: .ok, remediation: nil)
     }
 
     /// The cloud engine has no models to cache; what it can be missing is a

@@ -42,6 +42,13 @@ actor TranscriptionCoordinator {
     /// The engine the session in hand was given, for the failure report when
     /// it throws: nil until one was prepared.
     private var current: TranscriptionEngine?
+    /// The far side's speaker diarizer for this drain, held beside the engine
+    /// and released with it — a download and a compile that a queue of
+    /// meetings should pay for once. `diarizationFailure` remembers a model
+    /// that would not come, so the next session in the same drain doesn't
+    /// start the same download again.
+    private var diarizer: DiarizationEngine?
+    private var diarizationFailure: String?
     private let onStop: @Sendable () -> String?
     private let echoCanceller: EchoCancellerFactory
 
@@ -324,6 +331,46 @@ actor TranscriptionCoordinator {
 
     private func releaseEngine() async {
         await engines.release()
+        if let diarizer { await diarizer.release() }
+        diarizer = nil
+        diarizationFailure = nil
+    }
+
+    /// Whether this session's far side should be diarized at all: asked for in
+    /// the config, runnable on this Mac, and only for a per-track transcript
+    /// with a far track to diarize.
+    ///
+    /// A mixed or multichannel engine already diarizes — the cloud labels its
+    /// own speakers, and their channel-qualified labels are what
+    /// `MultichannelSpeakerLabels` is for — and an imported single-source file
+    /// has no "me" and "them" to tell apart.
+    private func wantsLocalDiarization(
+        engine: TranscriptionEngine, meta: SessionMeta
+    ) -> Bool {
+        Config.transcriptionLocalDiarization()
+            && Platform.supportsLocalModels
+            && engine.input == .perTrack
+            && !meta.isSingleSource
+            && meta.track(for: "them") != nil
+    }
+
+    /// The far-side diarizer, prepared on first use in a drain and reused
+    /// after. Never throws: a model that will not download leaves the far side
+    /// a flat "them", which is what it would have been without the setting.
+    private func preparedDiarizer(in dir: URL) async -> DiarizationEngine? {
+        if let diarizer { return diarizer }
+        if diarizationFailure != nil { return nil }
+        let engine = DiarizationEngine()
+        do {
+            try await engine.prepare()
+        } catch {
+            diarizationFailure = "\(error)"
+            log(dir, "local diarization unavailable — \(error); the far side stays \"them\"")
+            return nil
+        }
+        diarizer = engine
+        log(dir, "local diarization ready (\(engine.model))")
+        return engine
     }
 
     /// The session had its transcript by the time its claim was taken.
@@ -380,8 +427,14 @@ actor TranscriptionCoordinator {
             SessionState.update(dir, with: ["audio_echo_cancellation": nil])
         }
 
+        var farSide: DiarizationEngine?
+        if wantsLocalDiarization(engine: engine, meta: meta) {
+            farSide = await preparedDiarizer(in: dir)
+        }
+
         let inputs = TranscriptionInputs(
-            session: dir, audio: audioDirectory, meta: meta, engine: engine)
+            session: dir, audio: audioDirectory, meta: meta, engine: engine,
+            diarizer: farSide)
         var merged: [Transcript.Segment]
         var echoFilterRan = false
         var echoesDropped = 0
