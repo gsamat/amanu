@@ -1,17 +1,17 @@
 # Amanu for Windows
 
-The public Windows release is **0.6.3**, for Windows 11 24H2 or later on x64. It uses a native
+The public Windows release is **0.6.4**, for Windows 11 24H2 or later on x64. It uses a native
 C#/.NET 10 and WPF application, a separate core library, WASAPI capture, and
 Velopack packaging. The installer and application are signed as **Fands
 Software LLC** through Microsoft Artifact Signing.
 
-[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Setup.exe) ·
-[Portable ZIP](https://github.com/gsamat/amanu/releases/download/windows-v0.6.3/Amanu-stable-Portable.zip) ·
-[Release notes](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.3)
+[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-0.6.4-Setup.exe) ·
+[Portable ZIP](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-stable-Portable.zip) ·
+[Release notes](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.4)
 
 The [main README](../README.md) covers installation, requirements, and
-configuration. The [hardware checklist](https://github.com/gsamat/amanu/blob/windows-v0.6.3/windows/BETA.md) covers manual testing.
-The original [design](https://github.com/gsamat/amanu/blob/windows-v0.6.3/docs/specs/2026-09-20-windows-app-design.md) records the
+configuration. The [hardware checklist](https://github.com/gsamat/amanu/blob/windows-v0.6.4/windows/BETA.md) covers manual testing.
+The original [design](https://github.com/gsamat/amanu/blob/windows-v0.6.4/docs/specs/2026-09-20-windows-app-design.md) records the
 architecture decisions; its beta distribution gates describe the original
 plan, rather than the current signed release.
 
@@ -19,10 +19,10 @@ plan, rather than the current signed release.
 
 Windows currently has a separate development branch. The repository's default
 branch does not yet contain the released Windows implementation. To reproduce
-0.6.3, use the release tag:
+0.6.4, use the release tag:
 
 ```powershell
-git clone --branch windows-v0.6.3 https://github.com/gsamat/amanu.git amanu-windows
+git clone --branch windows-v0.6.4 https://github.com/gsamat/amanu.git amanu-windows
 cd amanu-windows\windows
 ```
 
@@ -49,7 +49,7 @@ A managed build alone does not bundle the native transcription runtimes. To
 exercise local and live recognition and create a complete package, run:
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 0.6.3
+.\scripts\Build-Release.ps1 -Version 0.6.4
 .\artifacts\publish\Amanu.exe
 ```
 
@@ -62,7 +62,7 @@ Python, or separate native runtime installation. Models download from Settings.
 Both native builds use portable CPU variants rather than the build computer's
 CPU features. The final-transcript build runs a CPU discovery/startup check.
 Live recognition uses a separate local Nemotron streaming model; see
-[Windows live transcription](https://github.com/gsamat/amanu/blob/windows-v0.6.3/windows/LIVE_TRANSCRIPTION.md)
+[Windows live transcription](https://github.com/gsamat/amanu/blob/windows-v0.6.4/windows/LIVE_TRANSCRIPTION.md)
 for the real-time audio harness and CPU/memory behavior.
 
 Builds, tests, and audio/device checks must run on Windows. Cross-compiling on
@@ -77,7 +77,7 @@ script and the release workflow run `Set-ReleaseInstallerName.ps1` to produce
 `Amanu-<version>-Setup.exe`, update `assets.stable.json`, and generate
 `SHA256SUMS` for the final filenames. Renaming preserves the installer's signed
 bytes. Use a clean release output directory for a new build; an existing
-versioned installer is never overwritten. The published 0.6.3 installer retains
+versioned installer is never overwritten. The published 0.6.4 installer retains
 its original filename; future releases use the versioned name.
 
 `Build-Release.ps1` also accepts
@@ -98,7 +98,7 @@ extracted from the update package and portable ZIP. Third-party DLLs retain
 their original signatures. Downloadable workflow artifacts require Azure
 signing. An optional PFX configuration remains available through
 `WINDOWS_BETA_CERTIFICATE_BASE64` and `WINDOWS_BETA_CERTIFICATE_PASSWORD`.
-See the [released workflow](https://github.com/gsamat/amanu/blob/windows-v0.6.3/.github/workflows/windows-beta.yml)
+See the [released workflow](https://github.com/gsamat/amanu/blob/windows-v0.6.4/.github/workflows/windows-beta.yml)
 for the exact gates.
 
 For a signed test build, select the Windows branch and package version in
@@ -131,7 +131,7 @@ run from the folder containing that file:
 scoop install .\amanu.json
 ```
 
-This installs Windows 0.6.3 with a pinned SHA-256 and Start menu shortcut.
+This installs Windows 0.6.4 with a pinned SHA-256 and Start menu shortcut.
 It has no built-in updater. When preparing a newer manifest, update both the
 version-specific URL and SHA-256 from the new release's `SHA256SUMS`; validate
 the archive layout and the launcher's signature on Windows. To upgrade, quit Amanu, run

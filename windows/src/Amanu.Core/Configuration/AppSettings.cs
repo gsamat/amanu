@@ -236,6 +236,25 @@ public sealed class SummarySettings
     [JsonPropertyName("openai_base_url")]
     public string OpenAiBaseUrl { get; set; } = "https://api.openai.com/v1";
 
+    [JsonPropertyName("openai_compatible")]
+    public bool? OpenAiCompatible { get; set; }
+
+    [JsonIgnore]
+    public bool UsesCompatibleOpenAi => OpenAiCompatible ??
+        !(Uri.TryCreate(OpenAiBaseUrl, UriKind.Absolute, out var uri) &&
+          uri.Host.Equals("api.openai.com", StringComparison.OrdinalIgnoreCase));
+
+    // Keep the saved custom URL while the official provider is selected. An
+    // unconfigured compatible provider must not fall through to OpenAI.
+    [JsonIgnore]
+    public string EffectiveOpenAiBaseUrl => OpenAiCompatible switch
+    {
+        false => "https://api.openai.com/v1",
+        true when Uri.TryCreate(OpenAiBaseUrl, UriKind.Absolute, out var uri) &&
+                  uri.Host.Equals("api.openai.com", StringComparison.OrdinalIgnoreCase) => "",
+        _ => OpenAiBaseUrl,
+    };
+
     [JsonPropertyName("ollama_model")]
     public string OllamaModel { get; set; } = "qwen3:8b";
 
