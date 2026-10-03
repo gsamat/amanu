@@ -142,8 +142,11 @@ enum SpeakerAttribution {
         }
     }
 
-    private static func suffix(_ index: Int) -> String {
-        // A, B, … Z, then fall back to numbers rather than wrapping.
+    /// A, B, … Z, then fall back to numbers rather than wrapping. Shared with
+    /// `DiarizationAlignment`, which has to name voices a channel never
+    /// qualified — one rule for the suffix, so "them A" means the same thing
+    /// whether the label came from the cloud or from the local model.
+    static func suffix(_ index: Int) -> String {
         index < 26
             ? String(UnicodeScalar(UInt8(65 + index)))
             : String(index + 1)
