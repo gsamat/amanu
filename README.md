@@ -10,7 +10,7 @@ on your computer.
 
 [Website](https://amanu.me/) ·
 [Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.4/amanu-v0.6.4-macos-universal.dmg) ·
-[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.4/Amanu-0.6.4-Setup.exe) ·
+[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe) ·
 [MIT license](LICENSE)
 
 | | macOS | Windows |
@@ -24,8 +24,12 @@ on your computer.
 | Live transcript | Separate local streaming model | Separate local streaming model |
 | Calendar context | Optional | No calendar integration |
 
-macOS and Windows share version **0.6.4**, read from the root `VERSION` file.
-Their release tags and automatic update feeds remain separate.
+<!-- public-download-versions:start -->
+The current public downloads are macOS **0.6.4** and Windows **0.6.5**.
+<!-- public-download-versions:end -->
+
+Release builds read their version from the root `VERSION` file. The platforms
+can be published at different times; release tags and update feeds remain separate.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="landing/assets/shots/en/status-recording-dark.png?v=36e030d5a322">
