@@ -215,8 +215,9 @@ gh release edit "$TAG" --repo "$REPO" --draft=false --latest
 # Only now, with the download live, do the feed and the two landing pages
 # start pointing at it.
 python3 scripts/update-site-download-links.py "$SITE" "$ASSET_URL"
+python3 scripts/update-readme-downloads.py --write --verify-downloads
 cp "$APPCAST" "$LEGACY_APPCAST"
-git add landing/appcast.xml landing/index.html landing/ru/index.html
+git add README.md landing/appcast.xml landing/index.html landing/ru/index.html
 git commit -q -m "Publish amanu $VERSION" || true
 git push -q origin master
 git -C "$LEGACY_SITE" add amanu/appcast.xml
@@ -227,6 +228,10 @@ rsync -az --exclude .DS_Store --exclude README.md --exclude tests --exclude depl
 rsync -az "$LEGACY_APPCAST" reina:/var/www/samat/amanu/appcast.xml
 
 step "verifying what the world now sees"
+gh api "repos/$REPO/contents/README.md?ref=master" \
+    -H 'Accept: application/vnd.github.raw+json' > dist/published-README.md
+python3 scripts/update-readme-downloads.py --check --verify-downloads \
+    --readme dist/published-README.md
 curl -fsS https://amanu.me/appcast.xml > dist/published-appcast.xml
 diff -q "$APPCAST" dist/published-appcast.xml \
     || die "the published feed is not the file we signed"

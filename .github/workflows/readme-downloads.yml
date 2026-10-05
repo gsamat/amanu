@@ -1,0 +1,46 @@
+name: Published README downloads
+
+on:
+  release:
+    types: [published]
+  # Windows releases use GITHUB_TOKEN, which suppresses release-triggered runs.
+  # The source workflow may run on a Windows branch rather than master.
+  workflow_run:
+    workflows: [Windows beta, Windows release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: published-readme-downloads
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Always execute trusted default-branch code, never workflow_run artifacts
+      # or the source branch's scripts.
+      - uses: actions/checkout@v6
+        with:
+          ref: master
+      - name: Verify the README visible on GitHub and both public assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # macOS publishes its release before pushing the README and appcast.
+          # Re-read master on each attempt to allow that publication to finish.
+          for attempt in {1..12}; do
+            if gh api 'repos/gsamat/amanu/contents/README.md?ref=master' \
+                -H 'Accept: application/vnd.github.raw+json' > "$RUNNER_TEMP/published-README.md" && \
+              python3 scripts/update-readme-downloads.py --check --verify-downloads \
+                --readme "$RUNNER_TEMP/published-README.md"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 12 ]; then sleep 10; fi
+          done
+          echo '::error::Published README downloads are stale or unavailable. Run python3 scripts/update-readme-downloads.py --write --verify-downloads and publish the README change.'
+          exit 1
