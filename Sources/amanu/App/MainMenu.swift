@@ -73,6 +73,22 @@ extension Run {
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
 
+        // AppKit routes Command-key editing shortcuts through the main menu,
+        // including when an NSSecureTextField has the focus in Settings.
+        // Nil targets let the focused field editor handle each action.
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: localised("Edit", "Правка"))
+        editMenu.addItem(withTitle: localised("Cut", "Вырезать"),
+                         action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: localised("Copy", "Копировать"),
+                         action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: localised("Paste", "Вставить"),
+                         action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: localised("Select All", "Выделить всё"),
+                         action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        main.addItem(editItem)
+
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: localised("Window", "Окно"))
         windowMenu.addItem(withTitle: localised("Close", "Закрыть"),
