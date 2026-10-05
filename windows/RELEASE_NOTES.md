@@ -1,3 +1,17 @@
+# Amanu for Windows 0.6.6 — audio startup test build
+
+- If Windows rejects the default microphone routing endpoint with `AUDCLNT_E_NOT_INITIALIZED`, Amanu retries once using a fresh client for the actual default microphone. Permission failures and system-audio failures are reported without silently changing capture scope.
+- Failed startup and shutdown release both audio tracks independently. A cleanup error no longer hides the original failure or prevents another recording.
+- Local `audio-capture.log` diagnostics include the capture stage, HRESULT and stack, app/audio-library versions, Windows build and architecture, and default audio devices and formats. The error dialog shows the file location. No audio, transcripts, or API keys are written to this log, and Amanu does not upload it.
+- Tests cover activation and start failures, a failed fallback, permission rejection, cancellation, shutdown failures, reusable capture state, WAV finalization, and failing diagnostic storage/device inspection.
+
+## Validation and distribution
+
+- Regression tests were observed failing before the fix. All 12 audio lifecycle tests and 141 core tests pass locally; the Windows application cross-compiles without warnings.
+- The signed Windows release workflow runs the core, audio, and WPF test suites before packaging. Its results and signed artifacts are recorded in the pull request.
+- The connected Windows computer is not available to this chat. Physical microphone/system-audio capture and the installed app UI have not been verified on that host. This build is for focused testing of the reported failure, not a confirmed hardware-level fix.
+- The installer is `Amanu-0.6.6-Setup.exe`. Distribution is a test prerelease; the public stable update channel does not receive it.
+
 # Amanu for Windows 0.6.5
 
 - The recordings table shows the active transcription and summary stage consistently with the selected recording's details.
