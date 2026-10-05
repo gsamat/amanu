@@ -41,6 +41,7 @@ For managed-code development:
 dotnet restore Amanu.Windows.slnx
 dotnet build Amanu.Windows.slnx -c Release --no-restore
 dotnet test tests\Amanu.Core.Tests\Amanu.Core.Tests.csproj -c Release --no-restore
+dotnet test tests\Amanu.Audio.Tests\Amanu.Audio.Tests.csproj -c Release --no-restore
 dotnet test tests\Amanu.Live.Tests\Amanu.Live.Tests.csproj -c Release --no-restore
 dotnet run --project src\Amanu.App\Amanu.App.csproj -c Release
 ```
@@ -53,7 +54,7 @@ exercise local and live recognition and create a complete package, run:
 .\artifacts\publish\Amanu.exe
 ```
 
-The release script restores packages, runs both test projects, publishes a
+The release script restores packages, runs the core, audio capture, and WPF test projects, publishes a
 self-contained x64 app, builds the pinned final-transcript CLI and streaming
 runtime, and packages the installer, portable ZIP, and stable update feed in
 `artifacts\release`. Users of the finished package need no .NET SDK, CMake,

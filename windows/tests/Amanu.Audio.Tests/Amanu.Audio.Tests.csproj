@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio"><PrivateAssets>all</PrivateAssets></PackageReference>
+    <ProjectReference Include="../../src/Amanu.Core/Amanu.Core.csproj" />
+    <!-- Exercise production capture lifecycle without loading WPF or opening real devices. -->
+    <Compile Include="../../src/Amanu.App/WindowsAudioCapture.cs" Link="WindowsAudioCapture.cs" />
+    <Compile Include="../Amanu.Core.Tests/TemporaryDirectory.cs" Link="TemporaryDirectory.cs" />
+  </ItemGroup>
+</Project>

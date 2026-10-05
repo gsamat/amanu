@@ -24,6 +24,8 @@ dotnet restore (Join-Path $windowsRoot "Amanu.Windows.slnx")
 if ($LASTEXITCODE -ne 0) { throw "Could not restore the Windows solution." }
 dotnet test (Join-Path $windowsRoot "tests\Amanu.Core.Tests\Amanu.Core.Tests.csproj") --configuration Release --no-restore
 if ($LASTEXITCODE -ne 0) { throw "Core tests failed." }
+dotnet test (Join-Path $windowsRoot "tests\Amanu.Audio.Tests\Amanu.Audio.Tests.csproj") --configuration Release --no-restore
+if ($LASTEXITCODE -ne 0) { throw "Audio capture tests failed." }
 dotnet test (Join-Path $windowsRoot "tests\Amanu.Live.Tests\Amanu.Live.Tests.csproj") --configuration Release --no-restore
 if ($LASTEXITCODE -ne 0) { throw "Windows live tests failed." }
 dotnet publish (Join-Path $windowsRoot "src\Amanu.App\Amanu.App.csproj") `

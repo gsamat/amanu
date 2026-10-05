@@ -215,7 +215,11 @@ internal sealed class StatusWindow : Window
         }
         catch (Exception exception)
         {
-            Ui.ShowError(IsVisible ? this : null, T("Couldn’t change the recording", "Не удалось изменить запись"), exception.Message);
+            var details = exception.Message;
+            var diagnostics = System.IO.Path.Combine(runtime.DataDirectory, "audio-capture.log");
+            if (System.IO.File.Exists(diagnostics))
+                details += "\n\n" + T("Diagnostic details were saved to:", "Подробности ошибки сохранены в:") + "\n" + diagnostics;
+            Ui.ShowError(IsVisible ? this : null, T("Couldn’t change the recording", "Не удалось изменить запись"), details);
         }
         finally
         {

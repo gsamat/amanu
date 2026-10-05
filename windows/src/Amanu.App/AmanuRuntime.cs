@@ -66,7 +66,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         }
         RecoveredSessionCount = recovered.Count;
 
-        capture = new WindowsAudioCapture();
+        capture = new WindowsAudioCapture(Path.Combine(dataDirectory, "audio-capture.log"));
         coordinator = new RecordingCoordinator(sessions, new AutoRecordPolicy(Options(settings)), capture,
             () => Settings.SystemAudio == "all");
         activityMonitor = new CallActivityMonitor(Matcher(settings));
