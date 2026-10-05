@@ -33,7 +33,9 @@ public sealed class WindowsAudioCaptureTests
         await capture.StopAsync(CancellationToken.None);
         using var microphone = new WaveFileReader(session.MicrophoneTrack);
         Assert.True(microphone.Length > 0);
-        Assert.Contains("0x88890001", File.ReadAllText(capture.DiagnosticsPath));
+        var log = File.ReadAllText(capture.DiagnosticsPath);
+        Assert.Contains("0x88890001", log);
+        Assert.Contains("test microphone and speakers", log);
     }
 
     [Fact]

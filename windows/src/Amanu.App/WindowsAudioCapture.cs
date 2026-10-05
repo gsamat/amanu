@@ -81,7 +81,7 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
                 // Some default-device routing endpoints reject activation or startup with
                 // AUDCLNT_E_NOT_INITIALIZED. Reopen the real default microphone once;
                 // never reuse the partially initialized client or retry permission errors.
-                WriteDiagnostic(captureStage + "; retry=fixed-default", exception);
+                WriteDiagnostic(captureStage + "; retry=fixed-default", exception, includeDevices: true);
                 await DisposeMicrophoneAsync();
                 cancellationToken.ThrowIfCancellationRequested();
                 await StartMicrophoneAsync(session, streamRouting: false, cancellationToken);
