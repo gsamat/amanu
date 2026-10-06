@@ -1,5 +1,12 @@
 # Amanu in WinGet
 
+Version 0.6.6 is submitted in [draft PR #447426](https://github.com/microsoft/winget-pkgs/pull/447426).
+Its manifests passed local Windows validation and pin the downloaded, signature-verified
+installer and SHA-256. Public packages, native Unicode paths and real Whisper transcription
+were verified on Windows. Installation, upgrade and uninstall in a separate Windows profile
+were not tested for 0.6.6; the working installation was preserved. The PR remains a draft
+pending catalog validation. Submission does not establish public WinGet availability.
+
 The package identifier is `FandsSoftware.Amanu`. The initial submission is
 [PR #445053](https://github.com/microsoft/winget-pkgs/pull/445053). Microsoft's
 installation, metadata, and other validation checks have passed; review is pending.
@@ -7,15 +14,6 @@ Version 0.6.4 is submitted in [draft PR #445780](https://github.com/microsoft/wi
 Its manifests passed local Windows validation. Isolated install, upgrade, and uninstall
 tests could not run because no isolated Windows environment was available; the PR
 remains a draft pending Microsoft validation results.
-Version 0.6.5 is submitted in [PR #445793](https://github.com/microsoft/winget-pkgs/pull/445793).
-Its manifests passed local Windows validation and pin the downloaded, signature-verified
-versioned installer and SHA-256. Clean installation, native upgrade from 0.6.4, and
-uninstall passed in a temporary standard Windows account with a separate profile and
-HKCU. Versions, signatures, uninstall registration, application-file removal, and
-retention of synthetic user data were verified; the account and profile were removed.
-These tests used Setup.exe and Update.exe directly, rather than local-manifest WinGet
-installation. All Microsoft validation checks, including installation and metadata,
-passed. The PR is ready for review; the package is not yet available in the public catalog.
 
 Each Windows release has a
 three-file manifest set: version, installer, and default locale. The submitted

@@ -129,3 +129,42 @@ Full rebuilt CLI SHA256:
 The installed CLI hash remained unchanged. No installed application, user
 settings, recording or model was overwritten. No release was published and
 no Telegram message was sent.
+
+## Published Windows 0.6.6
+
+The user subsequently authorized publication. Signed stable release
+[windows-v0.6.6](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.6)
+was published on 2026-10-06 from `2d0d24acf51962006d75f74acd52aaa25f043ac4`.
+The successful [Windows release workflow](https://github.com/gsamat/amanu/actions/runs/37432244520)
+built the runtime with MSVC, ran the managed and native smoke tests, signed
+the payload and packages, and verified signatures before publishing.
+
+An initial CI attempt stopped before publication because Git's Windows CRLF
+checkout corrupted empty context lines in the patch. Canonical context lines
+were restored and `.gitattributes` pins native patch files to LF. A fresh
+`core.autocrlf=true` checkout applied both patches successfully before rerunning CI.
+This formatting repair does not change the previously verified native C++ code.
+
+The public Setup, portable ZIP and full update package were downloaded on the
+connected Windows host. All six entries in SHA256SUMS matched. Setup and required
+first-party payload, launcher and updater signatures were valid Fands Software
+LLC signatures with timestamps. The packaged app is 0.6.6.0.
+
+- Setup SHA256: `2394bd291be3d8696432fc0514a041a194d7f502ac075f404fe81dc5da785f91`.
+- Portable SHA256: `13affe923a889b3b2faeb5bc300a864e5bf0249de85fb042593fbd640be485f9`.
+- Full update package SHA256: `b4c6f4e391d7ebc75313466433677c39f5e93649e738e1602b4a73bfd1b5a2d2`.
+
+The signed MSVC CLI extracted from the public portable ZIP passed all six Unicode
+regression cases on Windows. Real Q8/JFK transcription on Unicode paths returned
+exit 0 in single-file mode (23.39s) and batch mode (25.60s), with the expected text.
+This closes the earlier MSVC-runtime validation limitation. Signed graphical
+installation, upgrade and uninstall in an isolated profile were not tested for
+0.6.6; the working installation remains untouched and its CLI hash is unchanged.
+
+Evidence is in `public-verification.json`, `public-verification.log`,
+`green-signed-msvc/`, `signed-msvc-real-*` and `public-0.6.6/` in the same ignored
+artifact directory. The WinGet manifest passed local `winget validate` and was
+submitted as [draft PR #447426](https://github.com/microsoft/winget-pkgs/pull/447426).
+README, landing/nginx download links and manifests were prepared in
+[PR #43](https://github.com/gsamat/amanu/pull/43). Site deployment requires server
+access unavailable on this Windows host; no server-side change is claimed here.

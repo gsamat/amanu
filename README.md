@@ -9,8 +9,8 @@ speakers, writes a detailed summary, and keeps the complete record in an ordinar
 on your computer.
 
 [Website](https://amanu.me/) ·
-[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.4/amanu-v0.6.4-macos-universal.dmg) ·
-[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe) ·
+[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.5/amanu-v0.6.5-macos-universal.dmg) ·
+[Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.6/Amanu-0.6.6-Setup.exe) ·
 [MIT license](LICENSE)
 
 | | macOS | Windows |
@@ -20,12 +20,16 @@ on your computer.
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
 | Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
-| Summaries | Claude Code, Codex, Anthropic, OpenAI, Ollama | Claude Code, Codex, Anthropic, OpenAI, Ollama |
+| Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
 | Calendar context | Optional | No calendar integration |
 
-The published versions are **0.6.4 for macOS** and **0.6.5 for Windows**. Both builds read their version from the root `VERSION` file.
-Their release tags and automatic update feeds remain separate.
+<!-- public-download-versions:start -->
+The current public downloads are macOS **0.6.5** and Windows **0.6.6**.
+<!-- public-download-versions:end -->
+
+Release builds read their version from the root `VERSION` file. The platforms
+can be published at different times; release tags and update feeds remain separate.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="landing/assets/shots/en/status-recording-dark.png?v=36e030d5a322">
@@ -201,7 +205,7 @@ should be transcribed and summarized.
 
 ### Windows
 
-Download [Amanu-0.6.5-Setup.exe](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe)
+Download [Amanu-0.6.6-Setup.exe](https://github.com/gsamat/amanu/releases/download/windows-v0.6.6/Amanu-0.6.6-Setup.exe)
 and run it. The installer includes the .NET and native transcription runtimes;
 you do not need a separate .NET SDK or Python installation.
 
@@ -220,7 +224,7 @@ Start at sign-in can be changed in Settings. Installed copies check the stable
 Windows update feed automatically.
 
 For a copy without an installer, download
-[Amanu-stable-Portable.zip](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-stable-Portable.zip),
+[Amanu-stable-Portable.zip](https://github.com/gsamat/amanu/releases/download/windows-v0.6.6/Amanu-stable-Portable.zip),
 extract the entire archive, and open the top-level `Amanu.exe`. Portable copies
 use the same settings and recordings folders and require manual updates.
 
@@ -235,7 +239,7 @@ scoop install .\amanu.json
 ```
 
 The manifest installs the portable release, verifies its SHA-256, and creates
-an Amanu Start menu shortcut. It is pinned to Windows 0.6.5. To upgrade, quit
+an Amanu Start menu shortcut. It is pinned to Windows 0.6.6. To upgrade, quit
 Amanu, run `scoop uninstall amanu`, then install the updated manifest. Recordings
 and settings live outside Scoop's application directory and are retained.
 
@@ -323,9 +327,9 @@ Windows source currently lives on a separate branch. To reproduce the public
 release, check out its tag:
 
 ```powershell
-git clone --branch windows-v0.6.5 https://github.com/gsamat/amanu.git amanu-windows
+git clone --branch windows-v0.6.6 https://github.com/gsamat/amanu.git amanu-windows
 cd amanu-windows\windows
-.\scripts\Build-Release.ps1 -Version 0.6.5
+.\scripts\Build-Release.ps1 -Version 0.6.6
 .\artifacts\publish\Amanu.exe
 ```
 
@@ -404,7 +408,7 @@ only values that differ from the defaults. A compact example:
     "enabled": true,
     "mic_activity": true,
     "calendar": false,
-    "start_delay_seconds": 3,
+    "start_delay_seconds": 12,
     "stop_delay_seconds": 15,
     "min_duration_seconds": 45,
     "silence_stop_minutes": 10,
@@ -478,6 +482,11 @@ only values that differ from the defaults. A compact example:
   kept in `~/.config/amanu/keys/openai-compatible`. `amanu doctor` walks the configured summary backend,
   including whether Ollama is answering and has the chosen model. `template` contains
   the complete summary instructions and starts with Amanu's built-in default.
+  In Settings → Setup → My own key, choose OpenAI, Anthropic, or
+  OpenAI-compatible. The compatible option exposes the server URL and uses its
+  own key. `summary.openai_compatible: false` selects OpenAI’s API while keeping
+  a saved custom URL; `true` selects that URL. Older configs infer the choice
+  from `openai_base_url` when the setting is absent.
 - `mic_voice_processing` enables Apple's capture-time voice processing;
   `offline_echo_cancellation` (on by default) instead cleans a copy of the mic
   after recording, using system audio as the playback reference. It never

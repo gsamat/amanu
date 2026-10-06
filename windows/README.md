@@ -1,17 +1,17 @@
 # Amanu for Windows
 
-The public Windows release is **0.6.5**, for Windows 11 24H2 or later on x64. It uses a native
+The public Windows release is **0.6.6**, for Windows 11 24H2 or later on x64. It uses a native
 C#/.NET 10 and WPF application, a separate core library, WASAPI capture, and
 Velopack packaging. The installer and application are signed as **Fands
 Software LLC** through Microsoft Artifact Signing.
 
-[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe) ·
-[Portable ZIP](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-stable-Portable.zip) ·
-[Release notes](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.5)
+[Installer](https://github.com/gsamat/amanu/releases/download/windows-v0.6.6/Amanu-0.6.6-Setup.exe) ·
+[Portable ZIP](https://github.com/gsamat/amanu/releases/download/windows-v0.6.6/Amanu-stable-Portable.zip) ·
+[Release notes](https://github.com/gsamat/amanu/releases/tag/windows-v0.6.6)
 
 The [main README](../README.md) covers installation, requirements, and
-configuration. The [hardware checklist](https://github.com/gsamat/amanu/blob/windows-v0.6.5/windows/BETA.md) covers manual testing.
-The original [design](https://github.com/gsamat/amanu/blob/windows-v0.6.5/docs/specs/2026-09-20-windows-app-design.md) records the
+configuration. The [hardware checklist](https://github.com/gsamat/amanu/blob/windows-v0.6.6/windows/BETA.md) covers manual testing.
+The original [design](https://github.com/gsamat/amanu/blob/windows-v0.6.6/docs/specs/2026-09-20-windows-app-design.md) records the
 architecture decisions; its beta distribution gates describe the original
 plan, rather than the current signed release.
 
@@ -19,10 +19,10 @@ plan, rather than the current signed release.
 
 Windows currently has a separate development branch. The repository's default
 branch does not yet contain the released Windows implementation. To reproduce
-0.6.5, use the release tag:
+0.6.6, use the release tag:
 
 ```powershell
-git clone --branch windows-v0.6.5 https://github.com/gsamat/amanu.git amanu-windows
+git clone --branch windows-v0.6.6 https://github.com/gsamat/amanu.git amanu-windows
 cd amanu-windows\windows
 ```
 
@@ -49,7 +49,7 @@ A managed build alone does not bundle the native transcription runtimes. To
 exercise local and live recognition and create a complete package, run:
 
 ```powershell
-.\scripts\Build-Release.ps1 -Version 0.6.5
+.\scripts\Build-Release.ps1 -Version 0.6.6
 .\artifacts\publish\Amanu.exe
 ```
 
@@ -67,7 +67,7 @@ spaces and emoji. This smoke test uses a generated WAV and deliberately short
 model file, so no model download or inference is required. It can also run
 against an existing `local-runtime` directory with `-RuntimeDirectory`.
 Live recognition uses a separate local Nemotron streaming model; see
-[Windows live transcription](https://github.com/gsamat/amanu/blob/windows-v0.6.5/windows/LIVE_TRANSCRIPTION.md)
+[Windows live transcription](https://github.com/gsamat/amanu/blob/windows-v0.6.6/windows/LIVE_TRANSCRIPTION.md)
 for the real-time audio harness and CPU/memory behavior.
 
 Builds, tests, and audio/device checks must run on Windows. Cross-compiling on
@@ -103,7 +103,7 @@ extracted from the update package and portable ZIP. Third-party DLLs retain
 their original signatures. Downloadable workflow artifacts require Azure
 signing. An optional PFX configuration remains available through
 `WINDOWS_BETA_CERTIFICATE_BASE64` and `WINDOWS_BETA_CERTIFICATE_PASSWORD`.
-See the [released workflow](https://github.com/gsamat/amanu/blob/windows-v0.6.5/.github/workflows/windows-beta.yml)
+See the [released workflow](https://github.com/gsamat/amanu/blob/windows-v0.6.6/.github/workflows/windows-beta.yml)
 for the exact gates.
 
 For a signed test build, select the Windows branch and package version in
@@ -136,7 +136,7 @@ run from the folder containing that file:
 scoop install .\amanu.json
 ```
 
-This installs Windows 0.6.5 with a pinned SHA-256 and Start menu shortcut.
+This installs Windows 0.6.6 with a pinned SHA-256 and Start menu shortcut.
 It has no built-in updater. When preparing a newer manifest, update both the
 version-specific URL and SHA-256 from the new release's `SHA256SUMS`; validate
 the archive layout and the launcher's signature on Windows. To upgrade, quit Amanu, run
@@ -146,6 +146,10 @@ Scoop package directory.
 The Scoop manifest has not been submitted to Scoop Extras.
 
 ## WinGet package
+
+Windows 0.6.6 is submitted in [draft PR #447426](https://github.com/microsoft/winget-pkgs/pull/447426).
+Its manifest and signed public installer were verified on Windows. Isolated installation,
+upgrade and uninstall were not tested for this version; catalog validation remains pending.
 
 `FandsSoftware.Amanu` 0.6.1 is submitted in
 [Microsoft's package repository PR](https://github.com/microsoft/winget-pkgs/pull/445053).
