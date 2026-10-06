@@ -4,7 +4,7 @@ index 2b1284c..50a22b8 100644
 +++ b/examples/cli/CMakeLists.txt
 @@ -15,3 +15,7 @@ target_link_libraries(transcribe-cli
  )
-
+ 
  transcribe_apply_warnings(transcribe-cli)
 +
 +if(MINGW)
@@ -21,7 +21,7 @@ index c407f98..097d5f6 100644
 +#include <filesystem>
  #include <string>
  #include <vector>
-
+ 
 +#if defined(_WIN32)
 +#ifndef NOMINMAX
 +#define NOMINMAX
@@ -30,12 +30,12 @@ index c407f98..097d5f6 100644
 +#endif
 +
  namespace {
-
+ 
  // Minimal JSON string escape: covers the characters MUST be escaped by
 @@ -595,7 +603,39 @@ void log_cb(transcribe_log_level level, const char * msg, void * userdata) {
-
+ 
  }  // namespace
-
+ 
 +#if defined(_WIN32)
 +int wmain(int argc, wchar_t ** wide_argv) {
 +    // Windows narrow argv uses the ANSI code page, while the library ABI and
@@ -73,7 +73,7 @@ index c407f98..097d5f6 100644
      if (!parse_args(argc, argv, args)) {
          print_usage(argv[0]);
 @@ -630,7 +670,7 @@ int main(int argc, char ** argv) {
-
+ 
          std::vector<std::string> wav_paths;
          {
 -            std::ifstream fin(args.batch_file);
@@ -95,7 +95,7 @@ index 7dfaf09..6c3536c 100644
  #include <vector>
 @@ -39,7 +40,14 @@ bool load_wav_mono_16k(const std::string & path, std::vector<float> & out_pcm, s
      out_error.clear();
-
+ 
      drwav wav;
 +#if defined(_WIN32)
 +    // The CLI and library pass UTF-8; dr_wav's narrow file API uses the
