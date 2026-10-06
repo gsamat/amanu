@@ -1,3 +1,16 @@
+# Amanu for Windows 0.6.6
+
+- Local transcription now works when Windows usernames, model folders or audio paths contain Cyrillic, CJK, accented characters, spaces or emoji.
+- Fixes the native model-loading error "No mapping for the Unicode character exists in the target multi-byte code page", and related failures opening audio and batch lists.
+- The runtime build now checks Unicode paths before packaging. No model or transcription-language setting changes are required.
+
+## Validation
+
+- On the connected Windows computer: Release and Debug builds succeeded without warnings, 141 core tests and 38 live tests passed.
+- The reported failure was reproduced before the fix. All six Unicode runtime, argument, model, WAV and batch-list checks passed after the fix, including a full local native build.
+- Whisper large-v3-turbo Q8 transcribed the public JFK sample successfully on Unicode paths in single-file and batch modes. The Amanu interface reproduced the error with the old runtime, then completed the same recording and displayed its transcript with the corrected runtime.
+- Local native validation used LLVM/MinGW. The release workflow additionally builds the pinned runtime with MSVC and verifies signed packages before publication.
+
 # Amanu for Windows 0.6.5
 
 - The recordings table shows the active transcription and summary stage consistently with the selected recording's details.
