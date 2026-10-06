@@ -61,6 +61,11 @@ Python, or separate native runtime installation. Models download from Settings.
 
 Both native builds use portable CPU variants rather than the build computer's
 CPU features. The final-transcript build runs a CPU discovery/startup check.
+It also runs `tests/Test-NativeUnicodePaths.ps1`: the CLI, model, WAV and batch
+list are exercised on paths containing Cyrillic, CJK, accented characters,
+spaces and emoji. This smoke test uses a generated WAV and deliberately short
+model file, so no model download or inference is required. It can also run
+against an existing `local-runtime` directory with `-RuntimeDirectory`.
 Live recognition uses a separate local Nemotron streaming model; see
 [Windows live transcription](https://github.com/gsamat/amanu/blob/windows-v0.6.5/windows/LIVE_TRANSCRIPTION.md)
 for the real-time audio harness and CPU/memory behavior.

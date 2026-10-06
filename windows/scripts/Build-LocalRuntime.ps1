@@ -27,6 +27,11 @@ try {
     git -C $sourceDirectory apply --ignore-space-change $bootstrapPatch
     if ($LASTEXITCODE -ne 0) { throw "Could not apply the pinned CLI backend initialization patch." }
 
+    # The library takes UTF-8 paths, but Windows narrow argv and fopen use ACP.
+    $unicodePatch = Join-Path $PSScriptRoot '../patches/transcribe-cli-unicode-paths.patch'
+    git -C $sourceDirectory apply --ignore-space-change $unicodePatch
+    if ($LASTEXITCODE -ne 0) { throw "Could not apply the pinned CLI Unicode path patch." }
+
     cmake -S $sourceDirectory -B $buildDirectory `
         -DTRANSCRIBE_BUILD_TESTS=OFF `
         -DTRANSCRIBE_BUILD_TOOLS=OFF `
@@ -57,6 +62,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $sourceDirectory "LICENSE") -Destination (Join-Path $licenses "transcribe.cpp-LICENSE") -Force
     Copy-Item -LiteralPath (Join-Path $sourceDirectory "ggml/LICENSE") -Destination (Join-Path $licenses "ggml-LICENSE") -Force
     & (Join-Path $PSScriptRoot 'Test-NativeCpu.ps1') -RuntimeDirectory $destinationDirectory
+    & (Join-Path $PSScriptRoot '../tests/Test-NativeUnicodePaths.ps1') -RuntimeDirectory $destinationDirectory
     Write-Host "Bundled transcribe-cli from $actualCommit"
 }
 finally {

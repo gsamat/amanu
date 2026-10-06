@@ -1,0 +1,110 @@
+diff --git a/examples/cli/CMakeLists.txt b/examples/cli/CMakeLists.txt
+index 2b1284c..50a22b8 100644
+--- a/examples/cli/CMakeLists.txt
++++ b/examples/cli/CMakeLists.txt
+@@ -15,3 +15,7 @@ target_link_libraries(transcribe-cli
+ )
+
+ transcribe_apply_warnings(transcribe-cli)
++
++if(MINGW)
++    target_link_options(transcribe-cli PRIVATE -municode)
++endif()
+diff --git a/examples/cli/main.cpp b/examples/cli/main.cpp
+index c407f98..097d5f6 100644
+--- a/examples/cli/main.cpp
++++ b/examples/cli/main.cpp
+@@ -17,9 +17,17 @@
+ #include <cstdlib>
+ #include <cstring>
+ #include <fstream>
++#include <filesystem>
+ #include <string>
+ #include <vector>
+
++#if defined(_WIN32)
++#ifndef NOMINMAX
++#define NOMINMAX
++#endif
++#include <windows.h>
++#endif
++
+ namespace {
+
+ // Minimal JSON string escape: covers the characters MUST be escaped by
+@@ -595,7 +603,39 @@ void log_cb(transcribe_log_level level, const char * msg, void * userdata) {
+
+ }  // namespace
+
++#if defined(_WIN32)
++int wmain(int argc, wchar_t ** wide_argv) {
++    // Windows narrow argv uses the ANSI code page, while the library ABI and
++    // UTF-8 batch-file contents require UTF-8. Preserve every argument before
++    // parsing, including model/audio paths and prompt text.
++    std::vector<std::string> utf8_args;
++    utf8_args.reserve(argc);
++    for (int i = 0; i < argc; ++i) {
++        const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1,
++                                            nullptr, 0, nullptr, nullptr);
++        if (size == 0) {
++            std::fprintf(stderr, "error: command-line argument is not valid Unicode\n");
++            return EXIT_FAILURE;
++        }
++        std::string argument(static_cast<size_t>(size), '\0');
++        if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1,
++                                argument.data(), size, nullptr, nullptr) == 0) {
++            std::fprintf(stderr, "error: could not encode command-line argument as UTF-8\n");
++            return EXIT_FAILURE;
++        }
++        argument.pop_back(); // Drop the NUL counted by the conversion API.
++        utf8_args.push_back(std::move(argument));
++    }
++    std::vector<char *> argv_storage;
++    argv_storage.reserve(argc + 1);
++    for (auto & argument : utf8_args) {
++        argv_storage.push_back(argument.data());
++    }
++    argv_storage.push_back(nullptr);
++    char ** argv = argv_storage.data();
++#else
+ int main(int argc, char ** argv) {
++#endif
+     cli_args args;
+     if (!parse_args(argc, argv, args)) {
+         print_usage(argv[0]);
+@@ -630,7 +670,7 @@ int main(int argc, char ** argv) {
+
+         std::vector<std::string> wav_paths;
+         {
+-            std::ifstream fin(args.batch_file);
++            std::ifstream fin(std::filesystem::u8path(args.batch_file));
+             if (!fin) {
+                 std::fprintf(stderr, "error: cannot open batch file %s\n", args.batch_file.c_str());
+                 return EXIT_FAILURE;
+diff --git a/examples/common/wav.cpp b/examples/common/wav.cpp
+index 7dfaf09..6c3536c 100644
+--- a/examples/common/wav.cpp
++++ b/examples/common/wav.cpp
+@@ -8,6 +8,7 @@
+ #include <cstdint>
+ #include <cstdio>
+ #include <cstdlib>
++#include <filesystem>
+ #include <limits>
+ #include <string>
+ #include <vector>
+@@ -39,7 +40,14 @@ bool load_wav_mono_16k(const std::string & path, std::vector<float> & out_pcm, s
+     out_error.clear();
+
+     drwav wav;
++#if defined(_WIN32)
++    // The CLI and library pass UTF-8; dr_wav's narrow file API uses the
++    // Windows ANSI code page. Open through its wide API instead.
++    const auto native_path = std::filesystem::u8path(path);
++    if (!drwav_init_file_w(&wav, native_path.c_str(), nullptr)) {
++#else
+     if (!drwav_init_file(&wav, path.c_str(), nullptr)) {
++#endif
+         out_error = "could not open WAV file '" + path + "'";
+         return false;
+     }
