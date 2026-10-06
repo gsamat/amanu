@@ -152,7 +152,7 @@ enum SettingsSchema {
                   localised("Show a live transcript", "Показывать расшифровку по ходу встречи"),
                   localised(
                       "Uses an additional local NVIDIA model while a meeting is being recorded.",
-                      "Пока идёт запись, работает ещё одна местная модель NVIDIA."),
+                      "Пока идёт запись, работает ещё одна локальная модель NVIDIA."),
                   .toggle, default: false, askedInSetup: true),
             Entry(["transcription", "engine"], localised("Engine", "Движок"),
                   localised(
@@ -192,7 +192,7 @@ enum SettingsSchema {
     // defaults for display, which a global constant can't be under strict
     // concurrency checking, and building the list is free.
     static var sections: [Section] { [
-        Section(title: localised("Recording by itself", "Запись сама по себе"), entries: [
+        Section(title: localised("Recording by itself", "Автоматическая запись"), entries: [
             Entry(["auto_record", "enabled"],
                   localised("Record meetings automatically", "Записывать встречи автоматически"),
                   localised(
@@ -395,7 +395,7 @@ enum SettingsSchema {
                             "Использовать URL сервера и его собственный ключ."),
                   .toggle, default: false, askedInSetup: true),
             Entry(["summary", "ollama_model"],
-                  localised("Local model", "Местная модель"),
+                  localised("Local model", "Локальная модель"),
                   localised("The fully-offline fallback.", "Запасной вариант, целиком без сети."),
                   .text, default: "qwen3:8b"),
             Entry(["summary", "ollama_base_url"],
