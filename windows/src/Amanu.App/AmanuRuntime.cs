@@ -66,7 +66,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
         }
         RecoveredSessionCount = recovered.Count;
 
-        capture = new WindowsAudioCapture();
+        capture = new WindowsAudioCapture(() => new(Settings.MicrophoneDevice, Settings.OutputDevice));
         coordinator = new RecordingCoordinator(sessions, new AutoRecordPolicy(Options(settings)), capture,
             () => Settings.SystemAudio == "all");
         activityMonitor = new CallActivityMonitor(Matcher(settings));
@@ -131,8 +131,8 @@ public sealed class AmanuRuntime : IAsyncDisposable
             track == "mic"
                 ? T("The microphone stopped delivering sound; the recording goes on with the call audio.",
                     "Микрофон перестал давать звук; запись продолжается со звуком звонка.")
-                : T("The call audio stopped; the recording goes on with the microphone. Start a new recording to pick up the new device.",
-                    "Звук звонка пропал; запись продолжается с микрофоном. Чтобы подхватить новое устройство, начните запись заново."),
+                : T("The call audio stopped; the microphone continues. Choose an available device in the main window to continue this recording.",
+                    "Звук звонка пропал; микрофон продолжает записываться. Выберите доступное устройство в главном окне, чтобы продолжить эту запись."),
             NotificationKind.Warning);
         liveTranscription.StatusChanged += (_, status) => LiveStatusChanged?.Invoke(this, status);
 
@@ -179,6 +179,7 @@ public sealed class AmanuRuntime : IAsyncDisposable
     public bool ConfigUnreadable => ConfigProblems.Any(problem => problem.Unreadable);
 
     public RecordingState State => coordinator.State;
+    public WindowsAudioCapture AudioCapture => capture;
     public AutoRecordPolicy AutoRecord => coordinator.Policy;
     public bool IsProcessing => processing.IsBusy;
     public string LiveStatus => liveTranscription.Status;
@@ -355,6 +356,8 @@ public sealed class AmanuRuntime : IAsyncDisposable
     private void Apply(AppSettings previous, AppSettings next)
     {
         coordinator.Policy.Update(Options(next));
+        if (previous.MicrophoneDevice != next.MicrophoneDevice || previous.OutputDevice != next.OutputDevice || previous.SystemAudio != next.SystemAudio)
+            _ = ApplyAudioDevicesAsync();
         if (!string.Equals(previous.RecordingsDirectory, next.RecordingsDirectory, StringComparison.OrdinalIgnoreCase))
         {
             TryCreateDirectory(next.RecordingsDirectory);
@@ -375,6 +378,12 @@ public sealed class AmanuRuntime : IAsyncDisposable
             _ = analytics.RecordAsync("setting_changed");
         Task.Run(processing.Rescan);
         SettingsChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private async Task ApplyAudioDevicesAsync()
+    {
+        try { await capture.SetSystemAudioScopeAsync(Settings.SystemAudio == "all"); }
+        catch (Exception exception) { Notify("Amanu", exception.Message, NotificationKind.Warning); }
     }
 
     private static AutoRecordOptions Options(AppSettings settings) => new(

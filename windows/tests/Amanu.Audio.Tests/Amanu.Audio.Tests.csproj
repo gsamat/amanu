@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="NAudio.Wasapi" />
+    <ProjectReference Include="../../src/Amanu.Core/Amanu.Core.csproj" />
+    <Compile Include="../../src/Amanu.App/WindowsAudioCapture.cs" Link="WindowsAudioCapture.cs" />
+    <Compile Include="../../src/Amanu.App/AudioEndpoints.cs" Link="AudioEndpoints.cs" />
+    <Compile Include="../../src/Amanu.App/AudioDevicePreview.cs" Link="AudioDevicePreview.cs" />
+  </ItemGroup>
+</Project>

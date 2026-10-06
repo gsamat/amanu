@@ -27,6 +27,7 @@ namespace Amanu.App;
 internal sealed class StatusWindow : Window
 {
     private readonly AmanuRuntime runtime;
+    private readonly AudioDeviceControls audioDevices;
     private readonly Ellipse dot = new() { Width = 10, Height = 10, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock state = new() { FontSize = 16, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock processingLine = Ui.Status();
@@ -64,12 +65,13 @@ internal sealed class StatusWindow : Window
     public StatusWindow(AmanuRuntime runtime)
     {
         this.runtime = runtime;
+        audioDevices = new AudioDeviceControls(runtime);
         Title = "Amanu";
 #if DEBUG
         if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("AMANU_TEST_DATA")))
             Title = "Amanu — Live transcript test";
 #endif
-        Width = 360;
+        Width = Math.Min(500, SystemParameters.WorkArea.Width - 24);
         SizeToContent = SizeToContent.Height;
         MinWidth = 320;
         ResizeMode = ResizeMode.CanMinimize;
@@ -109,6 +111,7 @@ internal sealed class StatusWindow : Window
         stack.Children.Add(autoRecord);
         decision.Margin = new Thickness(28, 0, 0, 0);
         stack.Children.Add(decision);
+        stack.Children.Add(audioDevices.View);
 
         foreach (var (text, action) in new (string, Action)[]
         {
@@ -135,7 +138,8 @@ internal sealed class StatusWindow : Window
         livePanel.Children.Add(liveText);
         livePanel.Children.Add(livePlaceholder);
         stack.Children.Add(livePanel);
-        Content = stack;
+        Content = Ui.Scroll(stack);
+        Closed += (_, _) => { clock.Stop(); processingFade.Stop(); _ = audioDevices.DisposeAsync().AsTask(); };
 
         autoRecord.Click += (_, _) =>
         {
@@ -207,6 +211,7 @@ internal sealed class StatusWindow : Window
             if (runtime.State.IsRecording) await runtime.StopManualAsync();
             else
             {
+                await audioDevices.StopPreviewsAsync();
                 liveText.Document.Blocks.Clear();
                 liveParagraphs.Clear();
                 ShowLive(runtime.Settings.LiveTranscription.Enabled);
