@@ -39,6 +39,13 @@ public sealed class AppSettings
     [JsonPropertyName("system_audio")]
     public string SystemAudio { get; set; } = "app";
 
+    /// <summary>Empty follows Windows; otherwise a stable WASAPI endpoint ID.</summary>
+    [JsonPropertyName("microphone_device")]
+    public string MicrophoneDevice { get; set; } = "";
+
+    [JsonPropertyName("output_device")]
+    public string OutputDevice { get; set; } = "";
+
     [JsonPropertyName("transcript_echo_filter")]
     public bool TranscriptEchoFilter { get; set; } = true;
 

@@ -112,6 +112,10 @@ public static class SettingsSchema
 
         new(T("Audio", "Звук"),
         [
+            new("microphone_device", T("Microphone device", "Устройство микрофона"),
+                T("Empty follows Windows. Choose a device in the main window.", "Пусто — как в Windows. Выберите устройство в главном окне."), SettingKind.Text, AskedInSetup: true),
+            new("output_device", T("Call audio device", "Устройство звука звонка"),
+                T("Empty follows Windows. Choose a device in the main window.", "Пусто — как в Windows. Выберите устройство в главном окне."), SettingKind.Text, AskedInSetup: true),
             new("system_audio",
                 T("Record system audio from", "Записывать звук системы"),
                 T("app: only the call app and the processes it started. all: everything Windows plays, music and notifications included.",

@@ -4,6 +4,7 @@
     <Project Path="src/Amanu.Core/Amanu.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Amanu.Audio.Tests/Amanu.Audio.Tests.csproj" />
     <Project Path="tests/Amanu.Core.Tests/Amanu.Core.Tests.csproj" />
     <Project Path="tests/Amanu.Live.Tests/Amanu.Live.Tests.csproj" />
   </Folder>
