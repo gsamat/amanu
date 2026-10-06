@@ -1,5 +1,12 @@
 # Amanu in WinGet
 
+Version 0.6.6 is submitted in [draft PR #447426](https://github.com/microsoft/winget-pkgs/pull/447426).
+Its manifests passed local Windows validation and pin the downloaded, signature-verified
+installer and SHA-256. Public packages, native Unicode paths and real Whisper transcription
+were verified on Windows. Installation, upgrade and uninstall in a separate Windows profile
+were not tested for 0.6.6; the working installation was preserved. The PR remains a draft
+pending catalog validation. Submission does not establish public WinGet availability.
+
 The package identifier is `FandsSoftware.Amanu`. The initial submission is
 [PR #445053](https://github.com/microsoft/winget-pkgs/pull/445053). Microsoft's
 installation, metadata, and other validation checks have passed; review is pending.
