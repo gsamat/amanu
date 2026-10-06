@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text.Json;
+using System.Threading.Channels;
 using Amanu.Core.Recording;
 using Amanu.Core.Sessions;
 using NAudio.CoreAudioApi;
@@ -8,7 +10,6 @@ using NAudio.Wave;
 namespace Amanu.App;
 
 public delegate void LiveAudioHandler(bool microphone, ReadOnlySpan<byte> data, WaveFormat format, bool silent, long offsetMs);
-
 public interface ILiveAudioSource
 {
     bool IsRunning { get; }
@@ -18,179 +19,219 @@ public interface ILiveAudioSource
     Func<Task>? LiveStopping { get; set; }
 }
 
-/// <summary>
-/// The microphone and the call, captured by WASAPI into two crash-tolerant WAV
-/// files. Live recognition receives packets independently of the durable files.
-/// </summary>
+/// <summary>Two durable tracks. Device replacement never reopens or truncates a track file.</summary>
 public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
 {
-    private WasapiRecorder? microphone;
-    private WasapiRecorder? system;
-    private TrackWriter? microphoneTrack;
-    private TrackWriter? systemTrack;
+    private sealed class Track(bool microphone)
+    {
+        public bool Microphone { get; } = microphone;
+        public string? Endpoint;
+        public IAudioEndpointRecorder? Recorder;
+        public TrackWriter? Writer;
+        public string? Error;
+        public readonly AudioPeakMeter Meter = new();
+    }
+    private readonly Track mic = new(true), system = new(false);
+    private readonly Func<AudioDeviceSelection> selection;
+    private readonly IAudioEndpointFactory factory;
+    private readonly SemaphoreSlim gate = new(1, 1);
     private long startedAt100ns;
     private volatile bool paused;
     private volatile bool running;
+    private string? processFamily;
+    private string? sourceProcessFamily;
+    private CancellationTokenSource? deviceWatch;
+    private Task? watching;
+    private Channel<string>? deviceEvents;
+    private Task? writingEvents;
 
+    public WindowsAudioCapture(Func<AudioDeviceSelection>? selection = null) : this(selection ?? (() => new("", "")), new WindowsAudioEndpointFactory()) { }
+    internal WindowsAudioCapture(Func<AudioDeviceSelection> selection, IAudioEndpointFactory factory) { this.selection = selection; this.factory = factory; }
     public bool IsRunning => running;
     public long ElapsedMs => (TrackWriter.Now100ns() - startedAt100ns) / 10_000;
+    public double MicrophoneLevel => paused ? 0 : mic.Meter.Level;
+    public double SystemLevel => paused ? 0 : system.Meter.Level;
+    public string? MicrophoneError => Volatile.Read(ref mic.Error);
+    public string? SystemError => Volatile.Read(ref system.Error);
     public event LiveAudioHandler? LiveAudioAvailable;
     public event EventHandler? CaptureStarted;
+    public event EventHandler<string>? TrackLost;
     public Func<Task>? LiveStopping { get; set; }
 
-    /// <summary>A track stopped delivering audio because its device went away; the recording carries on with the other.</summary>
-    public event EventHandler<string>? TrackLost;
-
-    /// <remarks>
-    /// Runs on the thread pool: a recorder built on the UI thread may hand its
-    /// events back through the UI's dispatcher, and a stop that waits for them
-    /// there — at sleep, at sign-out — would wait for itself.
-    /// </remarks>
-    public Task StartAsync(SessionHandle session, string? processFamily, CancellationToken cancellationToken) =>
-        Task.Run(() => StartCoreAsync(session, processFamily, cancellationToken), cancellationToken);
-
-    private async Task StartCoreAsync(SessionHandle session, string? processFamily, CancellationToken cancellationToken)
+    public Task StartAsync(SessionHandle session, string? processFamily, CancellationToken cancellationToken) => Task.Run(async () =>
     {
-        if (microphone is not null || system is not null) throw new InvalidOperationException("Capture is already running.");
-        cancellationToken.ThrowIfCancellationRequested();
-        startedAt100ns = TrackWriter.Now100ns();
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            microphone = await new WasapiRecorderBuilder().WithDefaultDeviceStreamRouting().BuildAsync();
-            if (processFamily is null)
+            if (running || mic.Recorder is not null || system.Recorder is not null) throw new InvalidOperationException("Capture is already running.");
+            cancellationToken.ThrowIfCancellationRequested();
+            startedAt100ns = TrackWriter.Now100ns(); this.processFamily = processFamily; sourceProcessFamily = session.ProcessFamily; paused = false;
+            var choices = selection();
+            try
             {
-                system = new WasapiRecorderBuilder().WithLoopbackCapture().Build();
+                await OpenAsync(mic, factory.Resolve(true, choices.Microphone)).ConfigureAwait(false);
+                await OpenAsync(system, factory.Resolve(false, choices.Output)).ConfigureAwait(false);
+                mic.Writer = new TrackWriter(session.MicrophoneTrack, mic.Recorder!.WaveFormat, startedAt100ns);
+                system.Writer = new TrackWriter(session.SystemTrack, system.Recorder!.WaveFormat, startedAt100ns);
+                mic.Recorder.StartRecording(); system.Recorder.StartRecording();
+                running = true;
+                deviceEvents = Channel.CreateUnbounded<string>(new() { SingleReader = true });
+                var journal = deviceEvents;
+                writingEvents = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await foreach (var entry in journal.Reader.ReadAllAsync().ConfigureAwait(false))
+                            await File.AppendAllTextAsync(Path.Combine(session.Directory, "audio-events.jsonl"), entry + Environment.NewLine).ConfigureAwait(false);
+                    }
+                    catch (IOException) { /* Audio capture does not depend on the diagnostic file. */ }
+                    catch (UnauthorizedAccessException) { }
+                });
+                deviceWatch = new CancellationTokenSource();
+                watching = WatchDevicesAsync(deviceWatch.Token);
+                CaptureStarted?.Invoke(this, EventArgs.Empty);
             }
-            else
-            {
-                var target = FindTargetProcess(processFamily)
-                    ?? throw new InvalidOperationException($"{processFamily} stopped before capture could start.");
-                system = await new WasapiRecorderBuilder()
-                    .WithProcessLoopback((uint)target.Id, ProcessLoopbackMode.IncludeTargetProcessTree)
-                    .BuildAsync();
-            }
+            catch { await ReleaseTracksAsync().ConfigureAwait(false); throw; }
+        }
+        finally { gate.Release(); }
+    }, cancellationToken);
 
-            microphoneTrack = new TrackWriter(session.MicrophoneTrack, microphone.WaveFormat, startedAt100ns);
-            systemTrack = new TrackWriter(session.SystemTrack, system.WaveFormat, startedAt100ns);
-            microphone.DataAvailable += OnMicrophoneData;
-            system.DataAvailable += OnSystemData;
-            microphone.RecordingStopped += (_, args) => { if (args.Exception is not null) TrackLost?.Invoke(this, "mic"); };
-            system.RecordingStopped += (_, args) => { if (args.Exception is not null) TrackLost?.Invoke(this, "system"); };
-            microphone.StartRecording();
-            system.StartRecording();
-            running = true;
-            CaptureStarted?.Invoke(this, EventArgs.Empty);
-        }
-        catch
+    private async Task OpenAsync(Track track, string endpoint)
+    {
+        var recorder = await factory.CreateAsync(track.Microphone, endpoint, track.Microphone ? null : processFamily).ConfigureAwait(false);
+        track.Recorder = recorder; track.Endpoint = endpoint; track.Error = null; track.Meter.Clear();
+        recorder.DataAvailable += (ReadOnlySpan<byte> data, AudioClientBufferFlags flags, long position, long at) =>
         {
-            await DisposeCaptureAsync();
-            throw;
-        }
+            if (!ReferenceEquals(track.Recorder, recorder)) return;
+            var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
+            var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
+            track.Meter.Observe(data, silent);
+            track.Writer?.Write(data, silent, at, invalidTime);
+            LiveAudioAvailable?.Invoke(track.Microphone, data, recorder.WaveFormat, silent,
+                ((at > 0 && !invalidTime ? at : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
+        };
+        recorder.RecordingStopped += (_, args) =>
+        {
+            if (!ReferenceEquals(track.Recorder, recorder) || args.Exception is null) return;
+            ReportLost(track, args.Exception);
+        };
     }
 
-    public Task<CaptureStopResult> StopAsync(CancellationToken cancellationToken) =>
-        Task.Run(() => StopCoreAsync(cancellationToken), cancellationToken);
-
-    private async Task<CaptureStopResult> StopCoreAsync(CancellationToken cancellationToken)
+    private void ReportLost(Track track, Exception exception)
     {
-        if (microphone is null || system is null) return new CaptureStopResult(0, 0);
+        var first = track.Error is null; track.Error = exception.Message; track.Meter.Clear();
+        if (first) { RecordDeviceEvent(track, "unavailable"); TrackLost?.Invoke(this, track.Microphone ? "mic" : "system"); }
+    }
 
-        var microphoneStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var systemStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        microphone.RecordingStopped += (_, _) => microphoneStopped.TrySetResult();
-        system.RecordingStopped += (_, _) => systemStopped.TrySetResult();
-        microphone.StopRecording();
-        system.StopRecording();
+    private void RecordDeviceEvent(Track track, string kind) => deviceEvents?.Writer.TryWrite(JsonSerializer.Serialize(new
+    {
+        at_ms = Math.Max(0, ElapsedMs), track = track.Microphone ? "mic" : "system", state = kind,
+    }));
+
+    public Task RefreshDevicesAsync() => Task.Run(async () =>
+    {
+        await gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            await Task.WhenAll(microphoneStopped.Task, systemStopped.Task).WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+            if (!running) return;
+            var choices = selection();
+            foreach (var track in new[] { mic, system })
+            {
+                try
+                {
+                    var endpoint = factory.Resolve(track.Microphone, track.Microphone ? choices.Microphone : choices.Output);
+                    if (endpoint == track.Endpoint && track.Error is null && track.Recorder is not null) continue;
+                    var wasLost = track.Error is not null;
+                    RecordDeviceEvent(track, "switching");
+                    await ReleaseRecorderAsync(track).ConfigureAwait(false);
+                    await OpenAsync(track, endpoint).ConfigureAwait(false);
+                    // Every endpoint is opened at the same float format: a device
+                    // change can keep writing to the existing WAV and live stream.
+                    track.Recorder!.StartRecording();
+                    RecordDeviceEvent(track, wasLost ? "resumed" : "changed");
+                }
+                catch (Exception exception)
+                {
+                    try { await ReleaseRecorderAsync(track).ConfigureAwait(false); }
+                    catch (Exception) { /* Preserve the reason capture failed. */ }
+                    ReportLost(track, exception);
+                }
+            }
         }
-        catch (TimeoutException)
-        {
-            // A device that went away does not always say it stopped; what was
-            // written is on disk either way.
-        }
+        finally { gate.Release(); }
+    });
 
-        var result = new CaptureStopResult(microphoneTrack?.OffsetMs ?? 0, systemTrack?.OffsetMs ?? 0);
-        await DisposeCaptureAsync();
-        return result;
+    public async Task SetSystemAudioScopeAsync(bool wholeSystem)
+    {
+        await gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            if (!running) return;
+            var next = wholeSystem ? null : sourceProcessFamily;
+            if (next != processFamily) { processFamily = next; system.Endpoint = null; }
+        }
+        finally { gate.Release(); }
+        await RefreshDevicesAsync().ConfigureAwait(false);
     }
+
+    private async Task WatchDevicesAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(token).ConfigureAwait(false)) await RefreshDevicesAsync().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception) { /* The explicit refresh reports per-track errors. */ }
+    }
+
+    public Task<CaptureStopResult> StopAsync(CancellationToken cancellationToken) => Task.Run(async () =>
+    {
+        await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var watch = deviceWatch; var watchTask = watching;
+        try
+        {
+            watch?.Cancel(); deviceWatch = null; watching = null;
+            running = false;
+            try { if (LiveStopping is { } stopLive) await stopLive().ConfigureAwait(false); }
+            finally { await ReleaseTracksAsync().ConfigureAwait(false); }
+            return new CaptureStopResult(0, 0);
+        }
+        finally
+        {
+            gate.Release();
+            try { if (watchTask is not null) await watchTask.ConfigureAwait(false); }
+            finally { watch?.Dispose(); }
+        }
+    }, cancellationToken);
 
     public Task SetPausedAsync(bool value, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        paused = value;
-        return Task.CompletedTask;
+        cancellationToken.ThrowIfCancellationRequested(); paused = value; mic.Meter.Clear(); system.Meter.Clear(); return Task.CompletedTask;
     }
-
-    private void OnMicrophoneData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
+    private static async Task ReleaseRecorderAsync(Track track)
     {
-        var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
-        var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
-        microphoneTrack?.Write(buffer, silent, qpcPosition, invalidTime);
-        if (microphone is not null) LiveAudioAvailable?.Invoke(true, buffer, microphone.WaveFormat, silent,
-            ((qpcPosition > 0 && !invalidTime ? qpcPosition : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
+        var recorder = track.Recorder; track.Recorder = null; track.Meter.Clear();
+        if (recorder is null) return;
+        try { recorder.StopRecording(); }
+        finally { await recorder.DisposeAsync().ConfigureAwait(false); }
     }
-
-    private void OnSystemData(ReadOnlySpan<byte> buffer, AudioClientBufferFlags flags, long devicePosition, long qpcPosition)
-    {
-        var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
-        var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
-        systemTrack?.Write(buffer, silent, qpcPosition, invalidTime);
-        if (system is not null) LiveAudioAvailable?.Invoke(false, buffer, system.WaveFormat, silent,
-            ((qpcPosition > 0 && !invalidTime ? qpcPosition : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
-    }
-
-    private static Process? FindTargetProcess(string processFamily)
-    {
-        var name = Path.GetFileNameWithoutExtension(processFamily);
-        return Process.GetProcessesByName(name).OrderBy(SafeStartTime).FirstOrDefault();
-    }
-
-    private static DateTime SafeStartTime(Process process)
-    {
-        try { return process.StartTime; }
-        catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception) { return DateTime.MaxValue; }
-    }
-
-    private async Task DisposeCaptureAsync()
+    private async Task ReleaseTracksAsync()
     {
         running = false;
-        if (LiveStopping is { } stopLive) await stopLive().ConfigureAwait(false);
-        if (microphone is not null)
+        foreach (var track in new[] { mic, system })
         {
-            microphone.DataAvailable -= OnMicrophoneData;
-            await microphone.DisposeAsync();
+            try { await ReleaseRecorderAsync(track).ConfigureAwait(false); }
+            catch (Exception exception) { ReportLost(track, exception); }
+            try { track.Writer?.Dispose(); }
+            catch (Exception exception) { ReportLost(track, exception); }
+            finally { track.Writer = null; track.Endpoint = null; track.Meter.Clear(); }
         }
-        if (system is not null)
-        {
-            system.DataAvailable -= OnSystemData;
-            await system.DisposeAsync();
-        }
-        microphoneTrack?.Dispose();
-        systemTrack?.Dispose();
-        microphoneTrack = null;
-        systemTrack = null;
-        microphone = null;
-        system = null;
-        paused = false;
+        deviceEvents?.Writer.TryComplete();
+        if (writingEvents is not null) await writingEvents.ConfigureAwait(false);
+        deviceEvents = null; writingEvents = null;
     }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (microphone is not null || system is not null)
-        {
-            try
-            {
-                microphone?.StopRecording();
-                system?.StopRecording();
-            }
-            finally
-            {
-                await DisposeCaptureAsync();
-            }
-        }
-    }
+    public async ValueTask DisposeAsync() => await StopAsync(default).ConfigureAwait(false);
 }
 
 /// <summary>
@@ -244,7 +285,8 @@ internal sealed class TrackWriter : IDisposable
         var copy = System.Buffers.ArrayPool<byte>.Shared.Rent(Math.Max(1, buffer.Length));
         buffer.CopyTo(copy);
         var at = qpc100ns > 0 && !timestampError ? qpc100ns : Now100ns();
-        packets.Writer.TryWrite(new Packet(copy, buffer.Length, silent, at));
+        if (!packets.Writer.TryWrite(new Packet(copy, buffer.Length, silent, at)))
+            System.Buffers.ArrayPool<byte>.Shared.Return(copy);
     }
 
     private async Task DrainAsync()

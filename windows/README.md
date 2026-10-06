@@ -41,6 +41,7 @@ For managed-code development:
 dotnet restore Amanu.Windows.slnx
 dotnet build Amanu.Windows.slnx -c Release --no-restore
 dotnet test tests\Amanu.Core.Tests\Amanu.Core.Tests.csproj -c Release --no-restore
+dotnet test tests\Amanu.Audio.Tests\Amanu.Audio.Tests.csproj -c Release --no-restore
 dotnet test tests\Amanu.Live.Tests\Amanu.Live.Tests.csproj -c Release --no-restore
 dotnet run --project src\Amanu.App\Amanu.App.csproj -c Release
 ```
@@ -73,6 +74,27 @@ for the real-time audio harness and CPU/memory behavior.
 Builds, tests, and audio/device checks must run on Windows. Cross-compiling on
 macOS or a green CI build does not replace testing the actual Windows recording
 flow. The release notes record the checks performed for each shipped version.
+
+## Choosing audio devices
+
+The main window shows a microphone selector and a call-audio output selector,
+each followed by a test button and measured sound level. **Same as Windows**
+follows the Windows default device; a specific device stays selected when it is
+disconnected. Selecting a replacement during a recording keeps the same meeting
+and the audio already saved. Silence alone does not report a device failure.
+
+Microphone checking creates no meeting or audio file. Output checking plays a
+short test signal through the selected device. Checking ends when the window
+is hidden. During a meeting, meters normally use the recording's own packets.
+The output test temporarily measures the selected endpoint without changing the
+scope of the meeting recording.
+
+The settings `microphone_device` and `output_device` are stable WASAPI endpoint
+IDs; an empty value means Windows defaults. An existing `system_audio=app`
+setting is preserved. Choosing an output for automatic endpoint recording asks
+explicitly before including music and notifications from that device.
+Device interruptions are recorded locally as timeline events in
+`audio-events.jsonl` next to the meeting's audio; missing audio is not recovered.
 
 ## Signing and release packaging
 
