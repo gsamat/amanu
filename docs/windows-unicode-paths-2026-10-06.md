@@ -166,5 +166,9 @@ Evidence is in `public-verification.json`, `public-verification.log`,
 artifact directory. The WinGet manifest passed local `winget validate` and was
 submitted as [draft PR #447426](https://github.com/microsoft/winget-pkgs/pull/447426).
 README, landing/nginx download links and manifests were prepared in
-[PR #43](https://github.com/gsamat/amanu/pull/43). Site deployment requires server
-access unavailable on this Windows host; no server-side change is claimed here.
+[PR #43](https://github.com/gsamat/amanu/pull/43), which passed required CI and
+merged into master at `c5950c5aeaaa2ebac6e744a9021fc1b100a39f1b`. The README read
+back from GitHub matches public macOS 0.6.5 / Windows 0.6.6 downloads, and the
+[publication check](https://github.com/gsamat/amanu/actions/runs/37435669997) passed.
+Site deployment requires server access unavailable on this Windows host; the
+live `/win.exe` still points to 0.6.5, and no server-side change is claimed here.
