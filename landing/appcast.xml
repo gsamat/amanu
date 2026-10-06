@@ -6,26 +6,24 @@
         <description>Updates for amanu, a local-first meeting recorder for macOS.</description>
         <language>en</language>
         <item>
-            <title>0.6.4</title>
-            <pubDate>Fri, 02 Oct 2026 15:51:17 +0000</pubDate>
+            <title>0.6.5</title>
+            <pubDate>Tue, 06 Oct 2026 05:26:42 +0000</pubDate>
             <sparkle:minimumSystemVersion>14.2</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h2>amanu 0.6.4</h2>
+            <description><![CDATA[<h2>amanu 0.6.5</h2>
 <ul>
-<li>The <strong>My own key</strong> card now offers three clear choices: <strong>OpenAI</strong>, <strong>Anthropic</strong>, and <strong>OpenAI-compatible</strong>.</li>
-<li>Choose <strong>OpenAI-compatible</strong> to enter a routing service’s API URL, model, and token. Switching to OpenAI uses OpenAI’s API and key while retaining the saved custom URL.</li>
-<li>OpenAI and compatible services now show a neutral <strong>API key</strong> hint instead of implying that every token starts with <code>sk-</code>.</li>
-<li>Existing custom endpoint configurations continue to select the compatible service automatically.</li>
+<li>Fixed Command-V in API-key fields on macOS, including the OpenAI-compatible summary provider.</li>
+<li>Added the standard Edit menu with Cut, Copy, Paste, and Select All shortcuts for text fields.</li>
 </ul>
 <h3>Compatibility</h3>
 <ul>
 <li>Universal binary for Apple Silicon and Intel Macs running macOS 14.2 or later. Local transcription requires Apple Silicon; Intel requires a cloud transcription key and has not been tested on physical hardware.</li>
 </ul>]]></description>
             <enclosure
-                url="https://github.com/gsamat/amanu/releases/download/v0.6.4/amanu-v0.6.4-macos-universal.dmg"
-                sparkle:version="429"
-                sparkle:shortVersionString="0.6.4"
-                sparkle:edSignature="zSVGmuX2lsPtOL50wnv+y++DibECgXOKsTkskWn8CP4G7eR21zKlqAPLiqH+d32OXzAWlqf1Pybb/TEDvQe2AQ=="
-                length="24039367"
+                url="https://github.com/gsamat/amanu/releases/download/v0.6.5/amanu-v0.6.5-macos-universal.dmg"
+                sparkle:version="440"
+                sparkle:shortVersionString="0.6.5"
+                sparkle:edSignature="uBv5hX9yDnQfjCxJ1iPw+MqpoSEbLnc/bgSlmRYeYBnyO7wj+714zYyiMSEUfTtPQyk34kwDsCAnt2c+0cTlAA=="
+                length="24037351"
                 type="application/octet-stream" />
         </item>
     </channel>

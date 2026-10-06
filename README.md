@@ -9,7 +9,7 @@ speakers, writes a detailed summary, and keeps the complete record in an ordinar
 on your computer.
 
 [Website](https://amanu.me/) ·
-[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.4/amanu-v0.6.4-macos-universal.dmg) ·
+[Download for macOS](https://github.com/gsamat/amanu/releases/download/v0.6.5/amanu-v0.6.5-macos-universal.dmg) ·
 [Download for Windows](https://github.com/gsamat/amanu/releases/download/windows-v0.6.5/Amanu-0.6.5-Setup.exe) ·
 [MIT license](LICENSE)
 
@@ -25,7 +25,7 @@ on your computer.
 | Calendar context | Optional | No calendar integration |
 
 <!-- public-download-versions:start -->
-The current public downloads are macOS **0.6.4** and Windows **0.6.5**.
+The current public downloads are macOS **0.6.5** and Windows **0.6.5**.
 <!-- public-download-versions:end -->
 
 Release builds read their version from the root `VERSION` file. The platforms
