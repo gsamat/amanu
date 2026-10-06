@@ -4,3 +4,4 @@
 .superpowers/
 dist/
 .env.asc
+/.env

@@ -19,7 +19,7 @@ on your computer.
 | Signing | Apple Developer ID, notarized | Microsoft Artifact Signing, Fands Software LLC |
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
-| Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
+| Cloud transcription | AssemblyAI, OpenAI, ElevenLabs, Fish Audio | AssemblyAI, OpenAI, ElevenLabs |
 | Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
 | Calendar context | Optional | No calendar integration |
@@ -73,7 +73,8 @@ summarize a meeting without sending its contents anywhere:
 
 Cloud models are available when quality or convenience matters more than
 staying entirely offline. On both platforms, AssemblyAI, OpenAI, and ElevenLabs
-can transcribe; Claude Code, Codex, Anthropic, and OpenAI can write summaries.
+can transcribe; macOS also offers Fish Audio's Transcribe-1 Pro.
+Claude Code, Codex, Anthropic, and OpenAI can write summaries.
 Within each model family, Amanu prefers an existing CLI subscription to the corresponding metered API
 key and falls through to the next configured backend when a subscription is
 exhausted.
@@ -357,7 +358,7 @@ amanu record start           # ask the running app to start recording
 amanu record stop
 amanu sessions               # list recordings and outstanding work
 amanu process <folder>       # finish or retry one meeting
-amanu format-transcripts     # rebuild AssemblyAI Markdown from saved transcripts
+amanu format-transcripts     # rebuild diarized Markdown from saved transcripts
 amanu setup                  # reopen first-run setup
 ```
 
@@ -451,8 +452,26 @@ only values that differ from the defaults. A compact example:
   `transcription.cloud` or `transcription.engine` to use Scribe v2. It sends
   the microphone and system channels separately, with speaker diarization on
   each; a mono import uses the same diarization. Set `ELEVENLABS_API_KEY` or
-  save a key in `~/.config/amanu/keys/elevenlabs`. `live_transcription.enabled`
-  controls the on-device preview.
+  save a key in `~/.config/amanu/keys/elevenlabs`.
+  On macOS, choose `fishaudio` as `transcription.cloud` or
+  `transcription.engine` for Fish Audio's fixed `transcribe-1-pro` model.
+  Set `FISH_API_KEY`, save a checked key in `~/.config/amanu/keys/fishaudio`,
+  or configure `transcription.fishaudio.api_key_path`; an inline
+  `transcription.fishaudio.api_key` is also accepted but never shown in Settings.
+  Environment, inline key, configured file, Amanu file, then shared read-only
+  `~/.config/fishaudio/token` / `api_key` files are checked in that order.
+  A missing or empty explicitly configured file does not fall back to another key.
+  Setup checks authentication through the wallet endpoint without transcription
+  charges; API credit is required to transcribe. Insufficient credit or a refused
+  key leaves recordings pending without consuming their failure attempts.
+  Paired call channels are diarized independently; imported media is one mono
+  conversation. Long inputs are split automatically into AAC pieces of at most
+  3599 seconds, below Fish's 60-minute request limit. Speaker identities are
+  scoped to each piece, so long transcripts keep distinct `P1A`, `P2A`, etc.
+  Fish costs $0.36 per audio hour including silence, or $0.72 per wall-clock
+  hour for two-channel calls. No Fish live-transcription backend is added.
+  Create a key at [Fish Audio API keys](https://fish.audio/app/api-keys).
+  `live_transcription.enabled` controls the on-device preview.
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.

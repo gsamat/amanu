@@ -157,7 +157,7 @@ actor EngineResolver {
 
     /// Which cloud service a configuration means. A configured engine naming
     /// a provider outright is that provider; anything else defers to the
-    /// `cloud` setting, which is what the setup window's two cards write.
+    /// `cloud` setting, which is what the setup window's provider cards write.
     static func cloudProvider(configured: String) -> String {
         Config.cloudEngines.contains(configured)
             ? configured
@@ -168,6 +168,7 @@ actor EngineResolver {
         switch CloudService(provider: provider) {
         case .openAI: return try OpenAITranscriptionEngine()
         case .elevenLabs: return try ElevenLabsEngine()
+        case .fishAudio: return try FishAudioEngine()
         case .assemblyAI: return try AssemblyAIEngine()
         }
     }
@@ -231,8 +232,9 @@ actor EngineResolver {
                 + "for a cloud engine — put an AssemblyAI one in "
                 + "\(Config.assemblyAIKeyPath.path) or an OpenAI one in "
                 + "\(Config.openAIKeyPath.path), or an ElevenLabs one in "
-                + "\(Config.elevenLabsKeyPath.path) (chmod 600), or set "
-                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY / ELEVENLABS_API_KEY"
+                + "\(Config.elevenLabsKeyPath.path), or a Fish Audio one in "
+                + "\(Config.fishAudioKeyPath.path) (chmod 600), or set "
+                + "ASSEMBLYAI_API_KEY / OPENAI_API_KEY / ELEVENLABS_API_KEY / FISH_API_KEY"
         }
     }
 }

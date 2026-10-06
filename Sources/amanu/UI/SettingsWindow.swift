@@ -15,9 +15,7 @@ import AppKit
 /// settings drifts from the code that reads them, and the settings that lose
 /// the race become invisible — present in the program, absent from the window,
 /// mentioned nowhere. Here the schema is the single list: add an entry there
-/// and it appears, described, with its default showing, in this window. The
-/// README is written by hand against the same list, and
-/// `SettingsDocumentationTests` fails when the two drift.
+/// and it appears, described, with its default showing, in this window.
 ///
 /// "What setup doesn't ask" is a filter and not merely a sentence, because for
 /// a while it was only the sentence. This tab drew the entire schema, so eight

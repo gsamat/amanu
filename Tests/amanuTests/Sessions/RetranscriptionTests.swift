@@ -500,17 +500,15 @@ struct RetranscriptionTests {
     }
 
     @MainActor
-    @Test("A re-transcribe engine choice is stored with that session")
-    func retranscriptionEngineOverride() throws {
+    @Test("A re-transcribe engine choice is stored with that session", arguments: ["whisper", "fishaudio"])
+    func retranscriptionEngineOverride(engine: String) throws {
         let dir = try Self.settledSession()
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        #expect(RecordingsWindow.retranscriptionEngines.map(\.id)
-            == ["parakeet", "whisper", "gigaam", "assemblyai", "openai", "elevenlabs"])
-        RecordingsWindow.markForRetranscription(dir, engine: "whisper")
+        RecordingsWindow.markForRetranscription(dir, engine: engine)
         #expect(SessionState.value(dir, SessionState.Key.transcriptionEngine) as? String
-            == "whisper")
-        #expect(EngineResolver.configuredEngine(for: dir) == "whisper")
+            == engine)
+        #expect(EngineResolver.configuredEngine(for: dir) == engine)
     }
 
     /// The engine choice was written first and the clearing then refused

@@ -150,6 +150,7 @@ private enum RecordingsEngineName {
         case "assemblyai": return "AssemblyAI"
         case "openai": return "OpenAI"
         case "elevenlabs": return "ElevenLabs"
+        case "fishaudio": return "Fish Audio"
         case "auto": return localised("Automatic", "Автоматически")
         default: return id
         }

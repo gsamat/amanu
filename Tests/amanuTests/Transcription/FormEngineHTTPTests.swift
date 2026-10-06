@@ -3,7 +3,7 @@ import Testing
 
 @testable import amanu
 
-/// OpenAI and ElevenLabs through `CloudHTTP`, against a stub of each service.
+/// Form-based cloud engines through `CloudHTTP`, against a stub of each service.
 struct FormEngineHTTPTests {
     private static func folder() throws -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -69,5 +69,43 @@ struct FormEngineHTTPTests {
         #expect(service.requests.allSatisfy { $0.header("xi-api-key") == "xi-test" })
         #expect(Set(segments.compactMap(\.speaker)) == ["1A", "2A"])
         #expect(ProviderCache.files(in: dir).count == 2)
+    }
+
+    @Test("Fish keeps mic and far-end voices distinct and reuses their timed answers")
+    func fishAudioPerChannelCache() async throws {
+        try await withFreshHome { home in
+            let audio = home.url.appendingPathComponent("multichannel.wav")
+            try TestAudio.write(to: audio, seconds: 1, sampleRate: 48_000, channels: 2) { channel, frame in
+                0.2 * Float(sin(Double(frame) * (channel == 0 ? 0.05 : 0.11)))
+            }
+            let service = StubHTTP { _, count in
+                if count == 1 {
+                    return .json(200, """
+                    {"text":"Mic sentence.","duration":1,"speaker_turns":[
+                      {"speaker":"speaker:0","text":"Mic sentence.","start":0.1,"end":0.5}]}
+                    """)
+                }
+                return .json(200, """
+                {"text":"First guest. Second guest.","duration":1,"speaker_turns":[
+                  {"speaker":"speaker:0","text":"First guest.","start":0.2,"end":0.6},
+                  {"speaker":"speaker:1","text":"Second guest.","start":0.7,"end":0.9}]}
+                """)
+            }
+
+            let first = try await FishAudioEngine(apiKey: "fish-test", session: service.session).transcribe(audio)
+            let second = try await FishAudioEngine(apiKey: "fish-test", session: service.session).transcribe(audio)
+
+            for segments in [first, second] {
+                #expect(segments.map(\.speaker) == ["1A", "2A", "2B"])
+                #expect(segments.map(\.text) == ["Mic sentence.", "First guest.", "Second guest."])
+                #expect(segments.map(\.start) == [0.1, 0.2, 0.7])
+                #expect(segments.map(\.end) == [0.5, 0.6, 0.9])
+                #expect(MultichannelSpeakerLabels.map(segments).map(\.speaker) == ["me A", "them A", "them B"])
+            }
+            #expect(service.requests.count == 2)
+            #expect(ProviderCache.files(in: home.url).count == 2)
+            #expect(!FileManager.default.fileExists(atPath: home.url.appendingPathComponent(
+                TranscriptionScratch.fishAudioSliceFolder, isDirectory: true).path))
+        }
     }
 }

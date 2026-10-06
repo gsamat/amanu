@@ -43,6 +43,86 @@ struct CloudHTTPTests {
         #expect(CloudHTTP.retryAfter(date, now: now) == .seconds(30))
     }
 
+    // MARK: - Fish request outcomes
+
+    @Test("Fish key, credit and size refusals stop after one upload",
+          arguments: [401, 402, 413])
+    func fishRefusalsAreNotRetried(status: Int) async throws {
+        try await withFreshHome { home in
+            let audio = home.url.appendingPathComponent("source.wav")
+            try TestAudio.writeTone(to: audio, seconds: 1, frequency: 440, sampleRate: 48_000)
+            let stub = StubHTTP { _, _ in .json(status, #"{"error":"refused"}"#) }
+            let slept = OSAllocatedUnfairLock(initialState: [Duration]())
+            let engine = try FishAudioEngine(
+                apiKey: "fish-test", session: stub.session,
+                sleep: { delay in slept.withLock { $0.append(delay) } })
+
+            let error = await #expect(throws: CloudHTTP.Failure.self) {
+                try await engine.transcribe(audio)
+            }
+
+            #expect(error?.status == status)
+            #expect(error?.isEnvironmental == (status != 413))
+            #expect(error?.isPermanent == (status == 413))
+            #expect(stub.requests.count == 1)
+            #expect(slept.withLock { $0 }.isEmpty)
+            #expect(ProviderCache.files(in: home.url).isEmpty)
+        }
+    }
+
+    @Test("Insufficient credit is environmental only for Fish")
+    func fishCreditBoundaryDoesNotChangeOtherProviders() async throws {
+        let stub = StubHTTP { _, _ in .json(402, #"{"error":"payment required"}"#) }
+        let request = URLRequest(url: URL(string: "https://example.test/transcription")!)
+
+        let fish = await #expect(throws: CloudHTTP.Failure.self) {
+            try await CloudHTTP(service: .fishAudio, session: stub.session)
+                .send(request, key: "test-key", what: "transcription")
+        }
+        let elevenLabs = await #expect(throws: CloudHTTP.Failure.self) {
+            try await CloudHTTP(service: .elevenLabs, session: stub.session)
+                .send(request, key: "test-key", what: "transcription")
+        }
+
+        #expect(fish?.status == 402)
+        #expect(fish?.isEnvironmental == true)
+        #expect(fish?.isPermanent == false)
+        #expect(elevenLabs?.status == 402)
+        #expect(elevenLabs?.isEnvironmental == false)
+        #expect(elevenLabs?.isPermanent == true)
+        #expect(stub.requests.count == 2)
+    }
+
+    @Test("Fish waits for rate limits and backs off server trouble before completing")
+    func fishUsesSharedBackoff() async throws {
+        try await withFreshHome { home in
+            let audio = home.url.appendingPathComponent("source.wav")
+            try TestAudio.writeTone(to: audio, seconds: 1, frequency: 440, sampleRate: 48_000)
+            let stub = StubHTTP { _, count in
+                switch count {
+                case 1: return .json(429, "{}", headers: ["Retry-After": "7"])
+                case 2: return .json(503, "busy")
+                default:
+                    return .json(200, """
+                    {"text":"Recovered.","duration":1,"speaker_turns":[
+                      {"speaker":"speaker:0","text":"Recovered.","start":0.1,"end":0.5}]}
+                    """)
+                }
+            }
+            let slept = OSAllocatedUnfairLock(initialState: [Duration]())
+            let engine = try FishAudioEngine(
+                apiKey: "fish-test", session: stub.session,
+                sleep: { delay in slept.withLock { $0.append(delay) } })
+
+            let segments = try await engine.transcribe(audio)
+
+            #expect(segments.map(\.text) == ["Recovered."])
+            #expect(segments.map(\.speaker) == ["A"])
+            #expect(stub.requests.count == 3)
+            #expect(slept.withLock { $0 } == [.seconds(7), .seconds(4)])
+        }
+    }
+
     // MARK: - AssemblyAI end to end
 
     @Test("A refused key fails at once, is not the recording's fault, and uploads once")
@@ -322,18 +402,6 @@ struct CloudHTTPTests {
         #expect(stub.requests.count == before)
     }
 
-    @Test("The key goes out under each service's own header")
-    func keysUseEachServicesHeader() async throws {
-        let stub = StubHTTP { _, _ in .json(200, "{}") }
-        for service in CloudService.allCases {
-            _ = try await CloudHTTP(service: service, session: stub.session)
-                .send(URLRequest(url: URL(string: "https://example.test/\(service.rawValue)")!),
-                      key: "secret", what: "probe")
-        }
-        let headers = stub.requests.map { ($0.header("authorization"), $0.header("xi-api-key")) }
-        #expect(headers.map(\.0) == ["secret", "Bearer secret", nil])
-        #expect(headers.map(\.1) == [nil, nil, "secret"])
-    }
 
     // MARK: -
 

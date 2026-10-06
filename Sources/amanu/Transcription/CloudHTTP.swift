@@ -1,14 +1,13 @@
 import CryptoKit
 import Foundation
 
-/// The three services a meeting's audio can be sent to, and the parts of
-/// talking to them that are the same shape in all three: where the key is
-/// kept, how a request carries it, and where to knock to find out whether the
-/// service is there at all.
+/// Cloud transcription services and their shared credential, authorization,
+/// and reachability policies.
 enum CloudService: String, CaseIterable, Sendable {
     case assemblyAI = "assemblyai"
     case openAI = "openai"
     case elevenLabs = "elevenlabs"
+    case fishAudio = "fishaudio"
 
     /// The provider a configuration names, with anything unknown meaning the
     /// one the setup window defaults to.
@@ -21,6 +20,7 @@ enum CloudService: String, CaseIterable, Sendable {
         case .assemblyAI: return Config.assemblyAIKey()
         case .openAI: return Config.openAIKey()
         case .elevenLabs: return Config.elevenLabsKey()
+        case .fishAudio: return Config.fishAudioKey()
         }
     }
 
@@ -31,6 +31,7 @@ enum CloudService: String, CaseIterable, Sendable {
         case .assemblyAI: request.setValue(key, forHTTPHeaderField: "authorization")
         case .openAI: request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
         case .elevenLabs: request.setValue(key, forHTTPHeaderField: "xi-api-key")
+        case .fishAudio: request.setValue("Bearer \(key)", forHTTPHeaderField: "authorization")
         }
     }
 
@@ -41,6 +42,7 @@ enum CloudService: String, CaseIterable, Sendable {
         case .assemblyAI: return URL(string: "https://api.assemblyai.com/v2/transcript")!
         case .openAI: return URL(string: "https://api.openai.com/v1/models")!
         case .elevenLabs: return URL(string: "https://api.elevenlabs.io/v1/user")!
+        case .fishAudio: return URL(string: "https://api.fish.audio/wallet/self/api-credit")!
         }
     }
 
@@ -57,8 +59,7 @@ enum CloudService: String, CaseIterable, Sendable {
     }
 }
 
-/// One request to a paid transcription API, sent the way all three engines
-/// need it sent.
+/// One request to a paid transcription API, shared by the cloud engines.
 ///
 /// Each engine used to call `URLSession.shared` itself and read the status
 /// code itself, and all three read it the same wrong way: any status outside
@@ -115,13 +116,16 @@ struct CloudHTTP: Sendable {
         /// A malformed body is not: it is far more often a truncated or
         /// intercepted response than a service that has changed its format.
         var isPermanent: Bool {
-            if case .rejected = self { return true }
+            if case .rejected = self { return !isEnvironmental }
             return false
         }
 
         /// A key problem is the machine's, not the recording's.
         var isEnvironmental: Bool {
             if case .unauthorized = self { return true }
+            if case .rejected(service: "fishaudio", what: _, status: 402, body: _) = self {
+                return true
+            }
             return false
         }
 
@@ -285,7 +289,8 @@ struct CloudHTTP: Sendable {
     /// from there: the request is as large as the meeting, and the daemon has
     /// no business holding that on the heap while it uploads.
     static func writeMultipart(
-        fields: [(String, String)], file: URL, boundary: String, to destination: URL
+        fields: [(String, String)], file: URL, boundary: String, to destination: URL,
+        fileField: String = "file"
     ) throws {
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         let output = try FileHandle(forWritingTo: destination)
@@ -297,7 +302,7 @@ struct CloudHTTP: Sendable {
             try output.write(contentsOf: Data(field.utf8))
         }
         let header = "--\(boundary)\r\n"
-            + "Content-Disposition: form-data; name=\"file\";"
+            + "Content-Disposition: form-data; name=\"\(fileField)\";"
             + " filename=\"\(file.lastPathComponent)\"\r\n"
             + "Content-Type: \(contentType(for: file))\r\n\r\n"
         try output.write(contentsOf: Data(header.utf8))
@@ -320,12 +325,13 @@ struct CloudHTTP: Sendable {
         }
     }
 
-    /// Send a file as a multipart form: the one request shape OpenAI and
-    /// ElevenLabs share.
+    /// Send a file as a streamed multipart form.
     func sendMultipart(
         to url: URL,
         fields: [(String, String)],
         file: URL,
+        fileField: String = "file",
+        headers: [(String, String)] = [],
         key: String,
         what: String,
         timeout: TimeInterval
@@ -333,13 +339,15 @@ struct CloudHTTP: Sendable {
         let boundary = "amanu.\(UUID().uuidString)"
         let body = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-\(service.rawValue)-\(UUID().uuidString).multipart")
-        try Self.writeMultipart(fields: fields, file: file, boundary: boundary, to: body)
         defer { try? FileManager.default.removeItem(at: body) }
+        try Self.writeMultipart(
+            fields: fields, file: file, boundary: boundary, to: body, fileField: fileField)
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue(
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         request.timeoutInterval = timeout
         return try await send(
             request, body: .file(body), key: key, what: what, retryTransportErrors: false)

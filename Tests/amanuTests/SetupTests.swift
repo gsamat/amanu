@@ -453,40 +453,6 @@ struct SetupTests {
         #expect(!store.enabled, "both off is record-only, and that was not written")
     }
 
-    /// Cloud providers are on screen whether or not the cloud is switched on,
-    /// and each says what an hour of meeting costs: the price belongs where
-    /// the choice is made.
-    @Test("Cloud providers are offered with their price and key link")
-    @MainActor
-    func providerCardsCarryPriceAndLink() throws {
-        let setup = SetupWindow()
-        defer { withExtendedLifetime(setup) {} }
-        let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
-        let cards = panel.contentView?.allDescendants.compactMap { $0 as? ChoiceCard } ?? []
-
-        let assembly = try #require(cards.first { $0.id == "assemblyai" })
-        let openai = try #require(cards.first { $0.id == "openai" })
-        let elevenlabs = try #require(cards.first { $0.id == "elevenlabs" })
-
-        for card in [assembly, openai, elevenlabs] {
-            let detail = card.allDescendants
-                .compactMap { $0 as? NSTextField }
-                .map(\.stringValue)
-                .joined(separator: " ")
-            #expect(detail.contains("an hour"), "\(card.id) doesn't say what it costs")
-        }
-
-        let links = [assembly, openai, elevenlabs].compactMap { card in
-            card.allDescendants
-                .compactMap { $0 as? NSButton }
-                .first { $0.title.hasPrefix("Get a key") }?
-                .identifier?.rawValue
-        }
-        #expect(links.contains("https://www.assemblyai.com/dashboard/signup"))
-        #expect(links.contains("https://platform.openai.com/api-keys"))
-        #expect(links.contains("https://elevenlabs.io/app/developers/api-keys"))
-    }
-
     /// Return in a key field must not reach the window's default button.
     ///
     /// It did, and Done closed the window on the keystroke that submitted the

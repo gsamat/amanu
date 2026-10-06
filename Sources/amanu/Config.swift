@@ -98,7 +98,7 @@ enum Config {
 
     /// The cloud engines, by the name they carry in the config and in
     /// transcript.json's provenance.
-    static let cloudEngines: Set<String> = ["assemblyai", "openai", "elevenlabs"]
+    static let cloudEngines: Set<String> = ["assemblyai", "openai", "elevenlabs", "fishaudio"]
     static let localEngines: Set<String> = ["parakeet", "whisper", "gigaam"]
 
     /// OpenAI's transcription model. The default is the only one of theirs
@@ -155,6 +155,7 @@ enum Config {
     static var assemblyAIKeyPath: URL { keysDir.appendingPathComponent("assemblyai") }
     static var openAIKeyPath: URL { keysDir.appendingPathComponent("openai") }
     static var elevenLabsKeyPath: URL { keysDir.appendingPathComponent("elevenlabs") }
+    static var fishAudioKeyPath: URL { keysDir.appendingPathComponent("fishaudio") }
     static var anthropicKeyPath: URL { keysDir.appendingPathComponent("anthropic") }
 
     /// Where the rest of a machine's toolchain tends to keep the same secret.
@@ -167,6 +168,7 @@ enum Config {
     static var assemblyAISharedKeyPaths: [URL] { sharedKeyPaths("assemblyai") }
     static var openAISharedKeyPaths: [URL] { sharedKeyPaths("openai") }
     static var elevenLabsSharedKeyPaths: [URL] { sharedKeyPaths("elevenlabs") }
+    static var fishAudioSharedKeyPaths: [URL] { sharedKeyPaths("fishaudio") }
     static var anthropicSharedKeyPaths: [URL] { sharedKeyPaths("anthropic") }
 
     private static func sharedKeyPaths(_ service: String) -> [URL] {
@@ -223,6 +225,20 @@ enum Config {
             return secret(at: configured)
         }
         return secret(at: elevenLabsKeyPath) ?? secret(atAnyOf: elevenLabsSharedKeyPaths)
+    }
+
+    static func fishAudioKey() -> String? {
+        if let env = Home.current.variable("FISH_API_KEY"),
+           !env.trimmed.isEmpty {
+            return env.trimmed
+        }
+        let json = load()
+        if let inline = text(.fishAudioKey, in: json) { return inline.trimmed }
+        if let configured = (value(.fishAudioKeyPath, in: json) as? String)
+            .map({ Home.current.expanding($0) }) {
+            return secret(at: configured)
+        }
+        return secret(at: fishAudioKeyPath) ?? secret(atAnyOf: fishAudioSharedKeyPaths)
     }
 
     /// Apple voice processing (acoustic echo cancellation) on the mic, so
