@@ -22,15 +22,29 @@ enum MarkdownPreview {
             var font = baseFont
             var prefix = ""
             var isCode = false
-            for component in components {
+            // Components run from the innermost block outwards, so the first
+            // list item is the one this text belongs to and the component
+            // after it is the list that numbers it. Taking the last instead
+            // gave every item of a nested list its parent's number.
+            let depth = components.filter {
+                if case .listItem = $0.kind { return true }
+                return false
+            }.count
+            var listed = false
+            for (index, component) in components.enumerated() {
                 switch component.kind {
                 case .header(let level):
                     font = .systemFont(ofSize: max(14, 24 - CGFloat(level) * 2), weight: .semibold)
                     paragraph.paragraphSpacingBefore = 8
                 case .listItem(let ordinal):
-                    let ordered = components.contains { $0.kind == .orderedList }
+                    guard !listed else { break }
+                    listed = true
+                    let ordered = components.indices.contains(index + 1)
+                        && components[index + 1].kind == .orderedList
                     prefix = ordered ? "\(ordinal). " : "• "
-                    paragraph.headIndent = 20
+                    let indent = CGFloat(depth - 1) * 20
+                    paragraph.firstLineHeadIndent = indent
+                    paragraph.headIndent = indent + 20
                     paragraph.paragraphSpacing = 4
                 case .blockQuote:
                     paragraph.firstLineHeadIndent = 16

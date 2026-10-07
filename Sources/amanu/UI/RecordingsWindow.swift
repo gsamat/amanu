@@ -38,6 +38,7 @@ final class RecordingsWindow: NSObject {
     private let finishButton = NSButton()
     private let retranscribeButton = NSButton()
     private let openTranscriptButton = NSButton()
+    private let copySummaryButton = NSButton()
     private let openFolderButton = NSButton()
     private let deleteButton = NSButton()
     private let importButton = NSButton()
@@ -197,6 +198,8 @@ final class RecordingsWindow: NSObject {
              localised("Re-transcribe", "Расшифровать заново"), #selector(retranscribeClicked)),
             (openTranscriptButton,
              localised("Open transcript", "Открыть расшифровку"), #selector(openTranscriptClicked)),
+            (copySummaryButton,
+             localised("Copy summary", "Скопировать саммари"), #selector(copySummaryClicked)),
             (openFolderButton, localised("Open folder", "Открыть папку"), #selector(openFolderClicked)),
             (deleteButton, localised("Delete", "Удалить"), #selector(deleteClicked)),
         ] as [(NSButton, String, Selector)] {
@@ -207,6 +210,7 @@ final class RecordingsWindow: NSObject {
         }
         importButton.identifier = NSUserInterfaceItemIdentifier("choose-media-import")
         openTranscriptButton.identifier = NSUserInterfaceItemIdentifier("open-transcript")
+        copySummaryButton.identifier = NSUserInterfaceItemIdentifier("copy-summary")
         openRootButton.identifier = NSUserInterfaceItemIdentifier("open-recordings-folder")
         rootPath.stringValue = root.path
         rootPath.font = .systemFont(ofSize: 11)
@@ -221,7 +225,7 @@ final class RecordingsWindow: NSObject {
 
         let processingButtons = NSStackView(views: [
             finishButton, retranscribeButton, openTranscriptButton,
-            openFolderButton, deleteButton,
+            copySummaryButton, openFolderButton, deleteButton,
         ])
         processingButtons.orientation = .horizontal
         processingButtons.spacing = 8
@@ -572,6 +576,8 @@ final class RecordingsWindow: NSObject {
             PostProcessor.readTranscript($0) != nil || FileManager.default.fileExists(
                 atPath: $0.appendingPathComponent("transcript.md").path)
         } ?? false)
+        copySummaryButton.isEnabled = selectedVersion?.isRequest != true
+            && artifactDirectory.flatMap(Self.summary(in:)) != nil
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
         busyLabel.isHidden = !working
@@ -831,6 +837,45 @@ final class RecordingsWindow: NSObject {
                     }
                 }
             })
+    }
+
+    @objc private func copySummaryClicked() {
+        guard selected != nil, selectedVersion?.isRequest != true,
+              let dir = artifactDirectory, let summary = Self.summary(in: dir) else { return }
+        Self.copy(summary: summary, to: .general)
+        // The pasteboard gives no sign of its own, so the button says once
+        // that it worked and then goes back to what it does.
+        copySummaryButton.title = localised("Copied", "Скопировано")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.copySummaryButton.title = localised("Copy summary", "Скопировать саммари")
+        }
+    }
+
+    /// The summary as written to disk, or nil when there is nothing worth
+    /// copying.
+    static func summary(in dir: URL) -> String? {
+        guard let text = try? String(
+            contentsOf: dir.appendingPathComponent("summary.md"), encoding: .utf8),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return text
+    }
+
+    /// Puts the summary on the pasteboard twice: as Markdown for the chat
+    /// apps and editors that read it, and as rich text for the ones that
+    /// paste formatting, so neither gets a wall of `#` and `-`.
+    static func copy(summary: String, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        // The preview's text colour follows the window's appearance; written
+        // into RTF it would paste as white text out of a dark window.
+        let rendered = NSMutableAttributedString(attributedString: MarkdownPreview.render(summary))
+        rendered.removeAttribute(
+            .foregroundColor, range: NSRange(location: 0, length: rendered.length))
+        let rtf = try? rendered.data(
+            from: NSRange(location: 0, length: rendered.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        pasteboard.declareTypes(rtf == nil ? [.string] : [.string, .rtf], owner: nil)
+        pasteboard.setString(summary, forType: .string)
+        if let rtf { pasteboard.setData(rtf, forType: .rtf) }
     }
 
     static func readableTranscript(in dir: URL) -> URL? {
