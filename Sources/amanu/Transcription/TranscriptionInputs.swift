@@ -19,6 +19,11 @@ struct TranscriptionInputs {
     let audio: URL
     let meta: SessionMeta
     let engine: TranscriptionEngine
+    /// The far side's speaker diarizer, prepared by the coordinator when the
+    /// setting is on and this Mac can run the model. nil keeps the flat
+    /// "them" — which is what the local engines have always produced, and
+    /// what a single far-end voice should stay.
+    var diarizer: DiarizationEngine?
 
     func segments() async throws -> [Transcript.Segment] {
         switch engine.input {
@@ -173,14 +178,29 @@ struct TranscriptionInputs {
                 log("could not transcribe \(track.file): \(error)")
                 throw error
             }
+            // The far side, told apart. Run over the very file the engine just
+            // read — the extracted channel where there is one — so the
+            // diarizer's clock is the ASR clock and the offset below lands on
+            // both alike. The microphone is left alone: "me" is already one
+            // person, and a diarizer over that track could only split them.
+            var labels: [String]?
+            if track.speaker == "them", let diarizer {
+                let voices = await diarizer.voices(in: file)
+                if !voices.isEmpty {
+                    labels = DiarizationAlignment.labels(
+                        for: segments, voices: voices, side: track.speaker)
+                    log("local diarization heard \(Set(voices.map(\.id)).count) "
+                        + "voice(s) on \(track.file)")
+                }
+            }
             if let temporary { try? FileManager.default.removeItem(at: temporary) }
             let offset = TimeInterval(track.offsetMs) / 1000
-            merged += segments.map {
+            merged += segments.enumerated().map { index, segment in
                 Transcript.Segment(
-                    speaker: track.speaker,
-                    start_ms: Int(($0.start + offset) * 1000),
-                    end_ms: Int(($0.end + offset) * 1000),
-                    text: $0.text
+                    speaker: labels?[index] ?? track.speaker,
+                    start_ms: Int((segment.start + offset) * 1000),
+                    end_ms: Int((segment.end + offset) * 1000),
+                    text: segment.text
                 )
             }
         }

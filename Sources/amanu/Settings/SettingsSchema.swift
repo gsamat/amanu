@@ -185,6 +185,15 @@ enum SettingsSchema {
                       "v3 covers 25 European languages; v2 is English-only.",
                       "v3 знает 25 европейских языков, v2 — только английский."),
                   .choice(["v3", "v2"]), default: "v3"),
+            Entry(["transcription", "local_diarization"],
+                  localised("Tell apart the far side's speakers",
+                            "Различать говорящих на той стороне"),
+                  localised(
+                      "A second local model over the system track labels several people on the "
+                          + "other end as \"them A\", \"them B\". Off keeps one \"them\".",
+                      "Ещё одна местная модель по дорожке системы помечает нескольких собеседников "
+                          + "как «them A», «them B». Выключено — остаётся одно «them»."),
+                  .toggle, default: false),
         ]
     }
 
@@ -734,7 +743,8 @@ enum SettingsSchema {
     static var unrenderedLocalModelKeys: [String] {
         Platform.supportsLocalModels
             ? []
-            : ["live_transcription.enabled", "transcription.model"]
+            : ["live_transcription.enabled", "transcription.model",
+               "transcription.local_diarization"]
     }
 
     /// Every key the program understands, as `a.b` strings — used to spot

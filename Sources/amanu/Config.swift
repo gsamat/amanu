@@ -114,6 +114,22 @@ enum Config {
         string(.transcriptionModel, in: load())
     }
 
+    /// Whether the far side of a per-track transcript should be diarized
+    /// locally: "them A" and "them B" instead of one flat "them".
+    ///
+    /// Off by default. It is a second local model to download and a second
+    /// pass over the system track, and one person on the other end — the
+    /// ordinary two-party call — is exactly what the flat label is right for.
+    /// It matters when several people share the far end's room mic.
+    ///
+    /// Read as written and gated where it is used, the way
+    /// `transcriptionModel` is: the answer only means anything on a Mac that
+    /// can run the model, and saying so here would hide a stored `true` from
+    /// the doctor.
+    static func transcriptionLocalDiarization() -> Bool {
+        flag(.transcriptionLocalDiarization, in: load())
+    }
+
     /// Two-letter code for the language meetings are *mostly* in, e.g. "ru".
     ///
     /// Not a pin. Both engines identify the language themselves; what this
