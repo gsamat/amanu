@@ -198,6 +198,42 @@ struct SetupTests {
         #expect(labels.contains("answers · 1.0"))
     }
 
+    @Test("A long card status stays inside its equal-width choice in a three-card row")
+    @MainActor
+    func longChoiceCardStatusDoesNotStretchRow() throws {
+        let status = "Download failed: The speaker model is incomplete or corrupt: "
+            + "Nemotron-3-Diarization.q8_0.gguf."
+        for width: CGFloat in [700, 640] {
+            let cards = [
+                ChoiceCard(id: "first", title: "Nemotron 3", detail: "Recommended · about 107 MB"),
+                ChoiceCard(id: "second", title: "LS-EEND AMI", detail: "About 45 MB"),
+                ChoiceCard(id: "third", title: "Community-1", detail: "About 21 MB"),
+            ]
+            cards[0].report(status)
+            let row = SetupLayout.cards(cards)
+            let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 240))
+            host.addSubview(row)
+            row.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+                row.topAnchor.constraint(equalTo: host.topAnchor),
+            ])
+            host.layoutSubtreeIfNeeded()
+
+            #expect(abs(row.frame.width - width) < 1)
+            let cardWidths = cards.map { "\($0.id)=\($0.frame.width)" }.joined(separator: ", ")
+            #expect(cards.allSatisfy { abs($0.frame.width - cards[0].frame.width) <= 1 },
+                    "a long status stretched one card at \(width)pt: \(cardWidths)")
+            let label = try #require(cards[0].allDescendants
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == status })
+            let placed = cards[0].convert(label.bounds, from: label)
+            #expect(placed.minX >= 0 && placed.maxX <= cards[0].bounds.maxX + 1,
+                    "the status escaped its own card at \(width)pt")
+        }
+    }
+
     /// Catches the border looking clickable while only the small radio title
     /// actually responds.
     @Test("Clicking the body of a choice card selects it")

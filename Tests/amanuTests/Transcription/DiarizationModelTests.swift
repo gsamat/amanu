@@ -74,6 +74,12 @@ struct DiarizationModelTests {
         }
     }
 
+    private actor RequestedURL {
+        private(set) var value: URL?
+
+        func record(_ url: URL) { value = url }
+    }
+
     @Test("Local diarization is opt-in and its threshold rejects malformed values")
     func settings() throws {
         #expect(!Config.localDiarizationEnabled(in: nil))
@@ -219,6 +225,31 @@ struct DiarizationModelTests {
         await second.endUse()
     }
 
+    @Test("Nemotron download requests the pinned root asset and keeps its local models path")
+    func nemotronDownloadURL() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-nemotron-url-\(UUID().uuidString)", isDirectory: true)
+        let lock = directory.deletingLastPathComponent()
+            .appendingPathComponent(".\(directory.lastPathComponent).lock")
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: lock)
+        }
+        let requested = RequestedURL()
+        let store = DiarizationModelStore(model: .nemotron3, directory: directory,
+                                          verifier: { _ in
+            throw DiarizationModelStore.StoreError.missingOrCorrupt("fixture")
+        }, fetch: { url in
+            await requested.record(url)
+            throw CancellationError()
+        })
+
+        await #expect(throws: CancellationError.self) { try await store.download() }
+        #expect(await requested.value?.absoluteString == "https://huggingface.co/nvidia/Nemotron-3-Diarization/resolve/f667ed73aee57d40cc39428eb768b4fd87a0a29e/Nemotron-3-Diarization.q8_0.gguf")
+        #expect(DiarizationModelStore.assets(for: .nemotron3).map(\.path)
+                == ["models/Nemotron-3-Diarization.q8_0.gguf"])
+    }
+
     @Test("Explicit pinned model download verifies every asset",
           .enabled(if: ProcessInfo.processInfo.environment["AMANU_DIAR_MODEL_DOWNLOAD_DIR"] != nil))
     func explicitDownloadSmoke() async throws {
@@ -230,7 +261,10 @@ struct DiarizationModelTests {
         #expect(!directory.path.hasPrefix(home.path + "/"),
                 "The explicit download test must not write under the user's home")
         guard !directory.path.hasPrefix(home.path + "/") else { return }
-        let store = DiarizationModelStore(directory: directory)
+        let modelName = ProcessInfo.processInfo.environment["AMANU_DIAR_MODEL_DOWNLOAD_MODEL"]
+            ?? DiarizationModel.community1.rawValue
+        let model = try #require(DiarizationModel(rawValue: modelName))
+        let store = DiarizationModelStore(model: model, directory: directory)
         try await store.download()
         #expect(await store.isReady())
         #expect(try await store.fingerprint().count == 64)

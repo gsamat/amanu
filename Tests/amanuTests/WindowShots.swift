@@ -149,6 +149,30 @@ struct WindowShots {
         }
     }
 
+    @Test("A long speaker-model error in narrow settings, in both appearances")
+    @MainActor
+    func diarizationErrorInNarrowSettings() throws {
+        _ = NSApplication.shared
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try settingsPanel(builtIn: appearance, keeping: &owners)
+            panel.setContentSize(NSSize(width: 640, height: 900))
+            let card = try #require(panel.contentView?.allDescendants
+                .compactMap { $0 as? ChoiceCard }
+                .first { $0.id == "diarization.nemotron-3" })
+            card.report(localised(
+                "download error: The speaker model is incomplete or corrupt: "
+                    + "Nemotron-3-Diarization.q8_0.gguf.",
+                "ошибка загрузки: The speaker model is incomplete or corrupt: "
+                    + "Nemotron-3-Diarization.q8_0.gguf."))
+            try scrollToDiarization(in: panel)
+            try write(panel, "settings-setup-\(name)-narrow-diarization-error")
+        }
+    }
+
     /// The About window, which is small enough that both appearances fit in
     /// one pass and has no state to drive it through. What there is to see is
     /// the spacing: an icon, a name, a version and three links, centred, and

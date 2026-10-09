@@ -218,7 +218,8 @@ actor DiarizationModelStore {
         let total = assets.reduce(0) { $0 + $1.size }
         for asset in assets {
             try Task.checkCancellation()
-            let url = URL(string: "https://huggingface.co/\(model.repository)/resolve/\(model.revision)/\(asset.path)")!
+            let remotePath = model == .nemotron3 ? "Nemotron-3-Diarization.q8_0.gguf" : asset.path
+            let url = URL(string: "https://huggingface.co/\(model.repository)/resolve/\(model.revision)/\(remotePath)")!
             let temporary = try await fetch(url)
             let target = staging.appendingPathComponent(asset.path)
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
