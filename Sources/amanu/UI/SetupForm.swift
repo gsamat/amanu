@@ -634,6 +634,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         controls.alignment = .centerY
         controls.spacing = 8
         controls.edgeInsets = NSEdgeInsets(top: 0, left: 58, bottom: 12, right: 14)
+        SetupLayout.fitRowHeight(controls)
         let row = SetupLayout.row(
             leading: diarizationSwitch,
             title: SetupLayout.title(localised(
