@@ -227,3 +227,13 @@ The upstream [PR 49](https://github.com/gsamat/amanu/pull/49) is open for review
 its readiness state does not establish that CI or user acceptance has passed.
 No release, feed/version change, production deployment, or installation over
 the user's app is part of this task.
+
+## Final local user-test bundle — build 448
+
+The universal `0.6.5 (448)` app was built from `01eb5beb4a083a729649375d55544064ec6a6950` with `make SIGN_ID=- BUILD=448 app`. The bounded build passed in 225.289 seconds (`tradeos-check-IIVZfn`); the independent package/extraction check passed in 7.140 seconds (`tradeos-check-jcbtDx`). Later documentation-only commits do not change the compiled source.
+
+The local archive is `amanu-0.6.5-model-choice-01eb5be-macos-universal.zip`, 24,201,702 bytes, SHA-256 `0faba09ed55dfde220c2130223a313d051ec9f7ee4df32692f70f39e9879a114`. The original bundle, copied app and independently extracted archive passed metadata, universal-main, deep/strict ad-hoc signature, macOS 14.2 compatibility, relative native dependency closure and actual main/helper help checks. All 22 license files retain their source bytes; ZIP contents, symlinks and permissions match. All seven signed native helper files match the earlier actually exercised bundled Nemotron helper, so its public 6/6-speaker, 3.08% DER result applies to this unchanged runtime. No notarization was performed.
+
+A byte-identical app was launched through LaunchServices from a temporary read-only image with an empty, private profile. A process sample confirmed it reached the existing `ApplicationRelocation` move-to-Applications modal rather than crashing. Computer Use exact-path selection timed out twice, so actual Settings clicks and packaged GUI interaction remain **unverified**. A proposed writable relaunch was not performed because private CFPreferences isolation could not be established. The diagnostic process was terminated, its temporary image detached, and no recording, download, installed-app replacement or ordinary-profile write was performed. Native EN/RU layout and behavior checks above remain separate evidence, not a substitute for this missing GUI flow.
+
+The ordinary suite retains its documented baseline language-order failure; final affected lifecycle/resolver checks passed 42 tests. Russian meeting accuracy, new recording/capture, actual VoiceOver and execution on physical Intel or macOS 14.2 remain outside executed evidence. Source publication, CI and user acceptance are recorded separately in PR #49.

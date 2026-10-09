@@ -67,7 +67,7 @@
 - [x] Add optional child-only environment support to `Subprocess` preserving existing callers. Scrub ambient `NEMO_SPEECH_*`; set nonexistent private `NEMO_SPEECH_MODEL_INDEX` and private model cache to fail closed. Keep output bounded and child errors generic.
 - [x] Build pinned NeMo, llama.cpp `bd4f514db14d87fded667787a7a963bfbaa98e89` and SentencePiece `31646a467d2051eb904e0b45de3a73e91fe1c1e3`; all code uses14.2, `GGML_NATIVE=OFF`, embedded Metal. Ship only required relative `bin/lib` dependency closure with licenses and pinned build verification.
 - [x] Make the existing build/app recipes produce, copy and sign inner libs/helper before the app; preserve ad-hoc launch fix. Check arm64, minOS14.2, dependencies and actual bundled help. No global installs.
-- [ ] Root validates the integrated runner on public annotated audio and ZIP roundtrip before checkpoint commit.
+- [x] Root validates the integrated runner on public annotated audio and the final build448 ZIP roundtrip before delivery.
 
 ### Task 3: Approved Settings/Setup radio-card controls, storage and diagnostics
 
@@ -89,5 +89,7 @@
 - [x] Inspect every specialist result and scoped diff; run relevant feature/config/recovery/native/layout/packaging tests and one full ordinary suite, documenting known baseline failure separately.
 - [x] Read-only whole-branch final review; fix actionable integration regressions and rerun only affected checks.
 - [ ] Conventional commit(s) with `Co-Authored-By: Codex <noreply@openai.com>`, verify exact SSH branch/upstream, push and update existing ready PR49 without auto-merge.
-- [ ] Build a separate universal local user-test app at the verified revision with a new build number; verify signing, macOS floor, actual helper/app startup and independent ZIP extraction. Keep installed app and normal profile untouched.
+- [x] Build a separate universal local user-test app at the verified revision with a new build number; verify signing, macOS floor, actual helper/app startup and independent ZIP extraction. Keep installed app and normal profile untouched.
 - [ ] Report chosen default, available models, local ZIP and current CI/acceptance limitations with exact revision evidence. No merge or public release.
+
+This checked-in plan records the pre-publication build448 checkpoint. The app was compiled from `01eb5beb4a083a729649375d55544064ec6a6950`; final packaging passed and source review has no remaining actionable finding. Native layout/behavior checks passed, but actual packaged Settings clicks remain unverified because Computer Use could not read the initial relocation modal. The diagnostic process and temporary image were closed. Current source publication, CI and user acceptance are recorded separately in PR #49.
