@@ -77,6 +77,13 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
+# Ad-hoc signatures have no Team ID for hardened runtime library validation.
+ifeq ($(strip $(SIGN_ID)),-)
+SIGN_OPTIONS = --options 0
+else
+SIGN_OPTIONS = --options runtime
+endif
+
 .PHONY: all build localvqe verify-localvqe app icon run-app identities verify clean release release-dry
 
 all: app
@@ -182,18 +189,18 @@ app: build $(ICON)
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate \
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app \
 		$(APP)/Contents/Frameworks/Sparkle.framework ; do \
-		codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp "$$nested" \
+		codesign --force --sign "$(SIGN_ID)" $(SIGN_OPTIONS) --timestamp "$$nested" \
 			2>/dev/null \
-		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
+		|| codesign --force --sign "$(SIGN_ID)" $(SIGN_OPTIONS) --timestamp=none "$$nested" ; \
 	done
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(SIGN_OPTIONS) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp $(APP) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(SIGN_OPTIONS) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
@@ -212,6 +219,7 @@ app: build $(ICON)
 		&& lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe | grep -q arm64 \
 		|| (echo "CTranscribe.framework not universal: $$(lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe)"; exit 1)
 	@python3 scripts/verify-macos-compatibility.py $(APP) $(MINIMUM_MACOS)
+	@"$(APP)/Contents/MacOS/$(APP_NAME)" --help >/dev/null
 	@echo "built → $(APP) ($(VERSION) build $(BUILD)) · $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"
 
 # Launch the way a person would: through LaunchServices, so the app is its own

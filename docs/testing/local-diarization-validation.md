@@ -40,6 +40,25 @@ checks. A passing unit suite does not establish diarization quality on meetings.
 | Native Whisper timed-word smoke | Passed: 21 timed words, all valid, three punctuated words; one of three segments had no word payload and requires turn fallback |
 | Annotated Russian meeting evaluation | Unverified; no permitted annotated Russian corpus supplied |
 
+## Local ad-hoc launch regression
+
+The first local test bundle, 0.6.5 build 444 from
+`436a8d1c8cb251de116251da195a0d0f39446661`, passed static signature checks but
+aborted before `main` when dyld rejected Whisper's signature. The ad-hoc app
+had Hardened Runtime enabled and no Team ID for library validation. Re-signing
+only the executable in an isolated copy without runtime flags made its
+`--help` launch succeed, confirming the packaging cause.
+
+The corrected recipe clears runtime flags only for ad-hoc development builds;
+certificate signing keeps Hardened Runtime. A native executable/dylib regression
+failed with the old recipe and passed with the fix. All 25 Python script tests
+passed without skips. The build 445 candidate passed `make app`, including the
+new bundled `--help` startup check, and opened the Russian first-run window via
+LaunchServices with recording and processing disabled in a diagnostic profile.
+This establishes startup on the stated Mac, not capture or diarization quality.
+`--help` checks linked-at-startup frameworks; LocalVQE is loaded later by echo
+processing and is not exercised by that command.
+
 ## Native model results
 
 Models and permitted corpus audio stayed outside the checkout. The public

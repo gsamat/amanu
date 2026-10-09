@@ -309,7 +309,9 @@ swift test
 attributes privacy permissions to the process responsible for starting the
 capture. A checkout with no signing certificate falls back to ad-hoc signing;
 that is sufficient for development, although macOS may ask for permissions
-again after a rebuild.
+again after a rebuild. Ad-hoc builds use development signing without Hardened
+Runtime; builds signed with a certificate retain it. `make app` also runs the
+bundled command's `--help` to verify that the frameworks linked at startup load.
 
 Before changing capture, packaging, permissions, or releases, read
 [`CLAUDE.md`](CLAUDE.md), [Things that will bite](docs/pitfalls.md), and

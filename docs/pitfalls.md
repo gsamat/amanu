@@ -87,6 +87,19 @@ contains it silently invalidates the app's own seal. The failure does not
 appear here — it appears as a Gatekeeper rejection on somebody else's Mac,
 after the release is public. `make app` signs in the right order; keep it.
 
+## Ad-hoc signatures cannot satisfy hardened library validation
+
+A local app signed with `-` has no Team ID. Enabling Hardened Runtime on that
+app makes dyld reject its ad-hoc native frameworks with `different Team IDs`,
+even when `codesign --verify --deep --strict` succeeds. This was reproduced
+with Whisper on macOS 26.7.1. Apple's [library validation rules](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.disable-library-validation)
+require Apple-signed libraries or the executable's signing team.
+
+`make app` explicitly clears runtime flags for ad-hoc development signing and
+retains Hardened Runtime for certificate signing. The production entitlements
+need no library-validation exception. Its final `--help` smoke loads the
+frameworks linked at startup without recording or reading user configuration.
+
 ## The release binary is not at `.build/release/amanu`
 
 The build is universal, and the two `--arch` flags that make it so move the
