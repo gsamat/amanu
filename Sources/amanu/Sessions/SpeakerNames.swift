@@ -104,7 +104,12 @@ struct SpeakerNames: Codable {
     /// What to print for a label: the name if there is one, otherwise the
     /// label unchanged.
     func name(for label: String) -> String {
-        speakers[label]?.name ?? label
+        if Self.isUnknown(label) { return label }
+        return speakers[label]?.name ?? label
+    }
+
+    static func isUnknown(_ label: String) -> Bool {
+        label == "them ?" || label == "speaker ?"
     }
 
     /// A transcript's own word for a voice, in the language of the window
@@ -121,6 +126,9 @@ struct SpeakerNames: Codable {
     /// line in the file pointing at each other: `они A` is `them A`, and
     /// there is only ever one `я`.
     static func described(label: String) -> String {
+        if isUnknown(label) {
+            return localised("Speaker unknown", "Говорящий не определён")
+        }
         let parts = label.split(separator: " ", maxSplits: 1)
         guard let head = parts.first else { return label }
         let rest = parts.count > 1 ? " " + parts[1] : ""

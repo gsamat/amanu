@@ -25,3 +25,18 @@ copyright and license notice of the quill project from which it began.
 The LocalVQE build uses a small Amanu macOS packaging patch to produce one
 self-contained Intel dylib instead of runtime-loaded CPU-variant libraries.
 The inference implementation and model are otherwise the pinned upstream work.
+
+## Optional local diarization weights
+
+The separate download from
+[FluidInference/speaker-diarization-coreml](https://huggingface.co/FluidInference/speaker-diarization-coreml)
+is pinned to `df2625ac79a7ac6b65ad868fee6d80f320da4232`. Its Community-1
+Segmentation, FBank, Embedding, PLDA, PldaRho, and serialized parameter artifacts
+are distributed under CC BY 4.0. Amanu verifies their sizes and SHA-256 hashes
+and retains `LICENSE`, `NOTICE.md`, `PROVENANCE.md`, `README.md`, and
+`provenance.json` beside the downloaded models. The
+[pinned notice](https://huggingface.co/FluidInference/speaker-diarization-coreml/blob/df2625ac79a7ac6b65ad868fee6d80f320da4232/NOTICE.md)
+defines attribution and the exact license scope; the SDK's Apache 2.0 license
+does not replace it. Legacy online diarizer models are not part of this
+download. The published provenance records historical limitations, so these
+binaries are not claimed to be fully reproducible conversions.

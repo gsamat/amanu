@@ -276,14 +276,23 @@ final class AppController {
     }
     private var ticker: Timer?
     private var recordingsBuilt = false
-    private lazy var recordings: RecordingsWindow = {
+    private lazy var recordings: RecordingsWindow = makeRecordingsWindow()
+
+    private func makeRecordingsWindow() -> RecordingsWindow {
         recordingsBuilt = true
         let window = RecordingsWindow(root: root)
         window.onImportFiles = { [weak self] files in self?.importFiles(files) }
         window.onCancelImport = { [weak self] in self?.cancelImport() }
         window.onChooseImport = { [weak self] in self?.chooseMediaToImport() }
+        let coordinator = transcription
+        window.onRetryDiarization = { dir in
+            try await coordinator.diarizeNow(dir)
+        }
+        window.onSkipDiarization = { dir in
+            try await coordinator.skipDiarization(dir)
+        }
         return window
-    }()
+    }
     private var network: NetworkMonitor?
     private var setupRequestObserver: NSObjectProtocol?
     /// How the app menu is told whether to offer **Setup…**; the status

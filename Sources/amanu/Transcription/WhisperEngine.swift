@@ -6,6 +6,21 @@ struct WhisperRuntimeSegment: Equatable, Sendable {
     let start: TimeInterval
     let end: TimeInterval
     let text: String
+    let words: [TranscriptWord]?
+
+    init(start: TimeInterval, end: TimeInterval, text: String,
+         words: [TranscriptWord]? = nil) {
+        self.start = start
+        self.end = end
+        self.text = text
+        self.words = words
+    }
+}
+
+struct WhisperRuntimeToken: Equatable, Sendable {
+    let bytes: [UInt8]
+    let start: TimeInterval
+    let end: TimeInterval
 }
 
 protocol WhisperRuntime: Sendable {
@@ -15,7 +30,22 @@ protocol WhisperRuntime: Sendable {
         language: String?,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> [WhisperRuntimeSegment]
+    func transcribe(
+        samples: [Float],
+        language: String?,
+        wordTimings: Bool,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment]
     func release() async
+}
+
+extension WhisperRuntime {
+    func transcribe(
+        samples: [Float], language: String?, wordTimings: Bool,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment] {
+        try await transcribe(samples: samples, language: language, progress: progress)
+    }
 }
 
 /// Local large-v3-turbo transcription through the official whisper.cpp C API.
@@ -54,6 +84,7 @@ actor WhisperEngine: TranscriptionEngine {
     /// transcript as a custom engine.
     nonisolated let name = "whisper"
     nonisolated let model: String
+    nonisolated let optionsFingerprint: String
     nonisolated let input: TranscriptionInput = .perTrack
 
     private let modelStore: WhisperModelStore
@@ -63,6 +94,7 @@ actor WhisperEngine: TranscriptionEngine {
     /// `MeetingLanguages.pin(for:)`.
     nonisolated let language: String?
     private let maximumSamples: Int
+    nonisolated let wordTimings: Bool
     private let progress: @Sendable (Progress) -> Void
 
     init(
@@ -71,12 +103,15 @@ actor WhisperEngine: TranscriptionEngine {
         expectedLanguages: [String] = MeetingLanguages.expected(
             primary: Config.transcriptionLanguage()),
         chunkDuration: TimeInterval = 10 * 60,
+        wordTimings: Bool = false,
         progress: @escaping @Sendable (Progress) -> Void = { _ in }
     ) {
         self.modelStore = modelStore
         self.runtime = runtime
         language = MeetingLanguages.pin(for: expectedLanguages)
         maximumSamples = Int((chunkDuration * 16_000).rounded())
+        self.wordTimings = wordTimings
+        optionsFingerprint = "language=\(language ?? "auto");word_timestamps=\(wordTimings)"
         self.progress = progress
         model = modelStore.manifest.id
     }
@@ -121,7 +156,8 @@ actor WhisperEngine: TranscriptionEngine {
             // input that a persistent queue should retire permanently.
             let segments = try await runtime.transcribe(
                 samples: samples,
-                language: language
+                language: language,
+                wordTimings: wordTimings
             ) { [progress] fraction in
                 let completed = Double(processedBeforeChunk) + Double(sampleCount) * fraction
                 progress(.transcribing(min(1, completed / Double(total))))
@@ -132,7 +168,11 @@ actor WhisperEngine: TranscriptionEngine {
                 return TranscriptSegment(
                     start: chunkStart + segment.start,
                     end: chunkStart + segment.end,
-                    text: text)
+                    text: text,
+                    words: segment.words?.map {
+                        TranscriptWord(start: chunkStart + $0.start,
+                            end: chunkStart + $0.end, text: $0.text)
+                    })
             }
             processedSamples += samples.count
         }
@@ -149,6 +189,7 @@ actor WhisperEngine: TranscriptionEngine {
 /// The converter owns at most one input buffer and one output chunk at once.
 final class WhisperPCMReader {
     static let sampleRate: Double = 16_000
+    enum ReaderError: Error { case stalledConversion }
 
     let estimatedSampleCount: Int
     private let file: AVAudioFile
@@ -184,44 +225,116 @@ final class WhisperPCMReader {
 
     func nextChunk() throws -> [Float]? {
         guard !reachedEnd else { return nil }
-        guard let output = AVAudioPCMBuffer(
-            pcmFormat: outputFormat,
-            frameCapacity: AVAudioFrameCount(maximumSamples))
-        else { return nil }
-
-        var conversionError: NSError?
-        var readError: Swift.Error?
-        let status = converter.convert(to: output, error: &conversionError) { [self] requested, state in
-            // AVAudioFile throws the unhelpful `nilError` when asked to read
-            // once more at exact EOF. Its frame position is the reliable EOF
-            // signal, so do not make that final read.
-            if file.framePosition >= file.length {
-                state.pointee = .endOfStream
-                return nil
-            }
-            do {
-                let frames = min(requested, inputBuffer.frameCapacity)
-                try file.read(into: inputBuffer, frameCount: frames)
-                if inputBuffer.frameLength == 0 {
+        var idlePasses = 0
+        while true {
+            try Task.checkCancellation()
+            guard let output = AVAudioPCMBuffer(
+                pcmFormat: outputFormat,
+                frameCapacity: AVAudioFrameCount(maximumSamples))
+            else { throw ReaderError.stalledConversion }
+            let before = file.framePosition
+            var conversionError: NSError?
+            var readError: Swift.Error?
+            let status = converter.convert(to: output, error: &conversionError) { [self] requested, state in
+                // AVAudioFile throws the unhelpful `nilError` when asked to read
+                // once more at exact EOF. Its frame position is the reliable EOF
+                // signal, so do not make that final read.
+                if file.framePosition >= file.length {
                     state.pointee = .endOfStream
                     return nil
                 }
-                state.pointee = .haveData
-                return inputBuffer
-            } catch {
-                readError = error
-                state.pointee = .endOfStream
-                return nil
+                do {
+                    let frames = min(requested, inputBuffer.frameCapacity)
+                    try file.read(into: inputBuffer, frameCount: frames)
+                    if inputBuffer.frameLength == 0 {
+                        state.pointee = .endOfStream
+                        return nil
+                    }
+                    state.pointee = .haveData
+                    return inputBuffer
+                } catch {
+                    readError = error
+                    state.pointee = .endOfStream
+                    return nil
+                }
+            }
+            if let readError { throw readError }
+            if let conversionError { throw conversionError }
+            if status == .endOfStream { reachedEnd = true }
+            if output.frameLength > 0, let channel = output.floatChannelData?[0] {
+                return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
+            }
+            if reachedEnd { return nil }
+            // inputRanDry can mean the converter needs more source frames, not EOF.
+            idlePasses = file.framePosition > before ? 0 : idlePasses + 1
+            if idlePasses > 1 { throw ReaderError.stalledConversion }
+        }
+    }
+}
+
+/// Reassembles native token bytes before decoding; a Cyrillic scalar may span tokens.
+enum WhisperWordTiming {
+    static func isLexicalToken(_ id: Int32, firstSpecialToken: Int32) -> Bool {
+        id >= 0 && id < firstSpecialToken
+    }
+
+    static func words(
+        from tokens: [WhisperRuntimeToken], segmentText: String,
+        duration: TimeInterval
+    ) -> [TranscriptWord]? {
+        guard duration.isFinite, duration > 0 else { return nil }
+        var result: [TranscriptWord] = []
+        var pending: [UInt8] = []
+        var pendingStart = 0.0
+        var pendingEnd = 0.0
+        var currentText = ""
+        var currentStart = 0.0
+        var currentEnd = 0.0
+
+        func flush() -> Bool {
+            guard !currentText.isEmpty else { return true }
+            guard currentStart < currentEnd else { return false }
+            result.append(TranscriptWord(
+                start: currentStart, end: currentEnd, text: currentText))
+            currentText = ""
+            return true
+        }
+
+        for token in tokens where !token.bytes.isEmpty {
+            guard token.start.isFinite, token.end.isFinite,
+                  token.start >= -1.0 / 16_000,
+                  token.start <= token.end,
+                  token.end <= duration + 1.0 / 16_000
+            else { return nil }
+            if pending.isEmpty { pendingStart = token.start }
+            pendingEnd = token.end
+            pending += token.bytes
+            guard pending.count <= 256 else { return nil }
+            guard let piece = String(bytes: pending, encoding: .utf8) else { continue }
+            pending = []
+            let lexical = piece.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !lexical.isEmpty else {
+                guard flush() else { return nil }
+                continue
+            }
+            guard !lexical.contains(where: \.isWhitespace) else { return nil }
+            let punctuation = lexical.unicodeScalars.allSatisfy {
+                CharacterSet.punctuationCharacters.contains($0)
+            }
+            if piece.first?.isWhitespace == true && !punctuation {
+                guard flush() else { return nil }
+            }
+            if currentText.isEmpty { currentStart = max(0, pendingStart) }
+            currentText += lexical
+            currentEnd = min(duration, pendingEnd)
+            if piece.last?.isWhitespace == true {
+                guard flush() else { return nil }
             }
         }
-        if let readError { throw readError }
-        if let conversionError { throw conversionError }
-        if status == .endOfStream { reachedEnd = true }
-        guard output.frameLength > 0, let channel = output.floatChannelData?[0] else {
-            reachedEnd = true
-            return nil
-        }
-        return Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
+        guard pending.isEmpty, flush(), !result.isEmpty else { return nil }
+        let assembled = result.map(\.text).joined().filter { !$0.isWhitespace }
+        let expected = segmentText.filter { !$0.isWhitespace }
+        return assembled == expected ? result : nil
     }
 }
 
@@ -260,16 +373,29 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
         language: String?,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> [WhisperRuntimeSegment] {
+        try await transcribe(samples: samples, language: language,
+            wordTimings: false, progress: progress)
+    }
+
+    func transcribe(
+        samples: [Float],
+        language: String?,
+        wordTimings: Bool,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment] {
         let run = WhisperRunState(progress: progress)
         return try await withTaskCancellationHandler {
-            try await DedicatedThread.run("whisper") { [self] in try decode(samples, language, run) }
+            try await DedicatedThread.run("whisper") { [self] in
+                try decode(samples, language, wordTimings, run)
+            }
         } onCancel: {
             run.cancel()
         }
     }
 
     private func decode(
-        _ samples: [Float], _ language: String?, _ run: WhisperRunState
+        _ samples: [Float], _ language: String?, _ wordTimings: Bool,
+        _ run: WhisperRunState
     ) throws -> [WhisperRuntimeSegment] {
         try contextLock.withLock {
             guard let context else { throw RuntimeError.notPrepared }
@@ -283,7 +409,8 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
             params.print_progress = false
             params.print_realtime = false
             params.print_timestamps = false
-            params.token_timestamps = false
+            params.token_timestamps = wordTimings
+            params.split_on_word = wordTimings
             params.progress_callback = { _, _, percentage, opaque in
                 guard let opaque else { return }
                 Unmanaged<WhisperRunState>.fromOpaque(opaque)
@@ -316,10 +443,34 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
                 guard let bytes = whisper_full_get_segment_text(context, Int32(index)) else {
                     return nil
                 }
+                let text = String(cString: bytes)
+                let tokens: [WhisperRuntimeToken] = wordTimings
+                    ? (0..<Int(whisper_full_n_tokens(context, Int32(index)))).compactMap { token in
+                        let timing = whisper_full_get_token_data(
+                            context, Int32(index), Int32(token))
+                        // whisper.cpp builds segment text from ids below EOT only.
+                        guard WhisperWordTiming.isLexicalToken(
+                            timing.id, firstSpecialToken: whisper_token_eot(context))
+                        else { return nil }
+                        guard let chars = whisper_full_get_token_text(
+                            context, Int32(index), Int32(token)) else { return nil }
+                        var raw: [UInt8] = []
+                        var offset = 0
+                        while chars[offset] != 0 {
+                            raw.append(UInt8(bitPattern: chars[offset]))
+                            offset += 1
+                        }
+                        return WhisperRuntimeToken(
+                            bytes: raw, start: Double(timing.t0) / 100,
+                            end: Double(timing.t1) / 100)
+                    } : []
                 return WhisperRuntimeSegment(
                     start: Double(whisper_full_get_segment_t0(context, Int32(index))) / 100,
                     end: Double(whisper_full_get_segment_t1(context, Int32(index))) / 100,
-                    text: String(cString: bytes))
+                    text: text,
+                    words: wordTimings ? WhisperWordTiming.words(
+                        from: tokens, segmentText: text,
+                        duration: Double(samples.count) / 16_000) : nil)
             }
         }
     }

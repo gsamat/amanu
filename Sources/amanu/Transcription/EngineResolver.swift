@@ -18,6 +18,20 @@ import Foundation
 /// gigabytes each, and a queue that alternates between two would otherwise
 /// keep both resident.
 actor EngineResolver {
+    private struct Key: Hashable {
+        let name: String
+        let model: String
+        let options: String
+        let wordTimings: Bool
+
+        init(_ engine: TranscriptionEngine, wordTimings: Bool = false) {
+            name = engine.name
+            model = engine.model
+            options = engine.optionsFingerprint
+            self.wordTimings = engine.name == "whisper" && wordTimings
+        }
+    }
+
     /// What the resolver asks of the machine. A parameter so that a test can
     /// answer for a Mac with keys, models and a network it does not have.
     struct Environment: Sendable {
@@ -26,13 +40,15 @@ actor EngineResolver {
         var reachable: @Sendable (_ provider: String) async -> Bool
         var cloudEngine: @Sendable (_ provider: String) throws -> TranscriptionEngine
         var localEngine: @Sendable (_ name: String) -> TranscriptionEngine
+        var timedLocalEngine: (@Sendable (_ name: String, _ wordTimings: Bool) -> TranscriptionEngine)? = nil
 
         static let live = Environment(
             localModels: { Platform.supportsLocalModels },
             hasKey: { CloudService(provider: $0).key() != nil },
             reachable: { await CloudService(provider: $0).reachable() },
             cloudEngine: { try EngineResolver.cloudEngine($0) },
-            localEngine: { EngineResolver.localEngine(named: $0) })
+            localEngine: { EngineResolver.localEngine(named: $0) },
+            timedLocalEngine: { EngineResolver.localEngine(named: $0, wordTimings: $1) })
     }
 
     /// An engine settled on in advance rather than chosen for the machine at
@@ -40,11 +56,12 @@ actor EngineResolver {
     /// the configured answer, and wants it decided late.
     private let fixedEngine: TranscriptionEngine?
     let environment: Environment
-    private var held: [String: TranscriptionEngine] = [:]
+    private var held: [Key: TranscriptionEngine] = [:]
+    private var prepared = Set<Key>()
     /// Engines that could not be prepared during this drain. Asked for again,
     /// they fail at once rather than starting another half-gigabyte download
     /// for every session in the queue; the next drain tries afresh.
-    private var unpreparable: [String: EnginePreparationFailed] = [:]
+    private var unpreparable: [Key: EnginePreparationFailed] = [:]
 
     init(fixed: TranscriptionEngine? = nil, environment: Environment = .live) {
         fixedEngine = fixed
@@ -52,8 +69,8 @@ actor EngineResolver {
     }
 
     /// The engine this session asks for, prepared.
-    func engine(for session: URL) async throws -> TranscriptionEngine {
-        if let fixedEngine { return try await hold(fixedEngine.name, fixedEngine) }
+    func engine(for session: URL, wordTimings: Bool = false) async throws -> TranscriptionEngine {
+        if let fixedEngine { return try await hold(Key(fixedEngine), fixedEngine) }
         let configured = Self.configuredEngine(for: session)
         if !Self.knownEngines.contains(configured) {
             FileHandle.standardError.write(Data(
@@ -74,7 +91,7 @@ actor EngineResolver {
         case .cloud:
             return try await cloud(provider)
         case .local:
-            return try await self.local(local)
+            return try await self.local(named: local, wordTimings: wordTimings)
         case .cloudOrLocal:
             // Cloud when it's actually usable, local otherwise. Asked per
             // session rather than once, because the answer changes: the
@@ -84,12 +101,12 @@ actor EngineResolver {
                 FileHandle.standardError.write(Data(
                     "\(provider) unreachable — transcribing locally with \(local)\n".utf8
                 ))
-                return try await self.local(local)
+                return try await self.local(named: local, wordTimings: wordTimings)
             }
             do {
                 return try await cloud(provider)
             } catch {
-                return try await self.local(local)
+                return try await self.local(named: local, wordTimings: wordTimings)
             }
         case .unavailable:
             throw EngineUnavailable.noLocalModels
@@ -98,8 +115,8 @@ actor EngineResolver {
 
     /// The local engine for one session whose cloud engine failed for want
     /// of a network. The next session is resolved from scratch.
-    func localFallback() async throws -> TranscriptionEngine {
-        try await local(Config.transcriptionLocalEngine())
+    func localFallback(wordTimings: Bool = false) async throws -> TranscriptionEngine {
+        try await local(named: Config.transcriptionLocalEngine(), wordTimings: wordTimings)
     }
 
     /// Whether the machine can rescue a failed cloud transcription locally.
@@ -108,38 +125,72 @@ actor EngineResolver {
     func release() async {
         let engines = held.values
         held = [:]
+        prepared = []
         unpreparable = [:]
         for engine in engines { await engine.release() }
     }
 
     private func cloud(_ provider: String) async throws -> TranscriptionEngine {
-        if let engine = held[provider] { return engine }
-        return try await hold(provider, try environment.cloudEngine(provider))
+        if let existing = held.first(where: {
+            $0.key.name == provider && Self.isCloud($0.value)
+        }) {
+            return try await hold(existing.key, existing.value)
+        }
+        let engine = try environment.cloudEngine(provider)
+        return try await hold(Key(engine), engine)
     }
 
-    private func local(_ name: String) async throws -> TranscriptionEngine {
-        if let engine = held[name] { return engine }
-        for (other, engine) in held where other != name && !Self.isCloud(engine) {
+    func local(named name: String, wordTimings: Bool = false,
+               prepare: Bool = true) async throws -> TranscriptionEngine {
+        guard Config.localEngines.contains(name) else {
+            throw EngineUnavailable.unknownLocalEngine(name)
+        }
+        if let fixedEngine {
+            guard fixedEngine.name == name else {
+                throw EngineUnavailable.unknownLocalEngine(name)
+            }
+            return try await hold(Key(fixedEngine), fixedEngine, prepare: prepare)
+        }
+        guard environment.localModels() else { throw EngineUnavailable.noLocalModels }
+        let engine = environment.timedLocalEngine?(name, wordTimings)
+            ?? environment.localEngine(name)
+        let key = Key(engine, wordTimings: wordTimings)
+        if let existing = held[key] {
+            return try await hold(key, existing, prepare: prepare)
+        }
+        for (other, engine) in held where other != key && !Self.isCloud(engine) {
             held[other] = nil
+            prepared.remove(other)
             await engine.release()
         }
-        return try await hold(name, environment.localEngine(name))
+        return try await hold(key, engine, prepare: prepare)
     }
 
-    private func hold(_ name: String, _ engine: TranscriptionEngine) async throws -> TranscriptionEngine {
-        if let held = held[name] { return held }
-        if let failed = unpreparable[name] { throw failed }
+    func prepare(_ engine: TranscriptionEngine) async throws {
+        guard let (key, heldEngine) = held.first(where: { $0.value === engine }) else {
+            throw EngineUnavailable.unmanagedEngine
+        }
+        _ = try await hold(key, heldEngine)
+    }
+
+    private func hold(_ key: Key, _ engine: TranscriptionEngine,
+                      prepare: Bool = true) async throws -> TranscriptionEngine {
+        let retained = held[key] ?? engine
+        held[key] = retained
+        guard prepare, !prepared.contains(key) else { return retained }
+        if let failed = unpreparable[key] { throw failed }
         do {
-            try await engine.prepare()
+            try await retained.prepare()
+            try Task.checkCancellation()
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            let failed = EnginePreparationFailed(engine: name, underlying: error)
-            unpreparable[name] = failed
+            let failed = EnginePreparationFailed(engine: key.name, underlying: error)
+            unpreparable[key] = failed
             throw failed
         }
-        held[name] = engine
-        return engine
+        prepared.insert(key)
+        return retained
     }
 
     // MARK: - what the configuration adds up to
@@ -172,8 +223,8 @@ actor EngineResolver {
         }
     }
 
-    static func localEngine(named name: String) -> TranscriptionEngine {
-        if name == "whisper" { return WhisperEngine() }
+    static func localEngine(named name: String, wordTimings: Bool = false) -> TranscriptionEngine {
+        if name == "whisper" { return WhisperEngine(wordTimings: wordTimings) }
         if name == "gigaam" { return GigaAMEngine() }
         return ParakeetEngine()
     }
@@ -222,12 +273,20 @@ actor EngineResolver {
     /// API key, and adding one is a thing a person does after reading this.
     enum EngineUnavailable: TranscriptionFailure, CustomStringConvertible {
         case noLocalModels
+        case unknownLocalEngine(String)
+        case unmanagedEngine
 
         var isPermanent: Bool { false }
         var isEnvironmental: Bool { true }
 
         var description: String {
-            "local transcription needs Apple Silicon, and this Mac has no key "
+            if case .unknownLocalEngine(let name) = self {
+                return "unknown local transcription engine \(name)"
+            }
+            if case .unmanagedEngine = self {
+                return "transcription engine is not held by this resolver"
+            }
+            return "local transcription needs Apple Silicon, and this Mac has no key "
                 + "for a cloud engine — put an AssemblyAI one in "
                 + "\(Config.assemblyAIKeyPath.path) or an OpenAI one in "
                 + "\(Config.openAIKeyPath.path), or an ElevenLabs one in "

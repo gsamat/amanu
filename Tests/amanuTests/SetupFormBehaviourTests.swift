@@ -10,6 +10,20 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SetupFormBehaviourTests {
+    @Test("Speaker separation is opt-in and its model requires an explicit download click",
+          .freshHome, .enabled(if: Platform.supportsLocalModels))
+    func diarizationSwitchDoesNotDownload() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let toggle = try #require(Self.view("transcription.local-diarization", in: form) as? NSSwitch)
+        let download = try #require(Self.button("transcription.diarization.download", in: form))
+        #expect(toggle.state == .off)
+        #expect(download.isEnabled)
+        toggle.performClick(nil)
+        #expect(Config.localDiarizationEnabled())
+        #expect(download.isEnabled, "enabling the feature started a hidden download")
+    }
+
     /// A form whose transcription settings live in memory and say "parakeet,
     /// on this Mac", so the local model is the thing it is waiting for.
     private static func localForm() -> SetupForm {

@@ -14,6 +14,7 @@ import Foundation
 /// before a session is transcribed again.
 enum TranscriptionScratch {
     static let echoFolderPrefix = ".transcription-aec-"
+    static let diarizationCropPrefix = ".diarization-crop-"
     static let sliceFolder = "openai-slices"
     static let derivedAudio = [
         TranscriptionInputs.mixedFile, "mixed.tmp.m4a",
@@ -25,8 +26,15 @@ enum TranscriptionScratch {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
         var found = ProviderCache.files(in: dir)
         found += names
-            .filter { $0.hasPrefix(echoFolderPrefix) || $0 == sliceFolder }
+            .filter { $0.hasPrefix(echoFolderPrefix)
+                || $0.hasPrefix(diarizationCropPrefix) || $0 == sliceFolder }
             .map { dir.appendingPathComponent($0) }
+        // A candidate holds recognized meeting text between inference and the
+        // multi-file commit. Keep it only while that exact stage can resume.
+        if names.contains(DiarizationArtifacts.candidateFile),
+           includingDerivedAudio || DiarizationState.read(dir)?.isOutstanding != true {
+            found.append(dir.appendingPathComponent(DiarizationArtifacts.candidateFile))
+        }
         if includingDerivedAudio {
             found += names.filter(derivedAudio.contains).map { dir.appendingPathComponent($0) }
         }

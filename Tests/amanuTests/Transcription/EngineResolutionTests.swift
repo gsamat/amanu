@@ -10,6 +10,50 @@ struct EngineResolutionTests {
         PostProcessor.readTranscript(session)?.engine
     }
 
+    @Test("Whisper timing mode gets a separately prepared cached engine")
+    func timingModeChangesCacheKey() async throws {
+        let plain = FakeEngine("whisper")
+        let timed = FakeEngine("whisper")
+        var environment = EngineResolver.Environment.fake(local: { _ in plain })
+        environment.timedLocalEngine = { _, words in words ? timed : plain }
+        let resolver = EngineResolver(environment: environment)
+
+        _ = try await resolver.local(named: "whisper")
+        _ = try await resolver.local(named: "whisper", wordTimings: true)
+        _ = try await resolver.local(named: "whisper", wordTimings: true)
+
+        #expect(plain.counts.prepared == 1)
+        #expect(plain.counts.released == 1)
+        #expect(timed.counts.prepared == 1)
+        await resolver.release()
+        #expect(timed.counts.released == 1)
+    }
+
+    @Test("Explicit local retry keeps the injected fixed engine")
+    func localRetryUsesFixedEngine() async throws {
+        let fixed = FakeEngine("parakeet")
+        let resolver = EngineResolver(fixed: fixed,
+            environment: .fake(localModels: false))
+        _ = try await resolver.local(named: "parakeet", wordTimings: true)
+        _ = try await resolver.local(named: "parakeet", wordTimings: true)
+        #expect(fixed.counts.prepared == 1)
+    }
+
+    @Test("Cached-word retry holds a model without preparing it until ASR is needed")
+    func unpreparedLocalIsManaged() async throws {
+        let fake = FakeEngine("whisper")
+        let resolver = EngineResolver(environment: .fake(local: { _ in fake }))
+        let held = try await resolver.local(named: "whisper", wordTimings: true,
+            prepare: false)
+        #expect(fake.counts.prepared == 0)
+
+        try await resolver.prepare(held)
+        try await resolver.prepare(held)
+        #expect(fake.counts.prepared == 1)
+        await resolver.release()
+        #expect(fake.counts.released == 1)
+    }
+
     /// "Transcribe again → Whisper" on a meeting that was never to leave the
     /// Mac, queued behind a session that had already loaded the cloud engine,
     /// used to be uploaded to that cloud engine.

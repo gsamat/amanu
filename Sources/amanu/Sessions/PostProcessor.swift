@@ -64,7 +64,9 @@ enum PostProcessor {
             return failedFor == MeetingEgress.fingerprint(for: purpose)
         }
 
-        guard exists("transcript.json"), !TranscriptVersions.isRequested(dir) else { return Work() }
+        guard exists("transcript.json"), !TranscriptVersions.isRequested(dir),
+              DiarizationState.read(dir)?.isFinal != false
+        else { return Work() }
 
         var work = Work()
         work.names = policy.names
@@ -371,6 +373,13 @@ enum PostProcessor {
                 SessionState.Key.transcriptionAttempts: nil,
                 SessionState.Key.transcriptionDeferred: nil,
             ])
+            if DiarizationState.read(dir) != nil {
+                try DiarizationState(
+                    request: .init(engine: Config.localEngines.contains(engine)
+                        ? engine : Config.transcriptionLocalEngine(),
+                        threshold: Config.diarizationThreshold()),
+                    status: .pending).write(to: dir)
+            }
             TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
             appendSessionLog("queued a new transcript version", to: dir)
             return true

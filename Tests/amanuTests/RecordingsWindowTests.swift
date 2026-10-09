@@ -10,6 +10,25 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RecordingsWindowTests {
+    @Test("Diarization details distinguish confirmed speakers, unknown speech and retained retry audio")
+    func diarizationDetails() {
+        var state = DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .failed)
+        state.confirmedSpeakers = 3
+        state.hasUnknown = true
+        state.rejectedTurnCount = 2
+        state.reason = "Model unavailable"
+        let line = RecordingsWindow.diarizationLine(state)
+        #expect(line.contains("failed"))
+        #expect(line.contains("3 confirmed speakers"))
+        #expect(line.contains("some speech has no speaker"))
+        #expect(line.contains("ignored 2 invalid speaker turns"))
+        #expect(line.contains("audio kept for retry"))
+        #expect(line.contains("Model unavailable"))
+        state.status = .completed
+        #expect(!RecordingsWindow.diarizationLine(state).contains("audio kept for retry"))
+    }
+
     private static func folder() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-recordings-\(UUID().uuidString)")

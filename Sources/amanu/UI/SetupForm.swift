@@ -149,6 +149,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let keepAudio = NSSwitch()
     private let liveTranscription = NSSwitch()
     private let liveStatus = NSTextField(labelWithString: "")
+    private let diarizationSwitch = NSSwitch()
+    private let diarizationStatus = NSTextField(labelWithString: "")
+    private let diarizationDownload = NSButton()
+    private var diarizationDownloadTask: Task<Void, Never>?
+    private var diarizationProgress: Double?
+    private var diarizationError: String?
     private let liveModelStore = LiveTranscriptionModelStore()
     /// What the models on this Mac weigh, for the two rows that say so. The
     /// figure in each row's prose is what a download will cost; this is what
@@ -260,7 +266,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             localised("Access", "Доступ"),
             content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
-        var transcription: [NSView] = [transcriptionRows(), languageRow()]
+        var transcription: [NSView] = [transcriptionRows(), languageRow(),
+                                      SetupLayout.box([diarizationRow()])]
         // The live transcript is a local streaming model, so on an Intel Mac
         // there is nothing behind the switch. Left out rather than shown
         // switched off: an offer that can never be accepted.
@@ -305,7 +312,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // label through however many stacks the layout has this week.
         for (toggle, name) in [
             (cloudSwitch, "transcription.cloud"), (localSwitch, "transcription.local"),
-            (liveTranscription, "transcription.live"), (keepAudio, "files.keep-audio"),
+            (liveTranscription, "transcription.live"),
+            (diarizationSwitch, "transcription.local-diarization"),
+            (keepAudio, "files.keep-audio"),
             (summariesOn, "summary.enabled"), (menuBarIcon, "icons.menu-bar"),
             (dockIcon, "icons.dock"), (autoRecord, "auto-record"), (analytics, "analytics"),
         ] {
@@ -606,6 +615,97 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                         + "итоговую расшифровку всё равно делает parakeet."),
                 lines: 2, width: 520),
             trailing: [liveStatus])
+    }
+
+    private func diarizationRow() -> NSView {
+        diarizationSwitch.target = self
+        diarizationSwitch.action = #selector(diarizationToggled)
+        diarizationStatus.font = SetupLayout.statusFont
+        diarizationStatus.textColor = .secondaryLabelColor
+        diarizationStatus.lineBreakMode = .byWordWrapping
+        diarizationStatus.maximumNumberOfLines = 2
+        diarizationDownload.title = localised("Download model", "Скачать модель")
+        diarizationDownload.bezelStyle = .rounded
+        diarizationDownload.target = self
+        diarizationDownload.action = #selector(downloadDiarizationClicked)
+        diarizationDownload.identifier = .init("transcription.diarization.download")
+        let controls = NSStackView(views: [diarizationDownload, diarizationStatus])
+        controls.orientation = .horizontal
+        controls.alignment = .centerY
+        controls.spacing = 8
+        controls.edgeInsets = NSEdgeInsets(top: 0, left: 58, bottom: 12, right: 14)
+        let row = SetupLayout.row(
+            leading: diarizationSwitch,
+            title: SetupLayout.title(localised(
+                "Separate speakers on this Mac", "Разделять говорящих на этом маке")),
+            detail: SetupLayout.detail(localised(
+                "Optional after local transcription. Download the model separately; no audio is uploaded.",
+                "Необязательный этап после локальной расшифровки. Модель скачивается отдельно; звук не загружается."),
+                lines: 2, width: 440))
+        let block = NSStackView(views: [row, controls])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 0
+        row.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+        controls.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+        return block
+    }
+
+    @objc private func diarizationToggled() {
+        let enabled = diarizationSwitch.state == .on && Platform.supportsLocalModels
+        write(["transcription", "local_diarization"], enabled ? true : nil)
+        refresh()
+    }
+
+    @objc private func downloadDiarizationClicked() {
+        guard Platform.supportsLocalModels, diarizationDownloadTask == nil else { return }
+        diarizationError = nil
+        diarizationProgress = 0
+        refreshDiarization()
+        diarizationDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await DiarizationModelStore.shared.download { [weak self] fraction in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.diarizationDownloadTask != nil else { return }
+                        self.diarizationProgress = max(self.diarizationProgress ?? 0, fraction)
+                        self.refreshDiarization()
+                    }
+                }
+            } catch {
+                diarizationError = error.localizedDescription
+            }
+            diarizationDownloadTask = nil
+            diarizationProgress = nil
+            refreshDiarization()
+        }
+    }
+
+    private func refreshDiarization() {
+        diarizationSwitch.isEnabled = Platform.supportsLocalModels
+        diarizationSwitch.state = Config.localDiarizationEnabled() ? .on : .off
+        let ready = DiarizationModelStore.isReady(at: DiarizationModelStore.shared.directory)
+        diarizationDownload.isEnabled = Platform.supportsLocalModels && diarizationDownloadTask == nil && !ready
+        diarizationDownload.title = diarizationError == nil
+            ? localised("Download model", "Скачать модель")
+            : localised("Retry download", "Повторить загрузку")
+        if !Platform.supportsLocalModels {
+            diarizationStatus.stringValue = localised("Needs Apple Silicon", "Нужен Apple Silicon")
+        } else if let fraction = diarizationProgress {
+            diarizationStatus.stringValue = localised("downloading ", "загрузка ")
+                + "\(Int(fraction * 100))%"
+        } else if ready {
+            diarizationStatus.stringValue = localised("ready · ", "готова · ")
+                + ModelStorage.describe(bytes: modelStorage.diarizationModel().bytes)
+        } else if let diarizationError {
+            diarizationStatus.stringValue = localised("download failed: ", "ошибка загрузки: ")
+                + diarizationError
+        } else {
+            diarizationStatus.stringValue = localised("download separately · about ",
+                                                       "скачать отдельно · около ")
+                + ModelStorage.describe(bytes: DiarizationModelStore.advertisedBytes)
+        }
+        diarizationStatus.textColor = ready ? .systemGreen : .secondaryLabelColor
     }
 
     /// Where the recordings live, and the one thing worth saying about the
@@ -1750,6 +1850,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keepAudio.state = Config.keepAudio() ? .on : .off
 
         liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
+        refreshDiarization()
         let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
         if liveModelStore.isReady(language: livePrompt) {
             liveStatus.stringValue = Self.downloaded(modelStorage.liveModel())

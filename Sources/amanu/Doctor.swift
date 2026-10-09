@@ -41,6 +41,7 @@ enum DoctorReport {
         guard includeBackendChecks else { return startup }
         return startup + [
             checkTranscription(),
+            checkDiarization(),
             checkAutoRecord(),
             checkSummary(),
         ] + [checkSpeakerNames()].compactMap { $0 }
@@ -479,6 +480,34 @@ enum DoctorReport {
         if Config.cloudEngines.contains(configured) { return checkCloud(provider) }
         guard Platform.supportsLocalModels else { return checkWithoutLocalModels(provider) }
         return checkParakeet()
+    }
+
+    static func checkDiarization() -> Check {
+        let configured = Config.value(.localDiarization, in: Config.raw()) as? NSNumber
+        let requested = configured.map {
+            CFGetTypeID($0) == CFBooleanGetTypeID() && $0.boolValue
+        } == true
+        let directory = DiarizationModelStore.shared.directory
+        let ready = DiarizationModelStore.isReady(at: directory)
+        let bytes = ModelStorage.bytes(of: directory)
+        if requested && !Platform.supportsLocalModels {
+            return Check(name: "local diarization", status: .warn("needs Apple Silicon"),
+                         remediation: "turn off transcription.local_diarization on this Mac")
+        }
+        if requested && !ready {
+            return Check(name: "local diarization",
+                         status: .warn(bytes > 0 ? "model set incomplete or corrupt" : "model not downloaded"),
+                         remediation: "download the pinned Community-1 model in Settings; "
+                            + "every segmentation, embedding, FBank and PLDA asset must verify")
+        }
+        if ready {
+            return Check(name: "local diarization",
+                         status: .warn("\(requested ? "on" : "off") · model ready · "
+                            + "\(ModelStorage.describe(bytes: bytes)) · Community-1 scoped CC-BY-4.0 · "
+                            + "revision \(DiarizationModelStore.revision.prefix(12))"),
+                         remediation: nil)
+        }
+        return Check(name: "local diarization", status: .ok, remediation: nil)
     }
 
     /// An Intel Mac, where anything but an explicit cloud engine would like to

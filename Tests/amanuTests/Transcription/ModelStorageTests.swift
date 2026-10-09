@@ -37,6 +37,7 @@ struct ModelStorageTests {
             live: LiveTranscriptionModelStore(root: root.appendingPathComponent("live")),
             whisper: WhisperModelStore(directory: root.appendingPathComponent("whisper")),
             gigaAM: GigaAMModelStore(directory: root.appendingPathComponent("gigaam")),
+            diarizationDirectory: root.appendingPathComponent("diarization"),
             parakeetCache: { version in
                 root.appendingPathComponent(version == .v2 ? "parakeet-v2" : "parakeet-v3")
             })
@@ -63,9 +64,19 @@ struct ModelStorageTests {
         let empty = storage.all(configured: .v3)
         #expect(empty.map(\.name) == [
             "parakeet v3", "Whisper large-v3-turbo", "GigaAM v3", "NVIDIA nemotron",
+            "Speaker diarization",
         ])
         #expect(empty.allSatisfy { !$0.isDownloaded })
         #expect(storage.total(empty) == 0)
+
+        // A broken download still occupies disk and must be visible to the
+        // storage view, without being mistaken for a usable model.
+        _ = try Self.directory(root, "diarization", files: 1)
+        let incomplete = storage.diarizationModel()
+        #expect(incomplete.bytes == 1024)
+        #expect(!incomplete.isDownloaded)
+        #expect(storage.total(storage.all(configured: .v3)) == 1024)
+        try FileManager.default.removeItem(at: incomplete.directory)
 
         // Half a gigabyte left behind by a version nobody uses any more is
         // exactly what the list is for.
@@ -74,7 +85,7 @@ struct ModelStorageTests {
         let both = storage.all(configured: .v3)
         #expect(both.map(\.name) == [
             "parakeet v3", "parakeet v2", "Whisper large-v3-turbo", "GigaAM v3",
-            "NVIDIA nemotron",
+            "NVIDIA nemotron", "Speaker diarization",
         ])
         #expect(storage.total(both) == 6 * 1024)
     }
@@ -88,6 +99,7 @@ struct ModelStorageTests {
             live: store,
             whisper: WhisperModelStore(directory: root.appendingPathComponent("whisper")),
             gigaAM: GigaAMModelStore(directory: root.appendingPathComponent("gigaam")),
+            diarizationDirectory: root.appendingPathComponent("diarization"),
             parakeetCache: { _ in root })
 
         let variant = store.variantDirectory(language: "multilingual")

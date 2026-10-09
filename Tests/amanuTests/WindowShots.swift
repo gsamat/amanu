@@ -459,7 +459,10 @@ struct WindowGallery {
             NSApp.appearance = appearance
             var window: RecordingsWindow?
             appearance?.performAsCurrentDrawingAppearance { window = RecordingsWindow(root: root) }
-            owners.append(try #require(window))
+            let recordings = try #require(window)
+            recordings.onRetryDiarization = { _ in }
+            recordings.onSkipDiarization = { _ in }
+            owners.append(recordings)
             let title = localised("Recordings", "Записи")
             let panel = try #require(NSApp.windows.last { $0.title == title })
             panel.appearance = appearance
@@ -470,6 +473,12 @@ struct WindowGallery {
             // The detail half of the window is empty until something is
             // selected, and an empty half is not what the window looks like.
             if let table = firstTableView(in: content), table.numberOfRows > 0 {
+                table.selectRowIndexes([0], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-completed-\(name)")
+                table.selectRowIndexes([1], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-pending-\(name)")
+                table.selectRowIndexes([2], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-failed-\(name)")
                 table.selectRowIndexes([0], byExtendingSelection: false)
             }
             try write(panel, "recordings-\(name)")
@@ -539,15 +548,24 @@ struct WindowGallery {
                 "trigger": "mic-activity",
             ],
             transcript: true, speakers: true, summary: true)
+        var completed = DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .completed)
+        completed.confirmedSpeakers = 3
+        completed.hasUnknown = true
+        try completed.write(to: root.appendingPathComponent("2026.08.20-1030"))
 
         try session(
             in: root, named: "2026.08.19-1615",
             meta: [
                 "started": "2026-08-19T16:15:00Z", "duration_seconds": 1500,
                 "title": localised("Weekly with Fyodor", "Планёрка с Фёдором"),
-                "trigger": "calendar",
+                "trigger": "calendar", "files": ["source": "source.m4a"],
             ],
             transcript: true, speakers: false, summary: false)
+        try DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .pending)
+            .write(to: root.appendingPathComponent("2026.08.19-1615"))
+        try Data([0]).write(to: root.appendingPathComponent("2026.08.19-1615/source.m4a"))
 
         try session(
             in: root, named: "2026.08.19-0905",
@@ -560,6 +578,10 @@ struct WindowGallery {
                     "no spoken audio in the recording",
             ],
             transcript: false, speakers: false, summary: false)
+        var failedDiarization = DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .failed)
+        failedDiarization.reason = localised("Model unavailable", "Модель недоступна")
+        try failedDiarization.write(to: root.appendingPathComponent("2026.08.19-0905"))
         try Data([0]).write(to: root
             .appendingPathComponent("2026.08.19-0905/source.m4a"))
 

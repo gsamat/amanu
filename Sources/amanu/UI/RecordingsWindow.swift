@@ -27,12 +27,17 @@ final class RecordingsWindow: NSObject {
     var onImportFiles: (([URL]) -> Void)?
     var onCancelImport: (() -> Void)?
     var onChooseImport: (() -> Void)?
+    var onRetryDiarization: ((URL) async throws -> Void)?
+    var onSkipDiarization: ((URL) async throws -> Void)?
     private var root: URL
     private let panel: NSWindow
     private let table = NSTableView()
     private let scroll = NSScrollView()
 
     private let detailTitle = NSTextField(labelWithString: "")
+    private let diarizationLabel = NSTextField(labelWithString: "")
+    private let retryDiarizationButton = NSButton()
+    private let skipDiarizationButton = NSButton()
     private let openingLabel = NSTextField(labelWithString: "")
     private let speakersStack = NSStackView()
     private let finishButton = NSButton()
@@ -183,6 +188,23 @@ final class RecordingsWindow: NSObject {
             for: .horizontal)
         busyLabel.font = .systemFont(ofSize: 11)
         busyLabel.textColor = .secondaryLabelColor
+        diarizationLabel.font = .systemFont(ofSize: 11)
+        diarizationLabel.textColor = .secondaryLabelColor
+        diarizationLabel.lineBreakMode = .byWordWrapping
+        diarizationLabel.maximumNumberOfLines = 3
+        for (button, title, action) in [
+            (retryDiarizationButton, localised("Retry speaker separation", "Повторить разделение"),
+             #selector(retryDiarizationClicked)),
+            (skipDiarizationButton, localised("Skip speaker separation", "Пропустить разделение"),
+             #selector(skipDiarizationClicked)),
+        ] as [(NSButton, String, Selector)] {
+            button.title = title
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+        }
+        retryDiarizationButton.identifier = .init("diarization.retry")
+        skipDiarizationButton.identifier = .init("diarization.skip")
 
         speakersStack.orientation = .vertical
         speakersStack.alignment = .leading
@@ -279,7 +301,11 @@ final class RecordingsWindow: NSObject {
         versionSelector.target = self
         versionSelector.action = #selector(versionSelected(_:))
         versionSelector.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let detail = NSStackView(views: [detailTitle, versionSelector, detailTabs, processingButtons, busyLabel])
+        let diarizationActions = NSStackView(views: [retryDiarizationButton, skipDiarizationButton])
+        diarizationActions.orientation = .horizontal
+        diarizationActions.spacing = 8
+        let detail = NSStackView(views: [detailTitle, diarizationLabel, diarizationActions,
+                                         versionSelector, detailTabs, processingButtons, busyLabel])
         detail.orientation = .vertical
         detail.distribution = .fill
         detail.alignment = .leading
@@ -287,6 +313,7 @@ final class RecordingsWindow: NSObject {
         detail.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
         NSLayoutConstraint.activate([
             detailTitle.widthAnchor.constraint(equalTo: detail.widthAnchor),
+            diarizationLabel.widthAnchor.constraint(equalTo: detail.widthAnchor),
             detailTabs.widthAnchor.constraint(equalTo: detail.widthAnchor),
             versionSelector.widthAnchor.constraint(lessThanOrEqualTo: detail.widthAnchor),
             detail.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
@@ -460,11 +487,15 @@ final class RecordingsWindow: NSObject {
             openingLabel.stringValue = ""
             summaryText.string = ""
             transcriptText.string = ""
+            diarizationLabel.isHidden = true
+            retryDiarizationButton.isHidden = true
+            skipDiarizationButton.isHidden = true
             updateButtons()
             return
         }
 
         detailTitle.stringValue = item.title ?? item.name
+        updateDiarization(for: item.dir)
         let dir = artifactDirectory ?? item.dir
         if let request = selectedVersion, request.isRequest {
             summaryText.string = ""
@@ -574,8 +605,79 @@ final class RecordingsWindow: NSObject {
         } ?? false)
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
+        let state = item.flatMap { DiarizationState.read($0.dir) }
+        let actionable = !working && state?.retainsAudio == true && state?.status != .running
+        retryDiarizationButton.isEnabled = actionable && onRetryDiarization != nil
+        skipDiarizationButton.isEnabled = actionable && onSkipDiarization != nil
         busyLabel.isHidden = !working
         busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
+    }
+
+    private func updateDiarization(for dir: URL) {
+        guard let state = DiarizationState.read(dir) else {
+            diarizationLabel.isHidden = true
+            retryDiarizationButton.isHidden = true
+            skipDiarizationButton.isHidden = true
+            return
+        }
+        diarizationLabel.isHidden = false
+        diarizationLabel.stringValue = Self.diarizationLine(state)
+        diarizationLabel.toolTip = diarizationLabel.stringValue
+        let actions = state.retainsAudio && state.status != .running
+        retryDiarizationButton.isHidden = !actions
+        skipDiarizationButton.isHidden = !actions
+    }
+
+    static func diarizationLine(_ state: DiarizationState) -> String {
+        let stage: String
+        switch state.status {
+        case .pending: stage = localised("pending", "ожидает")
+        case .running: stage = localised("running", "выполняется")
+        case .deferred: stage = localised("waiting for model", "ожидает модель")
+        case .failed: stage = localised("failed", "ошибка")
+        case .partial: stage = localised("incomplete", "не завершено")
+        case .completed: stage = localised("complete", "готово")
+        case .skipped: stage = localised("skipped", "пропущено")
+        case .notApplicable: stage = localised("not applicable", "не применяется")
+        }
+        var parts = [localised("Speaker separation: ", "Разделение говорящих: ") + stage]
+        if state.confirmedSpeakers > 0 {
+            parts.append(localised("\(state.confirmedSpeakers) confirmed speakers",
+                                   "подтверждённых говорящих: \(state.confirmedSpeakers)"))
+        }
+        if state.hasUnknown { parts.append(localised("some speech has no speaker",
+                                                     "часть речи без говорящего")) }
+        if let rejected = state.rejectedTurnCount, rejected > 0 {
+            parts.append(localised("ignored \(rejected) invalid speaker turns",
+                                   "пропущено некорректных отрезков речи: \(rejected)"))
+        }
+        if state.retainsAudio {
+            parts.append(localised("audio kept for retry", "звук сохранён для повтора"))
+        }
+        if let reason = state.reason, !reason.isEmpty { parts.append(reason) }
+        return parts.joined(separator: " · ")
+    }
+
+    @objc private func retryDiarizationClicked() {
+        guard let item = selected, let action = onRetryDiarization else { return }
+        working = true
+        updateButtons()
+        Task {
+            do { try await action(item.dir) } catch { say(error.localizedDescription, about: item) }
+            working = false
+            reload()
+        }
+    }
+
+    @objc private func skipDiarizationClicked() {
+        guard let item = selected, let action = onSkipDiarization else { return }
+        working = true
+        updateButtons()
+        Task {
+            do { try await action(item.dir) } catch { say(error.localizedDescription, about: item) }
+            working = false
+            reload()
+        }
     }
 
     /// The row-level action belongs only beside a failed transcript whose
