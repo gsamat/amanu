@@ -150,11 +150,17 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let liveTranscription = NSSwitch()
     private let liveStatus = NSTextField(labelWithString: "")
     private let diarizationSwitch = NSSwitch()
-    private let diarizationStatus = NSTextField(labelWithString: "")
-    private let diarizationDownload = NSButton()
+    private let diarizationDetail = SetupLayout.detail("", lines: 2, width: 440)
+    private let diarizationCards = ChoiceGroup()
+    private var diarizationDownloadButtons: [DiarizationModel: NSButton] = [:]
     private var diarizationDownloadTask: Task<Void, Never>?
-    private var diarizationProgress: Double?
-    private var diarizationError: String?
+    private var downloadingDiarizationModel: DiarizationModel?
+    private var diarizationProgress: [DiarizationModel: Double] = [:]
+    private var diarizationErrors: [DiarizationModel: String] = [:]
+    var fetchDiarization: @MainActor (DiarizationModel, @escaping @Sendable (Double) -> Void) async throws -> Void = {
+        model, progress in
+        try await DiarizationModelStore.shared(for: model).download(progress: progress)
+    }
     private let liveModelStore = LiveTranscriptionModelStore()
     /// What the models on this Mac weigh, for the two rows that say so. The
     /// figure in each row's prose is what a download will cost; this is what
@@ -266,8 +272,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             localised("Access", "Доступ"),
             content: SetupLayout.box([launchRow, micRow, audioRow, calendarRow])))
 
-        var transcription: [NSView] = [transcriptionRows(), languageRow(),
-                                      SetupLayout.box([diarizationRow()])]
+        var transcription: [NSView] = [
+            transcriptionRows(),
+            SetupLayout.section(localised("Diarization", "Диаризация"),
+                                content: SetupLayout.box([diarizationRow()])),
+            languageRow(),
+        ]
         // The live transcript is a local streaming model, so on an Intel Mac
         // there is nothing behind the switch. Left out rather than shown
         // switched off: an offer that can never be accepted.
@@ -620,93 +630,128 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func diarizationRow() -> NSView {
         diarizationSwitch.target = self
         diarizationSwitch.action = #selector(diarizationToggled)
-        diarizationStatus.font = SetupLayout.statusFont
-        diarizationStatus.textColor = .secondaryLabelColor
-        diarizationStatus.lineBreakMode = .byWordWrapping
-        diarizationStatus.maximumNumberOfLines = 2
-        diarizationDownload.title = localised("Download model", "Скачать модель")
-        diarizationDownload.bezelStyle = .rounded
-        diarizationDownload.target = self
-        diarizationDownload.action = #selector(downloadDiarizationClicked)
-        diarizationDownload.identifier = .init("transcription.diarization.download")
-        let controls = NSStackView(views: [diarizationDownload, diarizationStatus])
-        controls.orientation = .horizontal
-        controls.alignment = .centerY
-        controls.spacing = 8
-        controls.edgeInsets = NSEdgeInsets(top: 0, left: 58, bottom: 12, right: 14)
-        SetupLayout.fitRowHeight(controls)
+        let cards = DiarizationModel.allCases.map { model in
+            let download = SetupLayout.actionButton(
+                localised("Download…", "Скачать…"), target: self,
+                action: #selector(downloadDiarizationClicked(_:)))
+            download.identifier = .init("transcription.diarization.download.\(model.rawValue)")
+            diarizationDownloadButtons[model] = download
+            let size = Int((Double(model.advertisedBytes)
+                / (model == .community1 ? 1_048_576 : 1_000_000)).rounded())
+            let detail = localised(
+                "(\(model.detailEnglish))\n\(model == .nemotron3 ? "Recommended · " : "")about \(size) MB",
+                "(\(model.detailRussian))\n\(model == .nemotron3 ? "Рекомендуется · " : "")около \(size) МБ")
+            let card = ChoiceCard(id: "diarization.\(model.rawValue)", title: model.title,
+                                  detail: detail, accessories: [download])
+            return card
+        }
+        diarizationCards.adopt(cards)
+        diarizationCards.onChange = { [weak self] id in self?.diarizationModelPicked(id) }
         let row = SetupLayout.row(
             leading: diarizationSwitch,
             title: SetupLayout.title(localised(
-                "Separate speakers on this Mac", "Разделять говорящих на этом маке")),
-            detail: SetupLayout.detail(localised(
-                "Optional after local transcription. Download the model separately; no audio is uploaded.",
-                "Необязательный этап после локальной расшифровки. Модель скачивается отдельно; звук не загружается."),
-                lines: 2, width: 440))
-        let block = NSStackView(views: [row, controls])
+                "Separate speakers", "Разделять говорящих")),
+            detail: diarizationDetail)
+        let options = NSStackView(views: [SetupLayout.cards(diarizationCards.cards)])
+        options.orientation = .vertical
+        options.alignment = .leading
+        options.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 10, right: 10)
+        options.arrangedSubviews[0].widthAnchor.constraint(
+            equalTo: options.widthAnchor, constant: -20).isActive = true
+        let block = NSStackView(views: [row, options])
         block.orientation = .vertical
         block.alignment = .leading
         block.spacing = 0
         row.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
-        controls.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+        options.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
         return block
     }
 
     @objc private func diarizationToggled() {
-        let enabled = diarizationSwitch.state == .on && Platform.supportsLocalModels
+        guard Platform.supportsLocalModels, transcriptionChoice.local,
+              Config.problems().isEmpty else { refreshDiarization(); return }
+        let enabled = diarizationSwitch.state == .on
         write(["transcription", "local_diarization"], enabled ? true : nil)
         refresh()
     }
 
-    @objc private func downloadDiarizationClicked() {
-        guard Platform.supportsLocalModels, diarizationDownloadTask == nil else { return }
-        diarizationError = nil
-        diarizationProgress = 0
-        refreshDiarization()
-        diarizationDownloadTask = Task { [weak self] in
+    private func diarizationModelPicked(_ id: String) {
+        guard let model = DiarizationModel(rawValue: String(id.dropFirst("diarization.".count))),
+              diarizationSwitch.isEnabled, diarizationSwitch.state == .on,
+              diarizationCards.card(id)?.isEnabled == true else { refreshDiarization(); return }
+        write(["transcription", "diarization_model"], model.rawValue)
+        refresh()
+    }
+
+    @objc private func downloadDiarizationClicked(_ sender: NSButton) {
+        let prefix = "transcription.diarization.download."
+        guard let raw = sender.identifier?.rawValue, raw.hasPrefix(prefix),
+              let model = DiarizationModel(rawValue: String(raw.dropFirst(prefix.count))),
+              sender.isEnabled, diarizationDownloadTask == nil else { return }
+        diarizationErrors[model] = nil
+        diarizationProgress[model] = 0
+        downloadingDiarizationModel = model
+        diarizationDownloadTask = Task { [weak self, model] in
             guard let self else { return }
             do {
-                try await DiarizationModelStore.shared.download { [weak self] fraction in
+                try await fetchDiarization(model) { [weak self] fraction in
                     Task { @MainActor [weak self] in
-                        guard let self, self.diarizationDownloadTask != nil else { return }
-                        self.diarizationProgress = max(self.diarizationProgress ?? 0, fraction)
+                        guard let self, self.downloadingDiarizationModel == model else { return }
+                        self.diarizationProgress[model] = max(self.diarizationProgress[model] ?? 0, fraction)
                         self.refreshDiarization()
                     }
                 }
             } catch {
-                diarizationError = error.localizedDescription
+                diarizationErrors[model] = error.localizedDescription
             }
             diarizationDownloadTask = nil
-            diarizationProgress = nil
+            downloadingDiarizationModel = nil
+            diarizationProgress[model] = nil
             refreshDiarization()
         }
+        refreshDiarization()
     }
 
     private func refreshDiarization() {
-        diarizationSwitch.isEnabled = Platform.supportsLocalModels
+        let localAvailable = Platform.supportsLocalModels && transcriptionChoice.local
+            && Config.problems().isEmpty
+        diarizationSwitch.isEnabled = localAvailable
         diarizationSwitch.state = Config.localDiarizationEnabled() ? .on : .off
-        let ready = DiarizationModelStore.isReady(at: DiarizationModelStore.shared.directory)
-        diarizationDownload.isEnabled = Platform.supportsLocalModels && diarizationDownloadTask == nil && !ready
-        diarizationDownload.title = diarizationError == nil
-            ? localised("Download model", "Скачать модель")
-            : localised("Retry download", "Повторить загрузку")
-        if !Platform.supportsLocalModels {
-            diarizationStatus.stringValue = localised("Needs Apple Silicon", "Нужен Apple Silicon")
-        } else if let fraction = diarizationProgress {
-            diarizationStatus.stringValue = localised("downloading ", "загрузка ")
-                + "\(Int(fraction * 100))%"
-        } else if ready {
-            diarizationStatus.stringValue = localised("ready · ", "готова · ")
-                + ModelStorage.describe(bytes: modelStorage.diarizationModel().bytes)
-        } else if let diarizationError {
-            diarizationStatus.stringValue = localised("download failed: ", "ошибка загрузки: ")
-                + diarizationError
-        } else {
-            diarizationStatus.stringValue = localised("download separately · about ",
-                                                       "скачать отдельно · около ")
-                + ModelStorage.describe(bytes: DiarizationModelStore.advertisedBytes)
+        diarizationDetail.stringValue = !Platform.supportsLocalModels
+            ? localised("Needs Apple Silicon.", "Нужен Apple Silicon.")
+            : transcriptionChoice.local
+            ? localised("After local transcription. Audio stays on this Mac.",
+                        "После локальной расшифровки. Звук остаётся на этом маке.")
+            : localised("Available with On this Mac enabled.",
+                        "Доступно при включённом «На этом Mac».")
+        diarizationSwitch.setAccessibilityHelp(diarizationDetail.stringValue)
+        diarizationCards.select("diarization.\(Config.diarizationModel().rawValue)")
+        let enabled = localAvailable && diarizationSwitch.state == .on
+        for model in DiarizationModel.allCases {
+            let card = diarizationCards.card("diarization.\(model.rawValue)")
+            let button = diarizationDownloadButtons[model]
+            let ready = DiarizationModelStore.isReady(
+                at: DiarizationModelStore.shared(for: model).directory, model: model)
+            card?.isEnabled = enabled
+            button?.isEnabled = enabled && diarizationDownloadTask == nil && !ready
+            button?.isHidden = ready || downloadingDiarizationModel == model
+            button?.title = diarizationErrors[model] == nil
+                ? localised("Download…", "Скачать…")
+                : localised("Retry…", "Повторить…")
+            if downloadingDiarizationModel == model {
+                card?.report(localised("downloading · ", "загрузка · ")
+                    + "\(Int((diarizationProgress[model] ?? 0) * 100))%")
+            } else if ready {
+                card?.report(localised("ready · ", "готова · ")
+                    + ModelStorage.describe(bytes: modelStorage.diarizationModel(model).bytes), good: true)
+            } else if let error = diarizationErrors[model] {
+                card?.report(localised("download failed: ", "ошибка загрузки: ") + error)
+            } else if !Platform.supportsLocalModels {
+                card?.report(localised("needs Apple Silicon", "нужен Apple Silicon"))
+            } else {
+                card?.report("")
+            }
         }
-        diarizationStatus.textColor = ready ? .systemGreen : .secondaryLabelColor
     }
 
     /// Where the recordings live, and the one thing worth saying about the

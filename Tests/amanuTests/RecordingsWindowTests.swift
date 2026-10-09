@@ -29,6 +29,45 @@ struct RecordingsWindowTests {
         #expect(!RecordingsWindow.diarizationLine(state).contains("audio kept for retry"))
     }
 
+    @Test("An unreadable saved speaker request shows a blocked status in English",
+          .freshHome, .speaking(.english))
+    func unreadableDiarizationEnglish() throws {
+        try assertUnreadableDiarizationStatus(
+            "Speaker separation: saved model request cannot be read. Processing is blocked.")
+    }
+
+    @Test("An unreadable saved speaker request shows a blocked status in Russian",
+          .freshHome, .speaking(.russian))
+    func unreadableDiarizationRussian() throws {
+        try assertUnreadableDiarizationStatus(
+            "Разделение говорящих: не удалось прочитать сохранённый запрос модели. Обработка заблокирована.")
+    }
+
+    private func assertUnreadableDiarizationStatus(_ expected: String) throws {
+        let root = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try Self.session("2026-09-28-090000-unknown-model", in: root)
+        try SessionState.amend(dir, with: [DiarizationState.key: [
+            "request": ["engine": "parakeet", "threshold": 0.6, "model": "future-model"],
+            "status": "pending",
+        ]])
+        #expect(SessionInventory.item(for: dir)?.unreadableDiarization == true)
+        let recordings = RecordingsWindow(root: root)
+        let views = recordings.view?.allDescendants ?? []
+        let status = try #require(views.compactMap { $0 as? NSTextField }
+            .first { $0.identifier?.rawValue == "diarization.status" })
+        #expect(!status.isHidden)
+        #expect(status.stringValue == expected)
+        #expect(status.toolTip == expected)
+        for id in ["diarization.retry", "diarization.skip"] {
+            let button = try #require(views.compactMap { $0 as? NSButton }
+                .first { $0.identifier?.rawValue == id })
+            #expect(button.isHidden)
+            #expect(!button.isEnabled)
+        }
+        withExtendedLifetime(recordings) {}
+    }
+
     private static func folder() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-recordings-\(UUID().uuidString)")

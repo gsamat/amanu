@@ -192,6 +192,7 @@ final class RecordingsWindow: NSObject {
         diarizationLabel.textColor = .secondaryLabelColor
         diarizationLabel.lineBreakMode = .byWordWrapping
         diarizationLabel.maximumNumberOfLines = 3
+        diarizationLabel.identifier = .init("diarization.status")
         for (button, title, action) in [
             (retryDiarizationButton, localised("Retry speaker separation", "Повторить разделение"),
              #selector(retryDiarizationClicked)),
@@ -495,7 +496,7 @@ final class RecordingsWindow: NSObject {
         }
 
         detailTitle.stringValue = item.title ?? item.name
-        updateDiarization(for: item.dir)
+        updateDiarization(for: item)
         let dir = artifactDirectory ?? item.dir
         if let request = selectedVersion, request.isRequest {
             summaryText.string = ""
@@ -606,15 +607,26 @@ final class RecordingsWindow: NSObject {
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
         let state = item.flatMap { DiarizationState.read($0.dir) }
-        let actionable = !working && state?.retainsAudio == true && state?.status != .running
+        let actionable = !working && item?.unreadableDiarization != true
+            && state?.retainsAudio == true && state?.status != .running
         retryDiarizationButton.isEnabled = actionable && onRetryDiarization != nil
         skipDiarizationButton.isEnabled = actionable && onSkipDiarization != nil
         busyLabel.isHidden = !working
         busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
     }
 
-    private func updateDiarization(for dir: URL) {
-        guard let state = DiarizationState.read(dir) else {
+    private func updateDiarization(for item: SessionInventory.Item) {
+        if item.unreadableDiarization {
+            diarizationLabel.isHidden = false
+            diarizationLabel.stringValue = localised(
+                "Speaker separation: saved model request cannot be read. Processing is blocked.",
+                "Разделение говорящих: не удалось прочитать сохранённый запрос модели. Обработка заблокирована.")
+            diarizationLabel.toolTip = diarizationLabel.stringValue
+            retryDiarizationButton.isHidden = true
+            skipDiarizationButton.isHidden = true
+            return
+        }
+        guard let state = DiarizationState.read(item.dir) else {
             diarizationLabel.isHidden = true
             retryDiarizationButton.isHidden = true
             skipDiarizationButton.isHidden = true

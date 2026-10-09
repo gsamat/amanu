@@ -402,7 +402,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             size.widthAnchor.constraint(equalToConstant: 190),
         ])
 
-        let help = NSTextField(labelWithString: Self.purpose(of: model.kind))
+        let help = NSTextField(labelWithString: Self.purpose(of: model))
         help.font = .systemFont(ofSize: 11)
         help.textColor = .secondaryLabelColor
         help.lineBreakMode = .byWordWrapping
@@ -419,8 +419,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// What the model is for, in the words the setup form uses for the switch
     /// that asks for it — so somebody who deletes the wrong one has to have
     /// misread the same sentence twice.
-    private static func purpose(of kind: ModelStorage.Model.Kind) -> String {
-        switch kind {
+    private static func purpose(of model: ModelStorage.Model) -> String {
+        switch model.kind {
         case .parakeet:
             return localised(
                 "Transcribes on this Mac, after the meeting.",
@@ -438,9 +438,13 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
                 "The live transcript shown during a meeting.",
                 "Расшифровка, которая идёт прямо во время встречи.")
         case .diarization:
-            return localised(
-                "Optional local speaker separation after transcription. Weights: scoped CC-BY-4.0.",
-                "Необязательное локальное разделение говорящих после расшифровки. Веса: CC-BY-4.0.")
+            let chosen = model.diarizationModel ?? .community1
+            let license = switch chosen {
+            case .nemotron3: "OpenMDW 1.1"
+            case .lsEendAMI: "MIT"
+            case .community1: "CC BY 4.0"
+            }
+            return localised(chosen.detailEnglish, chosen.detailRussian) + " · " + license
         }
     }
 
@@ -466,7 +470,9 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             localEngine: Config.transcriptionLocalEngine())
         let updates = ModelStorage.updatesAfterDeleting(
             model.kind, choice: choice, liveEnabled: Config.liveTranscriptionEnabled(),
-            diarizationEnabled: Config.localDiarizationEnabled())
+            diarizationEnabled: Config.localDiarizationEnabled(),
+            deletedDiarizationModel: model.diarizationModel ?? .community1,
+            selectedDiarizationModel: Config.diarizationModel())
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -482,8 +488,17 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             sender.isEnabled = false
             Task { @MainActor [weak self] in
                 do {
-                    try await DiarizationModelStore.shared.delete()
-                    for update in updates { Config.update(path: update.path, value: update.value) }
+                    try await DiarizationModelStore.shared(
+                        for: model.diarizationModel ?? .community1).delete()
+                    let currentUpdates = ModelStorage.updatesAfterDeleting(
+                        .diarization, choice: choice,
+                        liveEnabled: Config.liveTranscriptionEnabled(),
+                        diarizationEnabled: Config.localDiarizationEnabled(),
+                        deletedDiarizationModel: model.diarizationModel ?? .community1,
+                        selectedDiarizationModel: Config.diarizationModel())
+                    for update in currentUpdates {
+                        Config.update(path: update.path, value: update.value)
+                    }
                 } catch {
                     let failed = NSAlert()
                     failed.alertStyle = .warning

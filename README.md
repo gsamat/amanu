@@ -459,15 +459,22 @@ only values that differ from the defaults. A compact example:
   controls the on-device preview.
 - `transcription.local_diarization` enables local batch speaker diarization on
   Apple Silicon for Parakeet, Whisper, and GigaAM. It defaults to `false`.
-  Download the separate diarization model explicitly in Settings before using
-  it offline. The ordinary call microphone stays `me`; the system track can
+  The separate Diarization section sits below the local transcription models
+  and is available when On this Mac is selected. Choose a speaker model with
+  the same radio cards, then download it explicitly before offline use.
+  `transcription.diarization_model` selects `nemotron-3` (default, meetings up
+  to eight speakers, about 107 MB), `ls-eend-ami` (meetings up to four speakers,
+  about 45 MB), or `community-1` (compact alternative, about 21 MB).
+  An existing saved processing request without this field retains Community-1.
+  The ordinary call microphone stays `me`; the system track can
   become `them A`, `them B`, and so on. Local mono imports use `speaker A/B`.
   Uncertain or overlapping speech is shown as an unidentified speaker.
   Parakeet and Whisper use validated word timings; GigaAM and missing-word
   fallback recognize separate bounded voice intervals without inventing word
   timestamps. This affects the final transcript, not the live preview.
   `transcription.diarization_threshold` defaults to `0.6` and is clamped to
-  `0.3…1.2`; it controls clustering, not a promised accuracy percentage.
+  `0.3…1.2`; it controls Community-1 clustering, not a promised accuracy
+  percentage, and does not affect the other models.
   The evaluation procedure is in
   [Local diarization evaluation](docs/testing/local-diarization-evaluation.md).
   Diarization retains a lossless 16 kHz PCM source and processing sidecars for

@@ -32,7 +32,7 @@ enum TranscriptionScratch {
         // A candidate holds recognized meeting text between inference and the
         // multi-file commit. Keep it only while that exact stage can resume.
         if names.contains(DiarizationArtifacts.candidateFile),
-           includingDerivedAudio || DiarizationState.read(dir)?.isOutstanding != true {
+           includingDerivedAudio || !DiarizationState.persisted(in: dir).keepsCandidateText {
             found.append(dir.appendingPathComponent(DiarizationArtifacts.candidateFile))
         }
         if includingDerivedAudio {

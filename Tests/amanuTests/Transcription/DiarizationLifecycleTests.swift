@@ -30,6 +30,14 @@ struct DiarizationLifecycleTests {
         func release() async {}
     }
 
+    private actor UnavailableRuntime: LocalDiarizationRuntime {
+        func prepare() async throws {}
+        func diarize(_ audio: URL) async throws -> [SpeakerTurn] {
+            throw LocalDiarizationRuntimeError.unavailable
+        }
+        func release() async {}
+    }
+
     private final class OptionsEngine: TranscriptionEngine {
         let wrapped: FakeEngine
         let optionsFingerprint: String
@@ -79,7 +87,7 @@ struct DiarizationLifecycleTests {
         let coordinator = TranscriptionCoordinator(
             engine: engine, onStop: { hookScript.path },
             diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
 
         try await coordinator.transcribeNow(dir)
         #expect(DiarizationState.read(dir)?.status == .pending)
@@ -120,13 +128,30 @@ struct DiarizationLifecycleTests {
         let runtime = FaultRuntime(failures: 1)
         let coordinator = TranscriptionCoordinator(
             engine: Self.wordEngine(), diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
 
         await coordinator.drainPending(in: recordings.root)
 
         #expect(DiarizationState.read(first)?.status == .pending)
         #expect(DiarizationState.read(second)?.status == .completed)
         #expect(await runtime.count() == 2)
+    }
+
+    @Test("A missing native runtime defers without spending attempts or losing transcript and audio")
+    func missingRuntimeDefers() async throws {
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let dir = try recordings.session("missing-runtime")
+        let coordinator = TranscriptionCoordinator(
+            engine: Self.wordEngine(), diarizerFactory: { _ in UnavailableRuntime() },
+            modelFingerprint: { _ in "test-model" })
+
+        try await coordinator.transcribeNow(dir)
+
+        #expect(DiarizationState.read(dir)?.status == .deferred)
+        #expect(DiarizationState.read(dir)?.attempts == 0)
+        #expect(PostProcessor.readTranscript(dir)?.segments.contains { $0.speaker == "them" } == true)
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
     }
 
     @Test("Replacing upstream audio invalidates its durable ASR generation")
@@ -138,7 +163,7 @@ struct DiarizationLifecycleTests {
         let runtime = FaultRuntime(failures: 1)
         let coordinator = TranscriptionCoordinator(
             engine: engine, diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
         try await coordinator.transcribeNow(dir)
         let provisional = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
         try TestAudio.writeTone(to: dir.appendingPathComponent("system.caf"),
@@ -161,7 +186,7 @@ struct DiarizationLifecycleTests {
         let runtime = FaultRuntime(failures: 1)
         let coordinator = TranscriptionCoordinator(
             engine: Self.wordEngine(), diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
         try await coordinator.transcribeNow(dir)
         let good = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
         try TestAudio.writeTone(to: dir.appendingPathComponent("mic.caf"),
@@ -185,7 +210,7 @@ struct DiarizationLifecycleTests {
         let runtime = FaultRuntime(failures: 1)
         let coordinator = TranscriptionCoordinator(
             engine: engine, diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
         try await coordinator.transcribeNow(dir)
         #expect(DiarizationState.read(dir)?.attempts == 1)
         try FileManager.default.removeItem(at: dir.appendingPathComponent("asr.json"))
@@ -212,6 +237,22 @@ struct DiarizationLifecycleTests {
         #expect(FileManager.default.fileExists(atPath: candidate.path))
         TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
         #expect(!FileManager.default.fileExists(atPath: candidate.path))
+    }
+
+    @Test("A terminal speaker failure keeps original audio but clears stale candidate text")
+    func failedDiarizationClearsCandidate() throws {
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let dir = try recordings.session("failed-candidate")
+        try DiarizationState(request: .init(engine: "parakeet", threshold: 0.6),
+                             status: .failed).write(to: dir)
+        let candidate = dir.appendingPathComponent(DiarizationArtifacts.candidateFile)
+        try Data("stale private candidate".utf8).write(to: candidate)
+
+        TranscriptionScratch.remove(in: dir)
+
+        #expect(!FileManager.default.fileExists(atPath: candidate.path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
     }
 
     @Test("Published commit removes candidate text even when journal cleanup was interrupted")
@@ -253,7 +294,8 @@ struct DiarizationLifecycleTests {
     func archivedThresholdRetry() async throws {
         try Home.current.writeConfig([
             "offline_echo_cancellation": false, "keep_audio": true,
-            "transcription": ["local_diarization": true, "diarization_threshold": 0.6],
+            "transcription": ["local_diarization": true, "diarization_threshold": 0.6,
+                              "diarization_model": "community-1"],
             "speaker_names": ["enabled": false], "summary": ["enabled": false],
         ])
         let recordings = try TestRecordings()
@@ -264,7 +306,7 @@ struct DiarizationLifecycleTests {
         let modelID = OSAllocatedUnfairLock(initialState: "test-model")
         let coordinator = TranscriptionCoordinator(
             engine: engine, diarizerFactory: { _ in runtime },
-            modelFingerprint: { modelID.withLock { $0 } })
+            modelFingerprint: { _ in modelID.withLock { $0 } })
 
         try await coordinator.transcribeNow(dir)
         let oldTranscript = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
@@ -278,7 +320,8 @@ struct DiarizationLifecycleTests {
         })
         try Home.current.writeConfig([
             "offline_echo_cancellation": false, "keep_audio": true,
-            "transcription": ["local_diarization": true, "diarization_threshold": 0.8],
+            "transcription": ["local_diarization": true, "diarization_threshold": 0.8,
+                              "diarization_model": "community-1"],
             "speaker_names": ["enabled": false], "summary": ["enabled": false],
         ])
 
@@ -306,6 +349,50 @@ struct DiarizationLifecycleTests {
         #expect(TranscriptVersions.read(dir).count == priorVersionCount + 2)
     }
 
+    @Test("Changing the speaker model archives its timeline and reuses ASR")
+    func modelChangeReusesASR() async throws {
+        try Home.current.writeConfig([
+            "offline_echo_cancellation": false, "keep_audio": true,
+            "transcription": ["local_diarization": true, "diarization_model": "nemotron-3"],
+            "speaker_names": ["enabled": false], "summary": ["enabled": false],
+        ])
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let dir = try recordings.session("model-switch")
+        let engine = Self.wordEngine()
+        let runtime = FaultRuntime(failures: 0)
+        let coordinator = TranscriptionCoordinator(
+            engine: engine, diarizerFactory: { _ in runtime },
+            modelFingerprint: { $0.rawValue })
+
+        try await coordinator.transcribeNow(dir)
+        let asr = try #require(DiarizationArtifacts.readASR(dir))
+        let oldTimeline = try Data(contentsOf: dir.appendingPathComponent("diarization.json"))
+        let priorVersionCount = TranscriptVersions.read(dir).count
+        let recognized = engine.counts.heard.count
+        #expect(DiarizationState.read(dir)?.request.model == .nemotron3)
+
+        try Home.current.writeConfig([
+            "offline_echo_cancellation": false, "keep_audio": true,
+            "transcription": ["local_diarization": true, "diarization_model": "ls-eend-ami"],
+            "speaker_names": ["enabled": false], "summary": ["enabled": false],
+        ])
+        try await coordinator.diarizeNow(dir)
+
+        #expect(DiarizationState.read(dir)?.request.model == .lsEendAMI)
+        #expect(await runtime.count() == 2)
+        #expect(engine.counts.heard.count == recognized)
+        #expect(DiarizationArtifacts.readASR(dir)?.tracks.map(\.sourceFingerprint)
+                == asr.tracks.map(\.sourceFingerprint))
+        let versions = TranscriptVersions.read(dir)
+        #expect(versions.count == priorVersionCount + 1)
+        let previous = try #require(versions.first {
+            !$0.isCurrent &&
+                (try? Data(contentsOf: $0.dir.appendingPathComponent("diarization.json"))) == oldTimeline
+        }?.dir)
+        #expect(DiarizationState.read(previous)?.request.model == .nemotron3)
+    }
+
     @Test("GigaAM turn-first route still removes the microphone echo")
     func gigaTurnRouteKeepsEchoFilter() async throws {
         let recordings = try TestRecordings()
@@ -318,7 +405,7 @@ struct DiarizationLifecycleTests {
         let runtime = FaultRuntime(failures: 0)
         let coordinator = TranscriptionCoordinator(
             engine: engine, diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" })
+            modelFingerprint: { _ in "test-model" })
 
         try await coordinator.transcribeNow(dir)
 
@@ -346,7 +433,7 @@ struct DiarizationLifecycleTests {
 
         try await TranscriptionCoordinator(
             engine: engine, diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" }).transcribeNow(dir)
+            modelFingerprint: { _ in "test-model" }).transcribeNow(dir)
 
         #expect(DiarizationState.read(dir)?.status == .completed)
         #expect(DiarizationState.read(dir)?.attempts == 1)
@@ -368,14 +455,14 @@ struct DiarizationLifecycleTests {
         let old = OptionsEngine(wrapped: Self.wordEngine(), optionsFingerprint: "language=ru")
         try await TranscriptionCoordinator(
             engine: old, diarizerFactory: { _ in runtime },
-            modelFingerprint: { "test-model" }).transcribeNow(dir)
+            modelFingerprint: { _ in "test-model" }).transcribeNow(dir)
         let good = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
         let changed = OptionsEngine(wrapped: Self.wordEngine(), optionsFingerprint: "language=en")
 
         await #expect(throws: (any Error).self) {
             try await TranscriptionCoordinator(
                 engine: changed, diarizerFactory: { _ in runtime },
-                modelFingerprint: { "test-model" }).diarizeNow(dir)
+                modelFingerprint: { _ in "test-model" }).diarizeNow(dir)
         }
 
         #expect(DiarizationState.read(dir)?.status == .completed)
@@ -401,6 +488,99 @@ struct DiarizationLifecycleTests {
         } == [dir.resolvingSymlinksInPath().path])
         TrackCompressor.settle(sessionDir: dir)
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+    }
+
+    @Test("An unsupported persisted speaker model keeps provisional text and original audio")
+    func unknownPersistedModelRetainsRecoveryData() async throws {
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let dir = try recordings.session("unknown-model")
+        try Transcript(engine: "parakeet", model: "fake", created_at: "2026-10-09T00:00:00Z",
+            segments: [.init(speaker: "them", start_ms: 0, end_ms: 1000,
+                             text: "provisional text")]).write(to: dir)
+        try SessionState.amend(dir, with: [
+            DiarizationState.key: [
+                "request": ["engine": "parakeet", "threshold": 0.6,
+                            "model": "future-model"],
+                "status": "pending",
+            ],
+            SessionState.Key.speakersStatus: nil,
+            SessionState.Key.summaryStatus: nil,
+        ])
+        let candidate = dir.appendingPathComponent(DiarizationArtifacts.candidateFile)
+        try Data("provisional candidate".utf8).write(to: candidate)
+        let transcript = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+
+        #expect(DiarizationState.read(dir) == nil,
+                "An unknown model must not decode as Community-1")
+        #expect(SessionInventory.item(for: dir)?.isOutstanding == true)
+        #expect(PostProcessor.outstanding(dir, policy: .init(names: true, summary: true)).isEmpty)
+        TranscriptionScratch.remove(in: dir)
+        TrackCompressor.settle(sessionDir: dir)
+
+        #expect(FileManager.default.fileExists(atPath: candidate.path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("system.caf").path))
+        #expect(SessionState.value(dir, "audio_discarded") as? Bool != true)
+        #expect(try Data(contentsOf: dir.appendingPathComponent("transcript.json")) == transcript)
+        await #expect(throws: (any Error).self) {
+            try await TranscriptionCoordinator(engine: Self.wordEngine()).diarizeNow(dir)
+        }
+        await #expect(throws: (any Error).self) {
+            try await TranscriptionCoordinator(engine: Self.wordEngine()).skipDiarization(dir)
+        }
+        #expect(!PostProcessor.markForRetranscription(dir))
+        #expect(!TranscriptVersions.isRequested(dir))
+        #expect((SessionState.value(dir, DiarizationState.key) as? [String: Any])?["status"]
+                as? String == "pending")
+        #expect(((SessionState.value(dir, DiarizationState.key) as? [String: Any])?["request"]
+                as? [String: Any])?["model"] as? String == "future-model")
+    }
+
+    @Test("A completed legacy Community generation can be replayed without its discarded audio")
+    func completedLegacyCommunityReplayWithoutAudio() async throws {
+        try Home.current.writeConfig([
+            "offline_echo_cancellation": false, "keep_audio": false,
+            "transcription": ["local_diarization": true,
+                              "diarization_model": "community-1"],
+            "speaker_names": ["enabled": false], "summary": ["enabled": false],
+        ])
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let dir = try recordings.session("legacy-community")
+        let engine = Self.wordEngine()
+        let runtime = FaultRuntime(failures: 0)
+        let coordinator = TranscriptionCoordinator(
+            engine: engine, diarizerFactory: { _ in runtime },
+            modelFingerprint: { _ in "test-model" })
+        try await coordinator.transcribeNow(dir)
+
+        let asr = try #require(DiarizationArtifacts.readASR(dir))
+        let remote = try #require(asr.tracks.first { $0.speaker == "them" })
+        let legacyOptions = DiarizationArtifacts.hash("alignment-v1", "0.6")
+        let legacyGeneration = DiarizationArtifacts.hash(
+            remote.sourceFingerprint, "test-model", legacyOptions,
+            asr.optionsFingerprint)
+        var state = try #require(DiarizationState.read(dir))
+        state.fingerprint = legacyGeneration
+        try state.write(to: dir)
+        let timelineURL = dir.appendingPathComponent(DiarizationArtifacts.timelineFile)
+        var timeline = try #require(JSONSerialization.jsonObject(
+            with: Data(contentsOf: timelineURL)) as? [String: Any])
+        timeline["generationFingerprint"] = legacyGeneration
+        try JSONSerialization.data(withJSONObject: timeline).write(to: timelineURL)
+        let before = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+        let versions = TranscriptVersions.read(dir).count
+        let recognized = engine.counts.heard.count
+        #expect(SessionInventory.item(for: dir)?.hasAudio == false)
+
+        try await coordinator.diarizeNow(dir)
+
+        #expect(await runtime.count() == 1)
+        #expect(engine.counts.heard.count == recognized)
+        #expect(TranscriptVersions.read(dir).count == versions)
+        #expect(try Data(contentsOf: dir.appendingPathComponent("transcript.json")) == before)
+        #expect(DiarizationState.read(dir)?.fingerprint == legacyGeneration)
     }
 
     @Test("Only inference errors spend the three-attempt budget")

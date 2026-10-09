@@ -151,6 +151,12 @@ enum Config {
         return number.boolValue
     }
 
+    static func diarizationModel() -> DiarizationModel { diarizationModel(in: load()) }
+
+    static func diarizationModel(in json: [String: Any]?) -> DiarizationModel {
+        DiarizationModel(rawValue: string(.diarizationModel, in: json)) ?? .default
+    }
+
     static func diarizationThreshold() -> Double { diarizationThreshold(in: load()) }
 
     static func diarizationThreshold(in json: [String: Any]?) -> Double {

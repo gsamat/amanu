@@ -266,7 +266,8 @@ struct DiarizationEvaluationTests {
                                   : Set(prepared.map { $0.1.fingerprint }).count == 1)
 
             for threshold in [0.6, 0.7, 0.8] {
-                let settings = DiarizationSettings(enabled: true, threshold: threshold)
+                let settings = DiarizationSettings(enabled: true, threshold: threshold,
+                                                   model: .community1)
                 let runtime = DiarizationEngine(settings: settings, store: store)
                 let prepStart = ProcessInfo.processInfo.systemUptime
                 try await runtime.prepare()

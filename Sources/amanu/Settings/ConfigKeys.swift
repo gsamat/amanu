@@ -28,6 +28,7 @@ extension Config {
         case transcriptionModel = "transcription.model"
         case transcriptionLanguage = "transcription.language"
         case localDiarization = "transcription.local_diarization"
+        case diarizationModel = "transcription.diarization_model"
         case diarizationThreshold = "transcription.diarization_threshold"
         case assemblyAIKey = "transcription.assemblyai.api_key"
         case assemblyAIKeyPath = "transcription.assemblyai.api_key_path"

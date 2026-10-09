@@ -47,7 +47,7 @@ actor TranscriptionCoordinator {
     private let onStop: @Sendable () -> String?
     private let echoCanceller: EchoCancellerFactory
     private let diarizerFactory: @Sendable (DiarizationSettings) -> any LocalDiarizationRuntime
-    private let modelFingerprint: @Sendable () async throws -> String
+    private let modelFingerprint: @Sendable (DiarizationModel) async throws -> String
 
     typealias EchoCancellerFactory = @Sendable () throws -> EchoCanceller
 
@@ -60,8 +60,8 @@ actor TranscriptionCoordinator {
          diarizerFactory: @escaping @Sendable (DiarizationSettings) -> any LocalDiarizationRuntime = {
              DiarizationEngine(settings: $0)
          },
-         modelFingerprint: @escaping @Sendable () async throws -> String = {
-             try await DiarizationModelStore.shared.fingerprint()
+         modelFingerprint: @escaping @Sendable (DiarizationModel) async throws -> String = { model in
+             try DiarizationModelStore.shared(for: model).fingerprint()
          }) {
         engines = EngineResolver(fixed: engine)
         self.onStop = onStop
@@ -76,8 +76,8 @@ actor TranscriptionCoordinator {
          diarizerFactory: @escaping @Sendable (DiarizationSettings) -> any LocalDiarizationRuntime = {
              DiarizationEngine(settings: $0)
          },
-         modelFingerprint: @escaping @Sendable () async throws -> String = {
-             try await DiarizationModelStore.shared.fingerprint()
+         modelFingerprint: @escaping @Sendable (DiarizationModel) async throws -> String = { model in
+             try DiarizationModelStore.shared(for: model).fingerprint()
          }) {
         self.engines = engines
         self.onStop = onStop
@@ -128,6 +128,13 @@ actor TranscriptionCoordinator {
 
     private static func identity(of dir: URL) -> String {
         dir.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private static func diarizationOptions(model: DiarizationModel, threshold: Double) -> String {
+        if model == .community1 {
+            return DiarizationArtifacts.hash("alignment-v1", String(threshold))
+        }
+        return DiarizationArtifacts.hash("alignment-v1", model.rawValue)
     }
 
     /// With no transcript the audio is the only copy of the meeting. Archive
@@ -321,6 +328,9 @@ actor TranscriptionCoordinator {
         // Before the claim and before the engine: nothing about this session
         // is decided while the answers are in a file that cannot be read.
         try Config.requireReadable()
+        guard !DiarizationState.persisted(in: dir).isUnreadable else {
+            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+        }
         current = nil
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path),
            !TranscriptVersions.isRequested(dir),
@@ -445,11 +455,15 @@ actor TranscriptionCoordinator {
 
     private func diarizeNowClaimed(_ dir: URL) async throws {
         try Config.requireReadable()
+        guard !DiarizationState.persisted(in: dir).isUnreadable else {
+            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+        }
         guard let transcript = PostProcessor.readTranscript(dir) else {
             let engine = Config.transcriptionLocalEngine()
             try DiarizationState(request: .init(engine: engine,
                                                 threshold: Config.diarizationThreshold(),
-                                                explicit: true), status: .pending).write(to: dir)
+                                                explicit: true,
+                                                model: Config.diarizationModel()), status: .pending).write(to: dir)
             try await transcribeAndAnnounce(dir)
             guard DiarizationState.read(dir)?.status == .completed else {
                 throw DiarizationUnavailable(reason: DiarizationState.read(dir)?.reason
@@ -480,10 +494,12 @@ actor TranscriptionCoordinator {
             }
             var pending = DiarizationState(
                 request: .init(engine: transcript.engine,
-                               threshold: Config.diarizationThreshold(), explicit: true),
+                               threshold: Config.diarizationThreshold(), explicit: true,
+                               model: Config.diarizationModel()),
                 status: .pending)
             if let old, old.status != .completed, old.status != .failed,
-               old.request.threshold == pending.request.threshold {
+               old.request.threshold == pending.request.threshold,
+               old.request.model == pending.request.model {
                 pending.attempts = old.attempts
                 pending.fingerprint = old.fingerprint
             }
@@ -510,7 +526,11 @@ actor TranscriptionCoordinator {
         let currentMeta = try SessionMeta.read(from: dir)
         guard let remote = currentMeta.tracks.first(where: {
             $0.speaker == "them" || $0.speaker == "speaker"
-        }) else { return state.request.threshold == Config.diarizationThreshold() }
+        }) else {
+            return state.request.model == Config.diarizationModel()
+                && (state.request.model != .community1
+                    || state.request.threshold == Config.diarizationThreshold())
+        }
         guard let asr = DiarizationArtifacts.readASR(dir),
               let track = asr.tracks.first(where: { $0.speaker == remote.speaker }),
               let generation = state.fingerprint
@@ -549,9 +569,10 @@ actor TranscriptionCoordinator {
             }
             sourceFingerprint = track.sourceFingerprint
         }
-        let model = try await modelFingerprint()
-        let diarizationOptions = DiarizationArtifacts.hash(
-            "alignment-v1", String(Config.diarizationThreshold()))
+        let selectedModel = Config.diarizationModel()
+        let model = try await modelFingerprint(selectedModel)
+        let diarizationOptions = Self.diarizationOptions(
+            model: selectedModel, threshold: Config.diarizationThreshold())
         return DiarizationArtifacts.hash(sourceFingerprint, model,
             diarizationOptions, options) == generation
     }
@@ -594,6 +615,9 @@ actor TranscriptionCoordinator {
         try SessionClaim.acquire(dir, stage: .transcribe)
         do {
             try TranscriptVersions.recover(dir)
+            guard !DiarizationState.persisted(in: dir).isUnreadable else {
+                throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+            }
             guard PostProcessor.readTranscript(dir) != nil else {
                 throw DiarizationUnavailable(reason: "transcript is not ready; source audio must be kept")
             }
@@ -690,7 +714,7 @@ actor TranscriptionCoordinator {
             engine = try await engines.local(named: state.request.engine,
                                               wordTimings: true, prepare: false)
             current = engine
-            model = try await modelFingerprint()
+            model = try await modelFingerprint(state.request.model)
         } catch {
             state.deferForEnvironment("model unavailable: \(error)")
             try state.write(to: dir)
@@ -705,7 +729,8 @@ actor TranscriptionCoordinator {
             try state.write(to: dir)
             throw DiarizationUnavailable(reason: state.reason!)
         }
-        let options = DiarizationArtifacts.hash("alignment-v1", String(state.request.threshold))
+        let options = Self.diarizationOptions(
+            model: state.request.model, threshold: state.request.threshold)
         let fingerprint = DiarizationArtifacts.hash(
             source.fingerprint, model, options, asrOptions)
         if !explicit && state.attempts >= 3 && state.fingerprint == fingerprint { return false }
@@ -736,7 +761,8 @@ actor TranscriptionCoordinator {
             result = cachedTimeline.result
         } else {
             let runtime = diarizerFactory(
-                DiarizationSettings(enabled: true, threshold: state.request.threshold))
+                DiarizationSettings(enabled: true, threshold: state.request.threshold,
+                                    model: state.request.model))
             do {
                 try await runtime.prepare()
             } catch {
@@ -751,7 +777,8 @@ actor TranscriptionCoordinator {
                 runPersisted = true
                 result = try await LocalDiarizationPipeline.run(
                     source: source, engine: engine, runtime: runtime,
-                    settings: DiarizationSettings(enabled: true, threshold: state.request.threshold),
+                    settings: DiarizationSettings(enabled: true, threshold: state.request.threshold,
+                                                  model: state.request.model),
                     cachedASR: asr?.cached(
                         speaker: track.speaker, sourceFingerprint: source.fingerprint,
                         optionsFingerprint: asrOptions, engine: engine.name, model: engine.model),
@@ -777,6 +804,12 @@ actor TranscriptionCoordinator {
                 state.deferForEnvironment(unavailable.reason)
                 try state.write(to: dir)
                 throw unavailable
+            } catch LocalDiarizationRuntimeError.unavailable {
+                await runtime.release()
+                state.attempts = max(0, state.attempts - 1)
+                state.deferForEnvironment("speaker runtime unavailable")
+                try state.write(to: dir)
+                throw LocalDiarizationRuntimeError.unavailable
             } catch {
                 await runtime.release()
                 if runPersisted {
@@ -869,6 +902,9 @@ actor TranscriptionCoordinator {
         try SessionClaim.acquire(dir, stage: .transcribe)
         defer { SessionClaim.release(dir) }
         try TranscriptVersions.recover(dir)
+        guard !DiarizationState.persisted(in: dir).isUnreadable else {
+            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+        }
         // Asked again now that the folder is ours. A session can wait in the
         // queue while somebody else — `amanu process`, another entry for the
         // same folder — transcribes it, and the claim is what makes the
@@ -898,7 +934,8 @@ actor TranscriptionCoordinator {
             } else if requested.request.engine != engine.name {
                 requested = DiarizationState(request: .init(
                     engine: engine.name, threshold: requested.request.threshold,
-                    explicit: requested.request.explicit), status: .pending)
+                    explicit: requested.request.explicit,
+                    model: requested.request.model), status: .pending)
             }
             diarization = requested
             try requested.write(to: dir)
@@ -906,7 +943,8 @@ actor TranscriptionCoordinator {
         if diarization == nil && Config.localDiarizationEnabled() {
             let applicable = Config.localEngines.contains(engine.name) && Platform.supportsLocalModels
             diarization = DiarizationState(
-                request: .init(engine: engine.name, threshold: Config.diarizationThreshold()),
+                request: .init(engine: engine.name, threshold: Config.diarizationThreshold(),
+                               model: Config.diarizationModel()),
                 status: applicable ? .pending : .notApplicable)
             try diarization?.write(to: dir)
         }
@@ -1221,9 +1259,10 @@ actor TranscriptionCoordinator {
         }
         let model: String
         let runtime = diarizerFactory(
-            DiarizationSettings(enabled: true, threshold: state.request.threshold))
+            DiarizationSettings(enabled: true, threshold: state.request.threshold,
+                                model: state.request.model))
         do {
-            model = try await modelFingerprint()
+            model = try await modelFingerprint(state.request.model)
             try await runtime.prepare()
         } catch {
             state.deferForEnvironment("model unavailable: \(error)")
@@ -1231,7 +1270,8 @@ actor TranscriptionCoordinator {
             return false
         }
         let asrOptions = Self.asrOptionsFingerprint(engine: engine)
-        let options = DiarizationArtifacts.hash("alignment-v1", String(state.request.threshold))
+        let options = Self.diarizationOptions(
+            model: state.request.model, threshold: state.request.threshold)
         let generationFingerprint = DiarizationArtifacts.hash(
             source.fingerprint, model, options, asrOptions)
         state.beginInference(fingerprint: generationFingerprint)
@@ -1242,7 +1282,8 @@ actor TranscriptionCoordinator {
             runPersisted = true
             result = try await LocalDiarizationPipeline.run(
                 source: source, engine: engine, runtime: runtime,
-                settings: DiarizationSettings(enabled: true, threshold: state.request.threshold),
+                settings: DiarizationSettings(enabled: true, threshold: state.request.threshold,
+                                              model: state.request.model),
                 modelFingerprint: model, optionsFingerprint: options,
                 asrOptionsFingerprint: asrOptions)
             try Task.checkCancellation()
@@ -1253,6 +1294,12 @@ actor TranscriptionCoordinator {
             state.status = .pending
             try state.write(to: dir)
             throw CancellationError()
+        } catch LocalDiarizationRuntimeError.unavailable {
+            await runtime.release()
+            state.attempts = max(0, state.attempts - 1)
+            state.deferForEnvironment("speaker runtime unavailable")
+            try state.write(to: dir)
+            return false
         } catch {
             await runtime.release()
             if runPersisted {

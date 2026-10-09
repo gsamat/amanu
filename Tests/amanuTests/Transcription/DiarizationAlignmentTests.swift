@@ -122,6 +122,6 @@ struct DiarizationAlignmentTests {
         #expect(DiarizationSettings(enabled: true, threshold: 0).threshold == 0.3)
         #expect(DiarizationSettings(enabled: true, threshold: 9).threshold == 1.2)
         #expect(try JSONDecoder().decode(DiarizationSettings.self,
-            from: Data(#"{}"#.utf8)) == DiarizationSettings())
+            from: Data(#"{}"#.utf8)) == DiarizationSettings(model: .community1))
     }
 }

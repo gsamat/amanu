@@ -10,18 +10,145 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct SetupFormBehaviourTests {
-    @Test("Speaker separation is opt-in and its model requires an explicit download click",
-          .freshHome, .enabled(if: Platform.supportsLocalModels))
+    @Test("Speaker model cards require local transcription and the feature switch",
+          .freshHome(config: #"{"transcription":{"enabled":true,"engine":"parakeet"}}"#),
+          .enabled(if: Platform.supportsLocalModels))
     func diarizationSwitchDoesNotDownload() throws {
         let form = SetupForm()
         defer { form.stop() }
         let toggle = try #require(Self.view("transcription.local-diarization", in: form) as? NSSwitch)
-        let download = try #require(Self.button("transcription.diarization.download", in: form))
+        let names = ["nemotron-3", "ls-eend-ami", "community-1"]
+        let cards = try names.map { try #require(Self.view("choice.diarization.\($0)", in: form) as? ChoiceCard) }
+        let downloads = try names.map { try #require(Self.button("transcription.diarization.download.\($0)", in: form)) }
         #expect(toggle.state == .off)
-        #expect(download.isEnabled)
+        #expect(cards.map(\.isSelected) == [true, false, false])
+        #expect(cards.allSatisfy { !$0.isEnabled })
+        #expect(downloads.allSatisfy { !$0.isEnabled })
         toggle.performClick(nil)
         #expect(Config.localDiarizationEnabled())
-        #expect(download.isEnabled, "enabling the feature started a hidden download")
+        #expect(cards.allSatisfy { $0.isEnabled })
+        #expect(downloads.allSatisfy { $0.isEnabled }, "enabling the feature started a hidden download")
+        #expect(cards[1].accessibilityPerformPress())
+        #expect(cards.map(\.isSelected) == [false, true, false])
+        #expect(Config.diarizationModel() == .lsEendAMI)
+        #expect(Self.labels(in: cards[0]).joined(separator: " ").contains("107 MB"))
+        #expect(Self.labels(in: cards[1]).joined(separator: " ").contains("45 MB"))
+        #expect(Self.labels(in: cards[2]).joined(separator: " ").contains("21 MB"))
+        toggle.performClick(nil)
+        #expect(cards.allSatisfy { !$0.isEnabled })
+        #expect(Config.diarizationModel() == .lsEendAMI, "turning the feature off lost the selected model")
+    }
+
+    @Test("Returning to Nemotron saves an explicit speaker-model preference",
+          .freshHome(config: #"{"transcription":{"enabled":true,"engine":"parakeet","local_diarization":true}}"#),
+          .enabled(if: Platform.supportsLocalModels))
+    func diarizationDefaultPickIsPersisted() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let ami = try #require(Self.view("choice.diarization.ls-eend-ami", in: form) as? ChoiceCard)
+        let nemo = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        #expect(ami.accessibilityPerformPress())
+        #expect(nemo.accessibilityPerformPress())
+        #expect(Config.diarizationModel() == .nemotron3)
+        let saved = try String(contentsOf: Config.path, encoding: .utf8)
+        let config = try #require(JSONSerialization.jsonObject(with: Data(saved.utf8)) as? [String: Any])
+        let transcription = try #require(config["transcription"] as? [String: Any])
+        #expect(transcription["diarization_model"] as? String == "nemotron-3",
+                "an explicit selection must survive a future default change")
+    }
+
+    @Test("Cloud-only mode cannot enable speaker separation",
+          .freshHome(config: #"{"transcription":{"enabled":true,"engine":"openai","local_diarization":true}}"#),
+          .speaking(.english), .enabled(if: Platform.supportsLocalModels))
+    func diarizationRequiresLocalMode() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let toggle = try #require(Self.view("transcription.local-diarization", in: form) as? NSSwitch)
+        let card = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        let download = try #require(Self.button("transcription.diarization.download.nemotron-3", in: form))
+        #expect(!toggle.isEnabled)
+        #expect(!card.isEnabled)
+        #expect(!download.isEnabled)
+        #expect(!card.accessibilityPerformPress())
+        #expect(Self.labels(in: form.view).contains("Available with On this Mac enabled."))
+    }
+
+    @Test("A broken config leaves the speaker choices unavailable",
+          .freshHome(config: "{broken"), .enabled(if: Platform.supportsLocalModels))
+    func diarizationCannotBypassBadConfig() throws {
+        let form = Self.localForm()
+        defer { form.stop() }
+        let toggle = try #require(Self.view("transcription.local-diarization", in: form) as? NSSwitch)
+        let card = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        #expect(!toggle.isEnabled)
+        #expect(!card.isEnabled)
+        #expect(!card.accessibilityPerformPress())
+    }
+
+    @Test("Speaker radio cards explain their capacity in English", .freshHome,
+          .speaking(.english))
+    func diarizationEnglishDescriptions() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let nemo = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        let ami = try #require(Self.view("choice.diarization.ls-eend-ami", in: form) as? ChoiceCard)
+        let community = try #require(Self.view("choice.diarization.community-1", in: form) as? ChoiceCard)
+        #expect(nemo.accessibilityHelp()?.contains("Meetings up to 8 speakers") == true)
+        #expect(ami.accessibilityHelp()?.contains("Meetings up to 4 speakers") == true)
+        #expect(community.accessibilityHelp()?.contains("Compact alternative") == true)
+    }
+
+    @Test("Speaker radio cards explain their capacity in Russian", .freshHome,
+          .speaking(.russian))
+    func diarizationRussianDescriptions() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let nemo = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        let ami = try #require(Self.view("choice.diarization.ls-eend-ami", in: form) as? ChoiceCard)
+        let community = try #require(Self.view("choice.diarization.community-1", in: form) as? ChoiceCard)
+        #expect(nemo.accessibilityHelp()?.contains("Встречи до 8 говорящих") == true)
+        #expect(ami.accessibilityHelp()?.contains("Встречи до 4 говорящих") == true)
+        #expect(community.accessibilityHelp()?.contains("Компактная альтернатива") == true)
+    }
+
+    @Test("Cloud-only speaker hint names the local switch in Russian",
+          .freshHome(config: #"{"transcription":{"enabled":true,"engine":"openai","local_diarization":true}}"#),
+          .speaking(.russian), .enabled(if: Platform.supportsLocalModels))
+    func diarizationRussianCloudOnlyHint() {
+        let form = SetupForm()
+        defer { form.stop() }
+        #expect(Self.labels(in: form.view).contains("Доступно при включённом «На этом Mac»."))
+    }
+
+    @Test("Only a card's download button fetches its snapshotted speaker model",
+          .freshHome(config: #"{"transcription":{"enabled":true,"engine":"parakeet"}}"#),
+          .enabled(if: Platform.supportsLocalModels))
+    func diarizationDownloadIsExplicitAndIndependent() async throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        let gate = Gate()
+        var fetched: [DiarizationModel] = []
+        form.fetchDiarization = { model, _ in
+            fetched.append(model)
+            await gate.pass()
+        }
+        let toggle = try #require(Self.view("transcription.local-diarization", in: form) as? NSSwitch)
+        let ami = try #require(Self.view("choice.diarization.ls-eend-ami", in: form) as? ChoiceCard)
+        let nemo = try #require(Self.view("choice.diarization.nemotron-3", in: form) as? ChoiceCard)
+        let download = try #require(Self.button("transcription.diarization.download.ls-eend-ami", in: form))
+        toggle.performClick(nil)
+        #expect(ami.accessibilityPerformPress())
+        #expect(fetched.isEmpty, "selecting a model fetched it silently")
+        download.performClick(nil)
+        for _ in 0..<10 where fetched.isEmpty { await Task.yield() }
+        #expect(fetched == [.lsEendAMI])
+        #expect(!download.isEnabled)
+        #expect(nemo.accessibilityPerformPress())
+        #expect(Config.diarizationModel() == .nemotron3)
+        #expect(fetched == [.lsEendAMI], "changing selection changed the active fetch")
+        gate.open()
+        for _ in 0..<50 where !download.isEnabled { await Task.yield() }
+        #expect(download.isEnabled)
     }
 
     /// A form whose transcription settings live in memory and say "parakeet,

@@ -64,7 +64,7 @@ struct ModelStorageTests {
         let empty = storage.all(configured: .v3)
         #expect(empty.map(\.name) == [
             "parakeet v3", "Whisper large-v3-turbo", "GigaAM v3", "NVIDIA nemotron",
-            "Speaker diarization",
+            "Nemotron 3", "LS-EEND AMI", "Community-1",
         ])
         #expect(empty.allSatisfy { !$0.isDownloaded })
         #expect(storage.total(empty) == 0)
@@ -85,9 +85,43 @@ struct ModelStorageTests {
         let both = storage.all(configured: .v3)
         #expect(both.map(\.name) == [
             "parakeet v3", "parakeet v2", "Whisper large-v3-turbo", "GigaAM v3",
-            "NVIDIA nemotron", "Speaker diarization",
+            "NVIDIA nemotron", "Nemotron 3", "LS-EEND AMI", "Community-1",
         ])
         #expect(storage.total(both) == 6 * 1024)
+    }
+
+    @Test("Speaker models occupy independent sibling directories and carry their identity")
+    func independentDiarizationModels() throws {
+        let root = try Self.temporary()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let storage = Self.storage(in: root)
+        let models = DiarizationModel.allCases.map(storage.diarizationModel)
+        #expect(models.map(\.diarizationModel) == DiarizationModel.allCases.map(Optional.some))
+        #expect(models.map { $0.directory.lastPathComponent } == [
+            "diarization-nemotron-3", "diarization-ls-eend-ami", "diarization",
+        ])
+        #expect(Set(models.map(\.directory)).count == 3)
+
+        _ = try Self.directory(root, "diarization-ls-eend-ami", files: 1)
+        #expect(storage.diarizationModel(.lsEendAMI).bytes == 1024)
+        #expect(storage.diarizationModel(.nemotron3).bytes == 0)
+        #expect(storage.diarizationModel(.community1).bytes == 0)
+        #expect(!storage.diarizationModel(.lsEendAMI).isDownloaded,
+                "a partial LS-EEND directory was treated as ready")
+    }
+
+    @Test("Deleting an unselected speaker model leaves the selected feature enabled")
+    func deletingUnselectedDiarizationModel() {
+        let choice = TranscriptionChoice(cloud: true, local: true, provider: "assemblyai")
+        #expect(ModelStorage.updatesAfterDeleting(
+            .diarization, choice: choice, liveEnabled: false,
+            diarizationEnabled: true, deletedDiarizationModel: .community1,
+            selectedDiarizationModel: .nemotron3).isEmpty)
+        let selected = ModelStorage.updatesAfterDeleting(
+            .diarization, choice: choice, liveEnabled: false,
+            diarizationEnabled: true, deletedDiarizationModel: .nemotron3,
+            selectedDiarizationModel: .nemotron3)
+        #expect(selected.map(\.path) == [["transcription", "local_diarization"]])
     }
 
     @Test("The live model is measured and deleted whole, variants and all")

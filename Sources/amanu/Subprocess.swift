@@ -20,7 +20,8 @@ enum Subprocess {
     }
 
     static func run(executable: String, arguments: [String], input: Data,
-                    timeout: TimeInterval) async throws -> Output {
+                    timeout: TimeInterval,
+                    environment: [String: String]? = nil) async throws -> Output {
         let cancellation = Cancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -28,7 +29,8 @@ enum Subprocess {
                     do {
                         continuation.resume(returning: try runSync(
                             executable: executable, arguments: arguments, input: input,
-                            timeout: timeout, isCancelled: { cancellation.isCancelled }))
+                            timeout: timeout, environment: environment,
+                            isCancelled: { cancellation.isCancelled }))
                     } catch { continuation.resume(throwing: error) }
                 }
             }
@@ -37,6 +39,7 @@ enum Subprocess {
 
     static func runSync(executable: String, arguments: [String], input: Data = Data(),
                         timeout: TimeInterval,
+                        environment: [String: String]? = nil,
                         isCancelled: @Sendable () -> Bool = { false }) throws -> Output {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-process-\(UUID().uuidString)", isDirectory: true)
@@ -70,6 +73,7 @@ enum Subprocess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let environment { process.environment = environment }
         process.currentDirectoryURL = scratch
         process.standardInput = stdin
         process.standardOutput = stdout

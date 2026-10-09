@@ -19,8 +19,22 @@ actor DiarizationModelStore {
         }
     }
 
-    static let shared = DiarizationModelStore(directory: Home.process.url.appendingPathComponent(
-        ".cache/amanu/diarization", isDirectory: true))
+    static let shared = DiarizationModelStore(model: .community1, directory: processDirectory(for: .community1))
+    private static let nemotron = DiarizationModelStore(model: .nemotron3, directory: processDirectory(for: .nemotron3))
+    private static let lsEend = DiarizationModelStore(model: .lsEendAMI, directory: processDirectory(for: .lsEendAMI))
+
+    private static func processDirectory(for model: DiarizationModel) -> URL {
+        Home.process.url.appendingPathComponent(
+            ".cache/amanu/\(model.assetDirectoryName)", isDirectory: true)
+    }
+
+    static func shared(for model: DiarizationModel) -> DiarizationModelStore {
+        switch model {
+        case .community1: shared
+        case .nemotron3: nemotron
+        case .lsEendAMI: lsEend
+        }
+    }
     static let revision = "df2625ac79a7ac6b65ad868fee6d80f320da4232"
     static let repository = "FluidInference/speaker-diarization-coreml"
     static let advertisedBytes = assets.reduce(0) { $0 + $1.size }
@@ -74,18 +88,45 @@ actor DiarizationModelStore {
         provenance.json 10048 0353430db062715c411ba32e66cb435b9caee2662bccdb298f9e5d1bae760872
         """
 
-    let directory: URL
+    private static let lsEendManifest = """
+        optimized/ami/500ms/ls_eend_ami_500ms.mlmodelc/analytics/coremldata.bin 243 8c8d6032e92c8c43fe974f203d4a9041453e83932bbc133eaa00605afe3464b4
+        optimized/ami/500ms/ls_eend_ami_500ms.mlmodelc/coremldata.bin 1395 984dbda533de03f37b496d41400be4fb0cad97233106f868482ef79302526a38
+        optimized/ami/500ms/ls_eend_ami_500ms.mlmodelc/metadata.json 6999 11887907e88625e0281a328f159125399ddc794ac1e5af03e6ab03f8e4244a6e
+        optimized/ami/500ms/ls_eend_ami_500ms.mlmodelc/model.mil 239859 ba9a781d47ce033c41ad334e76d985fc067d7b6c338182f6e6d16e9b4289626b
+        optimized/ami/500ms/ls_eend_ami_500ms.mlmodelc/weights/weight.bin 44426496 97952c32e939e275869cf202b0079b5563cf071ca90b2df10a123d1f56e702c5
+        LICENSE 1072 bcd00ee53d35b9a089a115fdb8eb6d8ea21d4161deb95c5cb9f91168fd0c7a33
+        """
+
+    private static let nemotronManifest = """
+        models/Nemotron-3-Diarization.q8_0.gguf 107012128 08456d9e22cd9a323c0364d98375f3746d6e68507ebb705cd46438c534c7a3a1
+        """
+
+    private static func manifest(for model: DiarizationModel) -> String {
+        switch model {
+        case .community1: manifest
+        case .lsEendAMI: lsEendManifest
+        case .nemotron3: nemotronManifest
+        }
+    }
+
+    static func assets(for model: DiarizationModel) -> [Asset] {
+        manifest(for: model).split(separator: "\n").map { line in
+            let fields = line.split(separator: " ")
+            precondition(fields.count == 3)
+            return Asset(path: String(fields[0]), size: Int(fields[1])!, sha256: String(fields[2]))
+        }
+    }
+
+    nonisolated let model: DiarizationModel
+    nonisolated let directory: URL
     private let verifier: @Sendable (URL) throws -> Void
     private let fetch: @Sendable (URL) async throws -> URL
     private var inUse = false
     private var downloading = false
     private var leaseFD: Int32?
 
-    init(directory: URL = Home.current.url.appendingPathComponent(
-        ".cache/amanu/diarization", isDirectory: true),
-         verifier: @escaping @Sendable (URL) throws -> Void = {
-             try DiarizationModelStore.verifyAssets(in: $0)
-         },
+    init(model: DiarizationModel = .community1, directory: URL? = nil,
+         verifier: (@Sendable (URL) throws -> Void)? = nil,
          fetch: @escaping @Sendable (URL) async throws -> URL = { url in
              let (temporary, response) = try await URLSession.shared.download(from: url)
              guard (response as? HTTPURLResponse)?.statusCode == 200 else {
@@ -93,8 +134,10 @@ actor DiarizationModelStore {
              }
              return temporary
          }) {
-        self.directory = directory
-        self.verifier = verifier
+        self.model = model
+        self.directory = directory ?? Home.current.url.appendingPathComponent(
+            ".cache/amanu/\(model.assetDirectoryName)", isDirectory: true)
+        self.verifier = verifier ?? { try DiarizationModelStore.verifyAssets(in: $0, model: model) }
         self.fetch = fetch
     }
 
@@ -107,15 +150,27 @@ actor DiarizationModelStore {
 
     func isReady() -> Bool { (try? verify()) != nil }
 
-    nonisolated static func isReady(at directory: URL) -> Bool {
-        (try? verifyAssets(in: directory)) != nil
+    nonisolated static func isReady(at directory: URL, model: DiarizationModel = .community1) -> Bool {
+        (try? verifyAssets(in: directory, model: model)) != nil
     }
 
     /// Includes the exact weights and runtime options. Threshold belongs in
     /// the caller's options fingerprint so changing it preserves ASR.
     func fingerprint() throws -> String {
         try verify()
-        let descriptor = Self.revision + "|FluidAudio-0.15.5|cpuAndNeuralEngine|FBank-cpuOnly|exclusiveSegments=false|" + Self.manifest
+        let runtime: String
+        switch model {
+        case .community1:
+            runtime = "FluidAudio-0.15.5|cpuAndNeuralEngine|FBank-cpuOnly|exclusiveSegments=false"
+        case .lsEendAMI:
+            runtime = "FluidAudio-0.15.5|LS-EEND-AMI500|cpuOnly|full-timeline"
+        case .nemotron3:
+            runtime = "NeMo-Speech.cpp-8642eaa5cc51efbc17ad0f3e433944ba858a873f|q8_0|v3-offline|Metal|chunked"
+        }
+        // Community-1 generations were persisted before model choice existed.
+        // Keep their descriptor byte-for-byte so completed sessions remain replayable.
+        let legacyDescriptor = model.revision + "|" + runtime + "|" + Self.manifest(for: model)
+        let descriptor = model == .community1 ? legacyDescriptor : model.rawValue + "|" + legacyDescriptor
         return SHA256.hash(data: Data(descriptor.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -159,16 +214,18 @@ actor DiarizationModelStore {
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
         var completed = 0
-        for asset in Self.assets {
+        let assets = Self.assets(for: model)
+        let total = assets.reduce(0) { $0 + $1.size }
+        for asset in assets {
             try Task.checkCancellation()
-            let url = URL(string: "https://huggingface.co/\(Self.repository)/resolve/\(Self.revision)/\(asset.path)")!
+            let url = URL(string: "https://huggingface.co/\(model.repository)/resolve/\(model.revision)/\(asset.path)")!
             let temporary = try await fetch(url)
             let target = staging.appendingPathComponent(asset.path)
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fm.moveItem(at: temporary, to: target)
             try Self.verify(asset, in: staging)
             completed += asset.size
-            progress(Double(completed) / Double(Self.advertisedBytes))
+            progress(Double(completed) / Double(total))
         }
         try verify(in: staging)
         try Task.checkCancellation()
@@ -186,6 +243,7 @@ actor DiarizationModelStore {
     }
 
     func loadModels() throws -> OfflineDiarizerModels {
+        guard model == .community1 else { throw StoreError.missingOrCorrupt(model.primaryAssetPath) }
         guard inUse else { throw StoreError.busy }
         try verify()
         let configuration = MLModelConfiguration()
@@ -244,8 +302,8 @@ actor DiarizationModelStore {
         close(leaseFD)
     }
 
-    private static func verifyAssets(in root: URL) throws {
-        for asset in assets { try verify(asset, in: root) }
+    private static func verifyAssets(in root: URL, model: DiarizationModel) throws {
+        for asset in assets(for: model) { try verify(asset, in: root) }
     }
 
     private static func verify(_ asset: Asset, in root: URL) throws {

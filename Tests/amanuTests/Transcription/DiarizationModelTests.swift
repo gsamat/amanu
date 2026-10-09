@@ -1,9 +1,63 @@
+import AVFoundation
 import Foundation
 import Testing
 
 @testable import amanu
 
 struct DiarizationModelTests {
+    @Test("Speaker-model setting defaults to Nemotron and flags an unknown persisted choice")
+    func modelChoiceConfigContract() throws {
+        let entry = try #require(SettingsSchema.everyEntry.first {
+            $0.path == ["transcription", "diarization_model"]
+        })
+        #expect(entry.defaultValue as? String == "nemotron-3")
+        #expect(Config.diarizationModel(in: nil) == .nemotron3)
+        #expect(Config.diarizationModel(in: ["transcription": ["diarization_model": "ls-eend-ami"]]) == .lsEendAMI)
+        #expect(Config.diarizationModel(in: ["transcription": ["diarization_model": "not-a-model"]]) == .nemotron3)
+        #expect(Config.unusableValues(in: ["transcription": ["diarization_model": "not-a-model"]])
+            .contains { if case .unusable(key: "transcription.diarization_model", found: _, expected: _) = $0 { true } else { false } })
+    }
+
+    @Test("Legacy persisted speaker requests retain Community-1 while new requests choose Nemotron")
+    func legacyRequestModel() throws {
+        let old = try JSONDecoder().decode(DiarizationState.Request.self,
+            from: Data(#"{"engine":"parakeet","threshold":0.6,"explicit":false}"#.utf8))
+        #expect(old.model == .community1)
+        #expect(DiarizationState.Request(engine: "parakeet", threshold: 0.6).model == .nemotron3)
+        let new = DiarizationState.Request(engine: "parakeet", threshold: 0.6, model: .lsEendAMI)
+        #expect(try JSONDecoder().decode(DiarizationState.Request.self,
+            from: JSONEncoder().encode(new)).model == .lsEendAMI)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(DiarizationState.Request.self,
+                from: Data(#"{"engine":"parakeet","threshold":0.6,"model":"unknown"}"#.utf8))
+        }
+    }
+
+    @Test("Deleting one model does not remove its sibling and leased models remain busy")
+    func independentModelDirectories() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-model-siblings-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let community = parent.appendingPathComponent("diarization", isDirectory: true)
+        let nemotron = parent.appendingPathComponent("diarization-nemotron-3", isDirectory: true)
+        let lsEend = parent.appendingPathComponent("diarization-ls-eend-ami", isDirectory: true)
+        for directory in [community, nemotron, lsEend] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Data([1]).write(to: directory.appendingPathComponent("marker"))
+        }
+        let selected = DiarizationModelStore(model: .nemotron3, directory: nemotron, verifier: { _ in })
+        let compact = DiarizationModelStore(model: .community1, directory: community, verifier: { _ in })
+        let ami = DiarizationModelStore(model: .lsEendAMI, directory: lsEend, verifier: { _ in })
+        try await selected.beginUse()
+        await #expect(throws: DiarizationModelStore.StoreError.busy) { try await selected.delete() }
+        try await compact.delete()
+        #expect(FileManager.default.fileExists(atPath: nemotron.appendingPathComponent("marker").path))
+        #expect(FileManager.default.fileExists(atPath: lsEend.appendingPathComponent("marker").path))
+        await selected.endUse()
+        try await ami.delete()
+        #expect(FileManager.default.fileExists(atPath: nemotron.appendingPathComponent("marker").path))
+    }
+
     private actor StartSignal {
         private var started = false
         private var waiter: CheckedContinuation<Void, Never>?
@@ -66,6 +120,37 @@ struct DiarizationModelTests {
         #expect(DiarizationModelStore.assets.allSatisfy {
             $0.size > 0 && $0.sha256.count == 64
         })
+    }
+
+    @Test("Each selectable model has complete pinned assets and the AMI notice")
+    func selectableManifests() {
+        for model in DiarizationModel.allCases {
+            let assets = DiarizationModelStore.assets(for: model)
+            #expect(!assets.isEmpty)
+            #expect(Set(assets.map(\.path)).count == assets.count)
+            #expect(assets.allSatisfy { $0.size > 0 && $0.sha256.count == 64 })
+            #expect(assets.contains { $0.path.hasPrefix(model.primaryAssetPath) })
+        }
+        let ami = DiarizationModelStore.assets(for: .lsEendAMI)
+        #expect(ami.count == 6)
+        #expect(ami.first { $0.path.hasSuffix("model.mil") }?.sha256
+                == "ba9a781d47ce033c41ad334e76d985fc067d7b6c338182f6e6d16e9b4289626b")
+        #expect(ami.first { $0.path == "LICENSE" }?.sha256
+                == "bcd00ee53d35b9a089a115fdb8eb6d8ea21d4161deb95c5cb9f91168fd0c7a33")
+        let nemo = DiarizationModelStore.assets(for: .nemotron3)
+        #expect(nemo.count == 1)
+        #expect(nemo[0].sha256 == "08456d9e22cd9a323c0364d98375f3746d6e68507ebb705cd46438c534c7a3a1")
+    }
+
+    @Test("Community-1 keeps its pre-selection model fingerprint")
+    func legacyCommunityFingerprint() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-legacy-fingerprint-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DiarizationModelStore(model: .community1, directory: directory,
+                                          verifier: { _ in })
+        #expect(try await store.fingerprint()
+                == "a5f266162b3237b566e22e79c868d2c1895c87f798f70a4b543c07ce883d7a47")
     }
 
     @Test("An incomplete model directory is never ready, and deletion respects an inference lease")
@@ -149,5 +234,105 @@ struct DiarizationModelTests {
         try await store.download()
         #expect(await store.isReady())
         #expect(try await store.fingerprint().count == 64)
+    }
+}
+
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["AMANU_DIAR_NATIVE_MODEL"] != nil
+    && ProcessInfo.processInfo.environment["AMANU_DIAR_NATIVE_MODELS"] != nil
+    && ProcessInfo.processInfo.environment["AMANU_DIAR_NATIVE_AUDIO"] != nil))
+struct DiarizationNativeSelectionTests {
+    private struct Turn: Encodable {
+        let speaker: String
+        let start: Double
+        let end: Double
+    }
+
+    private struct Report: Encodable {
+        let model: String
+        let revision: String
+        let modelFingerprint: String
+        let audioSeconds: Double
+        let prepareSeconds: Double
+        let diarizationSeconds: Double
+        let detectedSpeakerCount: Int
+        let turns: [Turn]
+    }
+
+    @Test("Opt-in pinned native model produces valid speaker turns on public audio")
+    func selectedModel() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        let modelName = try #require(environment["AMANU_DIAR_NATIVE_MODEL"])
+        let model = try #require(DiarizationModel(rawValue: modelName))
+        #expect(model != .community1)
+        guard model != .community1 else { return }
+        let modelsPath = try #require(environment["AMANU_DIAR_NATIVE_MODELS"])
+        let audioPath = try #require(environment["AMANU_DIAR_NATIVE_AUDIO"])
+        let permitted = ["/tmp/amanu-diarization-model-comparison/",
+                         "/private/tmp/amanu-diarization-model-comparison/"]
+        let models = URL(fileURLWithPath: modelsPath, isDirectory: true).resolvingSymlinksInPath()
+        let audio = URL(fileURLWithPath: audioPath).resolvingSymlinksInPath()
+        #expect(modelsPath.hasPrefix("/") && audioPath.hasPrefix("/"))
+        #expect(permitted.contains { models.path.hasPrefix($0) })
+        #expect(permitted.contains { audio.path.hasPrefix($0) })
+        guard modelsPath.hasPrefix("/"), audioPath.hasPrefix("/"),
+              permitted.contains(where: { models.path.hasPrefix($0) }),
+              permitted.contains(where: { audio.path.hasPrefix($0) })
+        else { return }
+
+        let source = try AVAudioFile(forReading: audio)
+        let duration = Double(source.length) / 16_000
+        #expect(source.processingFormat.channelCount == 1)
+        #expect(source.processingFormat.sampleRate == 16_000)
+        #expect(duration > 0)
+        guard source.processingFormat.channelCount == 1,
+              source.processingFormat.sampleRate == 16_000, duration > 0 else { return }
+
+        let store = DiarizationModelStore(model: model, directory: models)
+        #expect(await store.isReady())
+        let fingerprint = try await store.fingerprint()
+        let runtime = DiarizationEngine(
+            settings: DiarizationSettings(enabled: true, model: model), store: store)
+        let start = ProcessInfo.processInfo.systemUptime
+        try await runtime.prepare()
+        let prepared = ProcessInfo.processInfo.systemUptime
+        let turns: [SpeakerTurn]
+        do {
+            turns = try await runtime.diarize(audio)
+        } catch {
+            await runtime.release()
+            throw error
+        }
+        let finished = ProcessInfo.processInfo.systemUptime
+        await runtime.release()
+
+        #expect(!turns.isEmpty)
+        #expect(turns.allSatisfy {
+            $0.start.isFinite && $0.end.isFinite && $0.start >= 0
+                && $0.start < $0.end && $0.end <= duration
+        })
+        let speakerCount = Set(turns.map(\.speakerID)).count
+        #expect(speakerCount <= (model == .nemotron3 ? 8 : 4))
+        guard !turns.isEmpty, speakerCount <= (model == .nemotron3 ? 8 : 4),
+              turns.allSatisfy({ $0.start.isFinite && $0.end.isFinite
+                  && $0.start >= 0 && $0.start < $0.end && $0.end <= duration })
+        else { return }
+
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let reportURL = repository.appendingPathComponent(
+            ".build/diarization-native-\(model.rawValue).json")
+        let report = Report(
+            model: model.rawValue, revision: model.revision,
+            modelFingerprint: fingerprint, audioSeconds: duration,
+            prepareSeconds: prepared - start, diarizationSeconds: finished - prepared,
+            detectedSpeakerCount: speakerCount,
+            turns: turns.map { Turn(speaker: $0.speakerID, start: $0.start, end: $0.end) })
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(to: reportURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                              ofItemAtPath: reportURL.path)
+        print("Native diarization numeric report written inside .build")
     }
 }

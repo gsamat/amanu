@@ -19,7 +19,7 @@ checks. A passing unit suite does not establish diarization quality on meetings.
 - Compiler: Apple Swift 6.4, swiftlang-6.4.0.34.1.
 - Xcode: 27.0, build 27A266a; first-launch readiness passed after installation.
 
-## Verification record
+## Original Community-1 verification record
 
 | Check | Result |
 | --- | --- |
@@ -39,6 +39,47 @@ checks. A passing unit suite does not establish diarization quality on meetings.
 | Real diarization-model smoke and CAF/AAC comparison | Passed mechanically: 12 observations over four real AMI voices; quality is weak, see results below |
 | Native Whisper timed-word smoke | Passed: 21 timed words, all valid, three punctuated words; one of three segments had no word payload and requires turn fallback |
 | Annotated Russian meeting evaluation | Unverified; no permitted annotated Russian corpus supplied |
+
+## Model-choice follow-up, 2026-10-10
+
+The user approved the rendered layout before implementation. Settings and
+first-run Setup now place a separate Diarization section immediately below
+the local transcription models, before language. The same radio-card control
+offers Nemotron 3, LS-EEND AMI and Community-1 with short characteristics.
+The section requires “On this Mac”; model selection and download additionally
+require the optional diarization switch. Selection alone never downloads a model.
+
+Nemotron 3 is the default for new requests. Existing saved requests without
+a model retain Community-1, including the historical cache fingerprints.
+Each model has an independent verified cache and inference lease. Unsupported
+saved model IDs block processing without discarding audio or provisional text;
+valid terminal failures still clear obsolete provisional text.
+
+| Check | Result |
+| --- | --- |
+| Full ordinary `AMANU_REQUIRE_LOCALVQE=1 swift test --no-parallel` | 865 tests/115 suites, 50.816 s; four issues: three affected fixture expectations and the unchanged `MeetingLanguagesTests.swift:25` ordering assertion |
+| Corrected interface/schema fixtures | Exact model/license proper-name allowlist and held Setup key updated; focused 51 tests/4 suites passed in 6.629 s; product source unchanged, full suite not repeated |
+| Focused legacy replay and unsupported-model recovery | Passed; old completed Community-1 replay needs no audio or fresh inference; unreadable requests retain recovery data and refuse overwrite/skip |
+| Failed candidate cleanup | Both terminal-failure cleanup and unreadable-state retention checks passed |
+| Native runner with hostile ambient variables | All six runner tests passed with inherited `NEMO_SPEECH_DIAR_ONSET` and `GGML_LOG_LEVEL`; fake child observed both removed |
+| Native helper build | Pinned default-source build passed; seven arm64 Mach-O files and 147 objects target macOS 14.2, with embedded Metal and relative library closure |
+| Helper-verifier regression | Positive original/copied closure accepted; absolute alias, escaping relative alias and extra absolute RPATH rejected |
+| Script suite | All 25 Python tests passed, no skips |
+| EN/RU native views | Setup and Settings, light/dark, narrow 640-point layout and cloud-only state passed; copy and bottom spacing visually inspected |
+| Actual selected-model engine | Nemotron returned 6/6 voices, DER 3.08% on NOTSOFAR eval MTG32175; LS-EEND AMI returned 4/4, DER 6.07% on AMI 600–780 s |
+
+The natural public-corpus comparison, pinned assets, licensing, timing limits
+and reproducible selected-engine procedure are recorded in
+[the evaluation report](local-diarization-evaluation.md#native-model-comparison-2026-10-10).
+The two selected-engine checks used private scratch caches and public audio;
+they did not read recordings or modify the ordinary user profile. Their
+matching qualification scores establish integration on the stated Mac, not
+Russian-call accuracy or end-to-end ASR word attribution.
+
+Scoped reviews closed the cache/recovery, native-closure and explicit-model
+preference findings. Whole-branch review and the separate signed local app,
+actual bundled-helper execution and ZIP extraction are delivery checks recorded
+separately from these source checks.
 
 ## Local ad-hoc launch regression
 
@@ -127,8 +168,10 @@ had no validated words; the production pipeline reports turn resolution for
 that fallback rather than invented word precision.
 
 ASR WER, speaker-attributed word errors, native PR #37 controls, native
-Parakeet/GigaAM, the old/new GigaAM WER comparison, 5–8 real voices, natural
-overlap, and Russian Zoom/КTalk accuracy remain unverified. The corpus has
+The original short-clip evaluation did not verify Parakeet/GigaAM, the old/new
+GigaAM WER comparison, 5–8 real voices, natural overlap or Russian Zoom/КTalk
+accuracy. The follow-up above adds natural English overlap and six/seven-person
+evaluation meetings; Russian and end-to-end ASR checks remain unverified. The corpus has
 reference text, but actual timed ASR output was not supplied to the metric
 runner; absent word/control fields are not zero scores. Pure regressions
 cover the older whole-segment alignment counterexamples and more than
@@ -172,6 +215,7 @@ and recovery paths. That review is separate from the executed tests and does
 not establish model quality. The existing language-order failure is preserved
 and reported; neither that assertion nor the CI checks were weakened.
 
-The upstream PR remains draft until its required unverified checks are resolved.
+The upstream [PR 49](https://github.com/gsamat/amanu/pull/49) is open for review;
+its readiness state does not establish that CI or user acceptance has passed.
 No release, feed/version change, production deployment, or installation over
 the user's app is part of this task.

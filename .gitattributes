@@ -1,0 +1,2 @@
+# Preserve the exact upstream license and notice bytes, including line endings.
+Resources/Licenses/* -text

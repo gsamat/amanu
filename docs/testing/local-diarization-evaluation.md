@@ -155,3 +155,86 @@ speaker quality.
 Record separately which corpus categories, model smoke, CAF/AAC comparisons,
 GigaAM controls, and Russian calls were actually checked. If annotated Russian
 multi-speaker audio is unavailable, leave Russian meeting quality unverified.
+
+## Native model comparison, 2026-10-10
+
+The comparison used an Apple M3 Pro, 18 GiB RAM, macOS 26.7.1 (25G241),
+Xcode 27.0 and FluidAudio 0.15.5. Every model saw the same mono 16 kHz PCM
+and human reference turns. Each inference ran twice, with identical normalized
+turns on repeats. Scoring reused `DiarizationEvaluation` with the fixed collar
+and mapping above. There were no reference speaker-count hints or per-file
+settings. Community-1 used its default clustering threshold of 0.6; the
+separate 0.7/0.8 observations did not determine its primary score.
+
+AMI contains two natural 180-second windows of ES2004a, starting at 180 and
+600 seconds, from the pinned public mirror above. NOTSOFAR evaluation recordings
+come from [Microsoft's dataset](https://huggingface.co/datasets/microsoft/NOTSOFAR/tree/ba8fd0f034ce185fe4d24f47e53b4b8194795f07),
+revision `ba8fd0f034ce185fe4d24f47e53b4b8194795f07`, under
+`benchmark-datasets/eval_set/240825.1_eval_full_with_GT/MTG`.
+The first sorted seven-person and six-person meetings were chosen from all
+129 available metadata records before inference: MTG32100 (478.163 seconds)
+and MTG32175 (357.573 seconds), channel `sc_meetup_0/ch0.wav`. No eight-person
+meeting exists in that evaluation split. Audio LFS hashes and annotation Git
+blob hashes were verified; both datasets declare CC BY 4.0. Audio, annotations
+and raw reports remain outside source control.
+
+Primary overlap-included DER, followed by detected/reference speaker count:
+
+| Recording | Community-1 | LS-EEND AMI 500 ms | Nemotron 3 Q8_0 |
+| --- | --- | --- | --- |
+| AMI 180–360 s | 24.45%, 2/4 | 21.66%, 3/4 | 31.46%, 4/4 |
+| AMI 600–780 s | 15.26%, 3/4 | 6.07%, 4/4 | 7.75%, 4/4 |
+| NOTSOFAR eval MTG32100 | 45.34%, 4/7 | Capacity limited to four | 4.27%, 7/7 |
+| NOTSOFAR eval MTG32175 | 45.09%, 3/6 | Capacity limited to four | 3.08%, 6/6 |
+
+LS-EEND AMI uses the published AMI 500 ms preset, CPUOnly, from
+[FluidInference/ls-eend-coreml](https://huggingface.co/FluidInference/ls-eend-coreml/tree/28ce1b1f8ef186729df63b3886fbaae7bc10c4a1)
+at `28ce1b1f8ef186729df63b3886fbaae7bc10c4a1`; its compiled bundle is
+44,674,992 bytes and has four speaker tracks. It processed a three-minute
+AMI window in 1.37–1.80 seconds, excluding initialization, with process peak
+RSS of 125–157 MiB. The DIHARD3 100 ms variant was also checked but had
+higher DER on these recordings and was not selected for the app.
+
+Nemotron uses [NVIDIA's Q8_0 model](https://huggingface.co/nvidia/Nemotron-3-Diarization/tree/f667ed73aee57d40cc39428eb768b4fd87a0a29e)
+at `f667ed73aee57d40cc39428eb768b4fd87a0a29e` (107,012,128 bytes), with
+[NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp/tree/8642eaa5cc51efbc17ad0f3e433944ba858a873f)
+at `8642eaa5cc51efbc17ad0f3e433944ba858a873f`, Metal and fixed `v3-offline`
+chunked inference. The rebuilt helper and its dependency closure target
+macOS 14.2. Its first held-out invocation took 42.84 seconds, including cold
+Metal shader initialization; repeats took 1.11–2.07 seconds. Process peak RSS
+was 291–328 MiB. These are native probe measurements, not end-to-end Amanu
+timings; Swift test-process RSS for Community-1 is not directly comparable.
+
+Earlier NOTSOFAR train probes MTG30940 and MTG31005 established native
+seven/eight-speaker execution but are not independent quality evidence:
+[NVIDIA's model card](https://huggingface.co/nvidia/Nemotron-3-Diarization)
+lists NOTSOFAR train and development recordings among its training data.
+The evaluation-split recordings above were added for the default decision.
+This remains a small comparison of public English speech; it does not prove
+unseen-data status for every model, Russian-call accuracy, ASR word attribution,
+an hour-long meeting's memory use, or operation on an actual macOS 14.2 machine.
+
+Nemotron 3 is the new default because of its six/seven-speaker evaluation
+results and eight-speaker capacity. LS-EEND AMI remains an explicit option for
+meetings with at most four speakers, where it performed better on both AMI
+windows. Community-1 remains the compact compatibility option. Diarization
+itself stays off by default; older persisted requests retain Community-1.
+
+The selected-model paths were also checked through Amanu's actual
+`DiarizationEngine.prepare/diarize/release` with separately staged, hash-verified
+assets and no model download or ordinary profile access. Nemotron on eval
+MTG32175 returned six of six voices with 3.08% overlap-included DER; its first
+invocation of the product helper took 27.488 seconds, plus 0.072 seconds of
+preparation. LS-EEND AMI on the 600–780-second AMI window returned four of four
+voices with 6.07% DER in 1.225 seconds, plus 0.338 seconds of preparation.
+Both match their qualification scores. These timings exclude ASR, transcript
+attribution and app UI; the Nemotron invocation includes cold initialization.
+
+The opt-in `DiarizationNativeSelectionTests` requires all three variables:
+`AMANU_DIAR_NATIVE_MODEL` (`nemotron-3` or `ls-eend-ami`),
+`AMANU_DIAR_NATIVE_MODELS` (the matching verified store root), and
+`AMANU_DIAR_NATIVE_AUDIO` (mono 16 kHz public audio). For this bounded comparison,
+the latter two paths must resolve under `/tmp/amanu-diarization-model-comparison/`.
+Run it alone with `swift test --no-parallel --filter DiarizationNativeSelectionTests`.
+It writes numeric turns and timings under `.build/diarization-native-<model>.json`;
+the same fixed scorer, rather than detected counts alone, supplies the DER above.

@@ -65,7 +65,7 @@ enum PostProcessor {
         }
 
         guard exists("transcript.json"), !TranscriptVersions.isRequested(dir),
-              DiarizationState.read(dir)?.isFinal != false
+              DiarizationState.persisted(in: dir).isFinal
         else { return Work() }
 
         var work = Work()
@@ -366,6 +366,10 @@ enum PostProcessor {
         do {
             try SessionClaim.acquire(dir, stage: .transcribe)
             defer { SessionClaim.release(dir) }
+            guard !DiarizationState.persisted(in: dir).isUnreadable else {
+                appendSessionLog("can't replace unreadable saved diarization request", to: dir)
+                return false
+            }
             let engine = EngineResolver.configuredEngine(for: dir)
             try Data(engine.utf8).write(to: dir.appendingPathComponent(TranscriptVersions.requestFile), options: .atomic)
             try SessionState.amend(dir, with: [
@@ -377,7 +381,8 @@ enum PostProcessor {
                 try DiarizationState(
                     request: .init(engine: Config.localEngines.contains(engine)
                         ? engine : Config.transcriptionLocalEngine(),
-                        threshold: Config.diarizationThreshold()),
+                        threshold: Config.diarizationThreshold(),
+                        model: Config.diarizationModel()),
                     status: .pending).write(to: dir)
             }
             TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)

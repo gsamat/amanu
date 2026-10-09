@@ -229,6 +229,8 @@ struct SettingsSchemaTests {
             "transcription.local_engine",
             // The optional speaker-separation switch in Setup.
             "transcription.local_diarization",
+            // The three speaker-model cards directly under that switch.
+            "transcription.diarization_model",
             // The live-transcript switch — Apple Silicon only, on both sides.
             "live_transcription.enabled",
             // Files: the switch, and the folder chosen with an open panel.

@@ -62,6 +62,7 @@ enum SessionInventory {
         let engine: String?
         let transcript: Step
         let diarization: DiarizationState?
+        let unreadableDiarization: Bool
         let speakers: Step
         let summary: Step
         /// Named speakers over total speakers, once there is a transcript.
@@ -75,7 +76,7 @@ enum SessionInventory {
 
         /// Whether anything is left to do that a person might want to trigger.
         var isOutstanding: Bool {
-            transcript.isOutstanding || diarization?.isOutstanding == true
+            transcript.isOutstanding || unreadableDiarization || diarization?.isOutstanding == true
                 || speakers.isOutstanding || summary.isOutstanding
         }
 
@@ -87,7 +88,8 @@ enum SessionInventory {
             return "\(when)\(length)\(what)\n"
                 + "    transcript: \(transcript.label)"
                 + (engine.map { " (\($0))" } ?? "")
-                + (diarization.map { "  diarization: \($0.status.rawValue)" } ?? "")
+                + (unreadableDiarization ? "  diarization: unreadable"
+                   : diarization.map { "  diarization: \($0.status.rawValue)" } ?? "")
                 + "  names: \(speakerLabel)"
                 + "  summary: \(summary.label)"
         }
@@ -146,6 +148,7 @@ enum SessionInventory {
 
         let calendar = meta["calendar"] as? [String: Any]
         let transcript = PostProcessor.readTranscript(dir)
+        let persistedDiarization = DiarizationState.persisted(in: dir)
         let diarization = DiarizationState.read(dir)
         let names = SpeakerNames.read(from: dir)
 
@@ -178,12 +181,13 @@ enum SessionInventory {
             engine: transcript.map { "\($0.engine)" },
             transcript: transcriptStep,
             diarization: diarization,
+            unreadableDiarization: persistedDiarization.isUnreadable,
             speakers: step(
                 dir: dir,
                 artifact: exists(SpeakerNames.file),
                 statusKey: SessionState.Key.speakersStatus,
                 enabled: policy.names,
-                blocked: transcriptStep != .done || diarization?.isFinal == false
+                blocked: transcriptStep != .done || !persistedDiarization.isFinal
             ),
             // A summary of a transcript since replaced is not this
             // session's summary, however long it stays on disk.
@@ -192,7 +196,7 @@ enum SessionInventory {
                 artifact: PostProcessor.hasCurrentSummary(dir, meta: meta),
                 statusKey: SessionState.Key.summaryStatus,
                 enabled: policy.summary,
-                blocked: transcriptStep != .done || diarization?.isFinal == false
+                blocked: transcriptStep != .done || !persistedDiarization.isFinal
             ),
             namedSpeakers: counts,
             sizeBytes: size(of: dir),

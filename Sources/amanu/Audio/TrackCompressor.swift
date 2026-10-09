@@ -22,7 +22,7 @@ enum TrackCompressor {
     /// that recording is the only copy of the meeting and a later attempt is
     /// all it has.
     static func settle(sessionDir dir: URL) {
-        guard DiarizationState.read(dir)?.retainsAudio != true else { return }
+        guard !DiarizationState.persisted(in: dir).retainsAudio else { return }
         if Config.keepAudio() {
             compress(sessionDir: dir)
         } else {

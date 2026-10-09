@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreML
 import FluidAudio
 import Foundation
@@ -5,7 +6,21 @@ import Foundation
 /// A single prepared manager owns its model lease until release. The busy bit
 /// is set before each await because actor methods are otherwise reentrant.
 actor DiarizationEngine: LocalDiarizationRuntime {
-    enum RuntimeError: Error { case busy, notPrepared, invalidTimeline }
+    enum RuntimeError: Error { case busy, notPrepared, invalidTimeline, invalidModelSelection }
+
+    private enum PreparedRuntime: Sendable {
+        case community(PreparedManager)
+        case lsEend(LSEendManager)
+        case nemotron(NemotronDiarizationRunner)
+
+        func diarize(_ audio: URL) async throws -> [SpeakerTurn] {
+            switch self {
+            case .community(let manager): try await manager.diarize(audio)
+            case .lsEend(let manager): try manager.diarize(audio)
+            case .nemotron(let runner): try await runner.diarize(audio)
+            }
+        }
+    }
 
     /// FluidAudio's manager is not Sendable and runs detached processing tasks.
     /// This wrapper owns one fully initialized manager. The actor admits only
@@ -37,9 +52,48 @@ actor DiarizationEngine: LocalDiarizationRuntime {
         }
     }
 
+    /// FluidAudio owns mutable streaming state; the outer actor serializes use.
+    private final class LSEendManager: @unchecked Sendable {
+        private let value: LSEENDDiarizer
+
+        init(model: LSEENDModel) throws {
+            value = try LSEENDDiarizer(model: model)
+        }
+
+        func diarize(_ audio: URL) throws -> [SpeakerTurn] {
+            let file = try AVAudioFile(forReading: audio)
+            guard file.length > 0, file.processingFormat.channelCount == 1,
+                  file.processingFormat.sampleRate == 16_000 else {
+                throw RuntimeError.invalidTimeline
+            }
+            let duration = Double(file.length) / 16_000
+            let timeline = try value.processComplete(
+                audioFileURL: audio, keepingEnrolledSpeakers: false,
+                finalizeOnCompletion: true, progressCallback: nil)
+            let turns = try timeline.speakers.values.flatMap { speaker in
+                try speaker.finalizedSegments.compactMap { segment -> SpeakerTurn? in
+                    let start = Double(segment.startTime)
+                    let end = Double(segment.endTime)
+                    guard start.isFinite, end.isFinite, start >= 0, end > start,
+                          start <= duration + 0.5, end <= duration + 0.5,
+                          (0..<4).contains(segment.speakerIndex) else {
+                        throw RuntimeError.invalidTimeline
+                    }
+                    guard start < duration else { return nil }
+                    return SpeakerTurn(speakerID: "S\(segment.speakerIndex + 1)",
+                                       start: start, end: min(end, duration))
+                }
+            }
+            guard !turns.isEmpty else { throw LocalDiarizationRuntimeError.noSpeechDetected }
+            return turns.sorted {
+                ($0.start, $0.end, $0.speakerID) < ($1.start, $1.end, $1.speakerID)
+            }
+        }
+    }
+
     private let settings: DiarizationSettings
     private let store: DiarizationModelStore
-    private var manager: PreparedManager?
+    private var manager: PreparedRuntime?
     private var ownsLease = false
     private var busy = false
     private var closing = false
@@ -47,13 +101,14 @@ actor DiarizationEngine: LocalDiarizationRuntime {
     private var releasing = false
     private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(settings: DiarizationSettings, store: DiarizationModelStore = .shared) {
+    init(settings: DiarizationSettings, store: DiarizationModelStore? = nil) {
         self.settings = settings
-        self.store = store
+        self.store = store ?? .shared(for: settings.model)
     }
 
     func prepare() async throws {
         guard !busy && !closing else { throw RuntimeError.busy }
+        guard store.model == settings.model else { throw RuntimeError.invalidModelSelection }
         if manager != nil { return }
         busy = true
         do {
@@ -61,12 +116,24 @@ actor DiarizationEngine: LocalDiarizationRuntime {
             try await store.beginUse()
             ownsLease = true
             do {
-                let models = try await store.loadModels()
-                try Task.checkCancellation()
-                var config = OfflineDiarizerConfig.default
-                config.clustering.threshold = settings.threshold
-                config.postProcessing.exclusiveSegments = false
-                manager = PreparedManager(models: models, config: config)
+                switch settings.model {
+                case .community1:
+                    let models = try await store.loadModels()
+                    try Task.checkCancellation()
+                    var config = OfflineDiarizerConfig.default
+                    config.clustering.threshold = settings.threshold
+                    config.postProcessing.exclusiveSegments = false
+                    manager = .community(PreparedManager(models: models, config: config))
+                case .lsEendAMI:
+                    let model = try LSEENDModel(
+                        modelURL: store.directory.appendingPathComponent(settings.model.primaryAssetPath),
+                        computeUnits: .cpuOnly)
+                    try Task.checkCancellation()
+                    manager = .lsEend(try LSEendManager(model: model))
+                case .nemotron3:
+                    manager = .nemotron(try NemotronDiarizationRunner(
+                        model: store.directory.appendingPathComponent(settings.model.primaryAssetPath)))
+                }
             } catch {
                 await store.endUse()
                 ownsLease = false

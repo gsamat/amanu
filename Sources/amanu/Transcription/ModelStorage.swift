@@ -43,9 +43,22 @@ struct ModelStorage {
         /// What a fresh download is expected to transfer. Unlike `bytes`,
         /// this is useful before the model exists.
         let advertisedBytes: Int
+        let diarizationModel: DiarizationModel?
+
+        init(kind: Kind, name: String, directory: URL, bytes: Int,
+             advertisedBytes: Int, diarizationModel: DiarizationModel? = nil) {
+            self.kind = kind
+            self.name = name
+            self.directory = directory
+            self.bytes = bytes
+            self.advertisedBytes = advertisedBytes
+            self.diarizationModel = diarizationModel
+        }
 
         var isDownloaded: Bool {
-            kind == .diarization ? DiarizationModelStore.isReady(at: directory) : bytes > 0
+            kind == .diarization
+                ? DiarizationModelStore.isReady(at: directory, model: diarizationModel ?? .community1)
+                : bytes > 0
         }
     }
 
@@ -87,7 +100,7 @@ struct ModelStorage {
         models.append(whisperModel())
         models.append(gigaAMModel())
         models.append(liveModel())
-        models.append(diarizationModel())
+        models.append(contentsOf: DiarizationModel.allCases.map(diarizationModel))
         return models
     }
 
@@ -128,13 +141,17 @@ struct ModelStorage {
             advertisedBytes: 600 * 1_048_576)
     }
 
-    func diarizationModel() -> Model {
-        Model(
+    func diarizationModel(_ model: DiarizationModel = .community1) -> Model {
+        let directory = model == .community1 ? diarizationDirectory
+            : diarizationDirectory.deletingLastPathComponent()
+                .appendingPathComponent(model.assetDirectoryName, isDirectory: true)
+        return Model(
             kind: .diarization,
-            name: localised("Speaker diarization", "Разделение говорящих"),
-            directory: diarizationDirectory,
-            bytes: Self.bytes(of: diarizationDirectory),
-            advertisedBytes: DiarizationModelStore.advertisedBytes)
+            name: model.title,
+            directory: directory,
+            bytes: Self.bytes(of: directory),
+            advertisedBytes: model.advertisedBytes,
+            diarizationModel: model)
     }
 
     /// What everything listed comes to. The number a person came to the
@@ -165,11 +182,14 @@ struct ModelStorage {
         _ kind: Model.Kind,
         choice: TranscriptionChoice,
         liveEnabled: Bool,
-        diarizationEnabled: Bool = false
+        diarizationEnabled: Bool = false,
+        deletedDiarizationModel: DiarizationModel = .community1,
+        selectedDiarizationModel: DiarizationModel = .community1
     ) -> [(path: [String], value: Any?)] {
         switch kind {
         case .diarization:
-            return diarizationEnabled ? [(["transcription", "local_diarization"], nil)] : []
+            return diarizationEnabled && deletedDiarizationModel == selectedDiarizationModel
+                ? [(["transcription", "local_diarization"], nil)] : []
         case .parakeet, .whisper, .gigaAM:
             let deleted: String
             switch kind {
