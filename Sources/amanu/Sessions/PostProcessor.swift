@@ -377,14 +377,9 @@ enum PostProcessor {
                 SessionState.Key.transcriptionAttempts: nil,
                 SessionState.Key.transcriptionDeferred: nil,
             ])
-            if DiarizationState.read(dir) != nil {
-                try DiarizationState(
-                    request: .init(engine: Config.localEngines.contains(engine)
-                        ? engine : Config.transcriptionLocalEngine(),
-                        threshold: Config.diarizationThreshold(),
-                        model: Config.diarizationModel()),
-                    status: .pending).write(to: dir)
-            }
+            // The old speaker result still belongs to the current transcript
+            // until a new transcript is committed. The coordinator snapshots
+            // the current speaker switch and model for this new request.
             TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
             appendSessionLog("queued a new transcript version", to: dir)
             return true

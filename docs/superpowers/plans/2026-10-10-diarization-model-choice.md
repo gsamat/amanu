@@ -87,7 +87,7 @@
 
 - [x] Record sanitized primary comparison numbers, distinguish NOTSOFAR eval from train probes, and retain public assets outside Git. No Russian/live-call accuracy claim.
 - [x] Inspect every specialist result and scoped diff; run relevant feature/config/recovery/native/layout/packaging tests and one full ordinary suite, documenting known baseline failure separately.
-- [ ] Read-only whole-branch final review; fix actionable integration regressions and rerun only affected checks.
+- [x] Read-only whole-branch final review; fix actionable integration regressions and rerun only affected checks.
 - [ ] Conventional commit(s) with `Co-Authored-By: Codex <noreply@openai.com>`, verify exact SSH branch/upstream, push and update existing ready PR49 without auto-merge.
 - [ ] Build a separate universal local user-test app at the verified revision with a new build number; verify signing, macOS floor, actual helper/app startup and independent ZIP extraction. Keep installed app and normal profile untouched.
 - [ ] Report chosen default, available models, local ZIP and current CI/acceptance limitations with exact revision evidence. No merge or public release.

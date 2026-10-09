@@ -67,6 +67,11 @@ valid terminal failures still clear obsolete provisional text.
 | Script suite | All 25 Python tests passed, no skips |
 | EN/RU native views | Setup and Settings, light/dark, narrow 640-point layout and cloud-only state passed; copy and bottom spacing visually inspected |
 | Actual selected-model engine | Nemotron returned 6/6 voices, DER 3.08% on NOTSOFAR eval MTG32175; LS-EEND AMI returned 4/4, DER 6.07% on AMI 600–780 s |
+| Whole-branch integration corrections | Cloud→Whisper timing, terminal candidate cleanup, unreadable-request failure accounting and ordinary retranscription-off cases reproduced RED; five focused checks passed after corrections |
+| Changed-source ordinary suite | 870 tests/115 suites, 61.481 s; only the unchanged `MeetingLanguagesTests.swift:25` baseline failure remained |
+| Final GigaAM replacement state | New regression reproduced a duplicate inference; returning the updated in-memory speaker state fixes it while preserving the previous generation until commit |
+| Final affected lifecycle/resolver suites | All 42 tests/two suites passed in 2.685 s after the GigaAM state correction; no later full-suite rerun is claimed |
+| Actual signed bundled helper | Six of six voices and the same 3.08% DER on public eval MTG32175, 24.714 s including cold initialization; no download; seven-file closure hashes recorded for final-package identity check |
 
 The natural public-corpus comparison, pinned assets, licensing, timing limits
 and reproducible selected-engine procedure are recorded in
@@ -77,9 +82,12 @@ matching qualification scores establish integration on the stated Mac, not
 Russian-call accuracy or end-to-end ASR word attribution.
 
 Scoped reviews closed the cache/recovery, native-closure and explicit-model
-preference findings. Whole-branch review and the separate signed local app,
-actual bundled-helper execution and ZIP extraction are delivery checks recorded
-separately from these source checks.
+preference findings. Whole-branch review found the additional entrypoint and
+replacement cases above; their regressions and affected suites passed after
+bounded corrections. The final separate signed app, ZIP extraction and GUI
+startup are delivery checks recorded in its local `build-info.json`, separately
+from these source checks. The helper's seven signed files must match the closure
+actually exercised above, so unchanged native inference need not be repeated.
 
 ## Local ad-hoc launch regression
 

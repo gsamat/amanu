@@ -231,6 +231,9 @@ actor TranscriptionCoordinator {
                 // file can be read.
                 log(dir, "\(held)")
                 queue.removeAll()
+            } catch let held as UnreadableDiarizationRequest {
+                // The saved request needs repair, not another ASR attempt.
+                log(dir, "\(held)")
             } catch {
                 log(dir, "transcription failed: \(error)")
                 lastFailure = dir.lastPathComponent
@@ -292,6 +295,10 @@ actor TranscriptionCoordinator {
             log(dir, "\(held)")
             await releaseEngine()
             throw held
+        } catch let held as UnreadableDiarizationRequest {
+            log(dir, "\(held)")
+            await releaseEngine()
+            throw held
         } catch is AlreadyTranscribed {
             // The transcript asked for exists: whoever wrote it did the work.
         } catch is CancellationError {
@@ -329,7 +336,7 @@ actor TranscriptionCoordinator {
         // is decided while the answers are in a file that cannot be read.
         try Config.requireReadable()
         guard !DiarizationState.persisted(in: dir).isUnreadable else {
-            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+            throw UnreadableDiarizationRequest()
         }
         current = nil
         if FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path),
@@ -374,7 +381,10 @@ actor TranscriptionCoordinator {
                 .reason: .text(Analytics.reason(for: error).rawValue),
             ])
             fallbackUsed = true
-            engine = try await transcribe(dir, with: try await engines.localFallback())
+            let wordTimings = Config.localDiarizationEnabled()
+                || (!TranscriptVersions.isRequested(dir) && DiarizationState.read(dir) != nil)
+            engine = try await transcribe(dir, with: try await engines.localFallback(
+                wordTimings: wordTimings))
         }
         // After the transcript, never instead of it: transcript.json is the
         // completion marker, so anything that runs before it risks retiring a
@@ -434,6 +444,12 @@ actor TranscriptionCoordinator {
         var description: String { reason }
     }
 
+    private struct UnreadableDiarizationRequest: Error, CustomStringConvertible {
+        var description: String {
+            "saved speaker request is unreadable; original audio is retained"
+        }
+    }
+
     private struct ASRPreparationUnavailable: Error, CustomStringConvertible {
         let reason: String
         var description: String { reason }
@@ -456,7 +472,7 @@ actor TranscriptionCoordinator {
     private func diarizeNowClaimed(_ dir: URL) async throws {
         try Config.requireReadable()
         guard !DiarizationState.persisted(in: dir).isUnreadable else {
-            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+            throw UnreadableDiarizationRequest()
         }
         guard let transcript = PostProcessor.readTranscript(dir) else {
             let engine = Config.transcriptionLocalEngine()
@@ -616,7 +632,7 @@ actor TranscriptionCoordinator {
         do {
             try TranscriptVersions.recover(dir)
             guard !DiarizationState.persisted(in: dir).isUnreadable else {
-                throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+                throw UnreadableDiarizationRequest()
             }
             guard PostProcessor.readTranscript(dir) != nil else {
                 throw DiarizationUnavailable(reason: "transcript is not ready; source audio must be kept")
@@ -815,6 +831,7 @@ actor TranscriptionCoordinator {
                 if runPersisted {
                     state.failInference("inference failed: \(error)")
                     try state.write(to: dir)
+                    if state.status == .failed { TranscriptionScratch.remove(in: dir) }
                 } else {
                     state.attempts = max(0, state.attempts - 1)
                     state.status = .pending
@@ -903,7 +920,7 @@ actor TranscriptionCoordinator {
         defer { SessionClaim.release(dir) }
         try TranscriptVersions.recover(dir)
         guard !DiarizationState.persisted(in: dir).isUnreadable else {
-            throw DiarizationUnavailable(reason: "saved speaker request is unreadable; original audio is retained")
+            throw UnreadableDiarizationRequest()
         }
         // Asked again now that the folder is ours. A session can wait in the
         // queue while somebody else — `amanu process`, another entry for the
@@ -917,15 +934,18 @@ actor TranscriptionCoordinator {
 
         var meta = try SessionMeta.read(from: dir)
         let recordedMeta = meta
-        var diarization = DiarizationState.read(dir)
+        let replacingTranscript = TranscriptVersions.isRequested(dir)
+        var diarization = replacingTranscript ? nil : DiarizationState.read(dir)
         let engine: TranscriptionEngine
         if let given { engine = given }
         else if let diarization, diarization.request.explicit {
             engine = try await engines.local(named: diarization.request.engine,
                                              wordTimings: true)
         } else {
+            let wordTimings = Config.localDiarizationEnabled()
+                || (!replacingTranscript && diarization != nil)
             engine = try await engines.engine(for: dir,
-                wordTimings: Config.localDiarizationEnabled() || diarization != nil)
+                wordTimings: wordTimings)
         }
         current = engine
         if var requested = diarization {
@@ -946,7 +966,7 @@ actor TranscriptionCoordinator {
                 request: .init(engine: engine.name, threshold: Config.diarizationThreshold(),
                                model: Config.diarizationModel()),
                 status: applicable ? .pending : .notApplicable)
-            try diarization?.write(to: dir)
+            if !replacingTranscript { try diarization?.write(to: dir) }
         }
 
         var audioDirectory = dir
@@ -966,13 +986,15 @@ actor TranscriptionCoordinator {
             SessionState.update(dir, with: ["audio_echo_cancellation": nil])
         }
 
-        if engine.name == "gigaam", let state = diarization, state.status == .pending,
-           try await transcribeGigaAfterTurns(
+        if engine.name == "gigaam", let state = diarization, state.status == .pending {
+            let giga = try await transcribeGigaAfterTurns(
                dir: dir, audio: audioDirectory, meta: meta, engine: engine,
-               state: state, cleaned: cleaned != nil) {
-            return engine
+               state: state, cleaned: cleaned != nil,
+               preservingCurrent: replacingTranscript)
+            if giga.completed { return engine }
+            diarization = giga.state
         }
-        diarization = DiarizationState.read(dir)
+        if !replacingTranscript { diarization = DiarizationState.read(dir) }
 
         let inputs = TranscriptionInputs(
             session: dir, audio: audioDirectory, meta: meta, engine: engine)
@@ -1106,6 +1128,8 @@ actor TranscriptionCoordinator {
         if let diarization {
             metadata[DiarizationState.key] = try JSONSerialization.jsonObject(
                 with: DiarizationArtifacts.encode(diarization))
+        } else if replacingTranscript {
+            metadata.updateValue(nil, forKey: DiarizationState.key)
         }
         try TranscriptVersions.commit(transcript, to: dir, sidecars: sidecars,
                                       metadata: metadata,
@@ -1241,11 +1265,12 @@ actor TranscriptionCoordinator {
     /// disjoint turns first and GigaAM recognizes those turns only.
     private func transcribeGigaAfterTurns(
         dir: URL, audio: URL, meta: SessionMeta, engine: TranscriptionEngine,
-        state initial: DiarizationState, cleaned: Bool
-    ) async throws -> Bool {
+        state initial: DiarizationState, cleaned: Bool,
+        preservingCurrent: Bool
+    ) async throws -> (completed: Bool, state: DiarizationState) {
         guard let remote = meta.tracks.first(where: {
             $0.speaker == "them" || $0.speaker == "speaker"
-        }) else { return false }
+        }) else { return (false, initial) }
         let recordedMeta = try SessionMeta.read(from: dir)
         var state = initial
         let source: DiarizationAudioSource.Prepared
@@ -1254,8 +1279,8 @@ actor TranscriptionCoordinator {
         } catch {
             state.status = .partial
             state.reason = "source unavailable: \(error)"
-            try state.write(to: dir)
-            return false
+            if !preservingCurrent { try state.write(to: dir) }
+            return (false, state)
         }
         let model: String
         let runtime = diarizerFactory(
@@ -1266,8 +1291,8 @@ actor TranscriptionCoordinator {
             try await runtime.prepare()
         } catch {
             state.deferForEnvironment("model unavailable: \(error)")
-            try state.write(to: dir)
-            return false
+            if !preservingCurrent { try state.write(to: dir) }
+            return (false, state)
         }
         let asrOptions = Self.asrOptionsFingerprint(engine: engine)
         let options = Self.diarizationOptions(
@@ -1278,7 +1303,7 @@ actor TranscriptionCoordinator {
         let result: LocalDiarizationPipeline.Result
         var runPersisted = false
         do {
-            try state.write(to: dir)
+            if !preservingCurrent { try state.write(to: dir) }
             runPersisted = true
             result = try await LocalDiarizationPipeline.run(
                 source: source, engine: engine, runtime: runtime,
@@ -1292,24 +1317,27 @@ actor TranscriptionCoordinator {
             await runtime.release()
             state.attempts = max(0, state.attempts - 1)
             state.status = .pending
-            try state.write(to: dir)
+            if !preservingCurrent { try state.write(to: dir) }
             throw CancellationError()
         } catch LocalDiarizationRuntimeError.unavailable {
             await runtime.release()
             state.attempts = max(0, state.attempts - 1)
             state.deferForEnvironment("speaker runtime unavailable")
-            try state.write(to: dir)
-            return false
+            if !preservingCurrent { try state.write(to: dir) }
+            return (false, state)
         } catch {
             await runtime.release()
             if runPersisted {
                 state.failInference("inference failed: \(error)")
-                try state.write(to: dir)
+                if !preservingCurrent {
+                    try state.write(to: dir)
+                    if state.status == .failed { TranscriptionScratch.remove(in: dir) }
+                }
             } else {
                 state.attempts = max(0, state.attempts - 1)
                 state.status = .pending
             }
-            return false
+            return (false, state)
         }
 
         var micTracks: [TranscriptionInputs.PerTrackResult] = []
@@ -1396,7 +1424,7 @@ actor TranscriptionCoordinator {
             preserveRemoteNames: false)
         TrackCompressor.settle(sessionDir: dir)
         TranscriptionScratch.remove(in: dir)
-        return true
+        return (true, state)
     }
 
     private func log(_ dir: URL, _ message: String) {
