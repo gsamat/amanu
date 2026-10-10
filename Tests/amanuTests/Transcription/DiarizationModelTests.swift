@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import Testing
 
 @testable import amanu
@@ -209,7 +210,7 @@ struct DiarizationModelTests {
         let signal = StartSignal()
         let downloading = DiarizationModelStore(directory: directory, verifier: { _ in
             throw DiarizationModelStore.StoreError.missingOrCorrupt("fixture")
-        }, fetch: { _ in
+        }, fetch: { _, _, _ in
             await signal.mark()
             try await Task.sleep(for: .seconds(60))
             throw CancellationError()
@@ -239,7 +240,7 @@ struct DiarizationModelTests {
         let store = DiarizationModelStore(model: .nemotron3, directory: directory,
                                           verifier: { _ in
             throw DiarizationModelStore.StoreError.missingOrCorrupt("fixture")
-        }, fetch: { url in
+        }, fetch: { url, _, _ in
             await requested.record(url)
             throw CancellationError()
         })
@@ -248,6 +249,99 @@ struct DiarizationModelTests {
         #expect(await requested.value?.absoluteString == "https://huggingface.co/nvidia/Nemotron-3-Diarization/resolve/f667ed73aee57d40cc39428eb768b4fd87a0a29e/Nemotron-3-Diarization.q8_0.gguf")
         #expect(DiarizationModelStore.assets(for: .nemotron3).map(\.path)
                 == ["models/Nemotron-3-Diarization.q8_0.gguf"])
+    }
+
+    @Test("Nemotron reports received bytes before an incomplete file fails verification")
+    func nemotronStreamingProgress() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-nemotron-progress-\(UUID().uuidString)", isDirectory: true)
+        let lock = directory.deletingLastPathComponent()
+            .appendingPathComponent(".\(directory.lastPathComponent).lock")
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: lock)
+        }
+        let body = Data(repeating: 0x2a, count: 1_048_576)
+        let server = StubHTTP { _, _ in .status(200, body: body) }
+        let configuration = server.configuration
+        let fractions = OSAllocatedUnfairLock(initialState: [Double]())
+        let store = DiarizationModelStore(model: .nemotron3, directory: directory,
+                                         fetch: { source, partial, progress in
+            try await ModelDownloader.download(
+                source: source, partial: partial, progress: progress,
+                configuration: configuration)
+        })
+
+        await #expect(throws: DiarizationModelStore.StoreError.missingOrCorrupt(
+            "models/Nemotron-3-Diarization.q8_0.gguf")) {
+            try await store.download { fraction in fractions.withLock { $0.append(fraction) } }
+        }
+
+        let updates = fractions.withLock { $0 }
+        #expect(updates.contains { $0 > 0 && $0 < 1 })
+        #expect(updates.allSatisfy { $0 >= 0 && $0 < 1 })
+        #expect(!(await store.isReady()))
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    @Test("Partial file progress uses immutable total across all Community-1 assets")
+    func weightedMultiAssetProgress() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-community-progress-\(UUID().uuidString)", isDirectory: true)
+        let lock = directory.deletingLastPathComponent()
+            .appendingPathComponent(".\(directory.lastPathComponent).lock")
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: lock)
+        }
+        let fractions = OSAllocatedUnfairLock(initialState: [Double]())
+        let store = DiarizationModelStore(model: .community1, directory: directory,
+                                         fetch: { _, _, progress in
+            progress(.init(receivedBytes: 100, totalBytes: 243))
+            throw CancellationError()
+        })
+
+        await #expect(throws: CancellationError.self) {
+            try await store.download { fraction in fractions.withLock { $0.append(fraction) } }
+        }
+
+        let first = try #require(fractions.withLock { $0.first })
+        #expect(abs(first - 100.0 / 22_024_318.0) < 0.00000001)
+        #expect(first < 0.001)
+    }
+
+    @Test("Cancelling a transfer removes staging, releases the lease, and permits retry")
+    func cancelledTransferCanRetry() async throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-nemotron-cancel-\(UUID().uuidString)", isDirectory: true)
+        let directory = parent.appendingPathComponent("model-cache", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let old = directory.appendingPathComponent("previous-cache")
+        try Data("keep".utf8).write(to: old)
+        let started = StartSignal()
+        let attempts = OSAllocatedUnfairLock(initialState: 0)
+        let store = DiarizationModelStore(model: .nemotron3, directory: directory,
+                                         fetch: { _, partial, progress in
+            let attempt = attempts.withLock { value in value += 1; return value }
+            if attempt == 1 {
+                try Data(repeating: 0x2a, count: 4096).write(to: partial)
+                progress(.init(receivedBytes: 4096, totalBytes: 107_012_128))
+                await started.mark()
+                try await Task.sleep(for: .seconds(60))
+            }
+            throw CancellationError()
+        })
+        let task = Task { try await store.download() }
+        await started.wait()
+        task.cancel()
+        await #expect(throws: CancellationError.self) { try await task.value }
+
+        #expect(try Data(contentsOf: old) == Data("keep".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: parent.path)
+            .filter { $0.hasPrefix("diarization-staging-") }.isEmpty)
+        await #expect(throws: CancellationError.self) { try await store.download() }
+        #expect(attempts.withLock { $0 } == 2)
     }
 
     @Test("Explicit pinned model download verifies every asset",
@@ -265,9 +359,44 @@ struct DiarizationModelTests {
             ?? DiarizationModel.community1.rawValue
         let model = try #require(DiarizationModel(rawValue: modelName))
         let store = DiarizationModelStore(model: model, directory: directory)
-        try await store.download()
+        #expect(!(await store.isReady()), "Use a fresh disposable model directory")
+        guard !(await store.isReady()) else { return }
+
+        let parent = directory.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        func stagingNames() throws -> Set<String> {
+            Set(try FileManager.default.contentsOfDirectory(atPath: parent.path)
+                .filter { $0.hasPrefix("diarization-staging-") })
+        }
+        let stagingBefore = try stagingNames()
+        let cancelledProgress = OSAllocatedUnfairLock(initialState: [Double]())
+        let cancellable = OSAllocatedUnfairLock<Task<Void, Error>?>(initialState: nil)
+        let interrupted = Task {
+            try await store.download { fraction in
+                cancelledProgress.withLock { $0.append(fraction) }
+                if fraction > 0 && fraction < 1 {
+                    cancellable.withLock { $0?.cancel() }
+                }
+            }
+        }
+        cancellable.withLock {
+            $0 = interrupted
+            if cancelledProgress.withLock({ !$0.isEmpty }) { $0?.cancel() }
+        }
+        await #expect(throws: CancellationError.self) { try await interrupted.value }
+        cancellable.withLock { $0 = nil }
+        #expect(cancelledProgress.withLock { $0.contains { $0 > 0 && $0 < 1 } })
+        #expect(!(await store.isReady()))
+        #expect(try stagingNames() == stagingBefore)
+
+        let retryProgress = OSAllocatedUnfairLock(initialState: [Double]())
+        try await store.download { fraction in retryProgress.withLock { $0.append(fraction) } }
         #expect(await store.isReady())
         #expect(try await store.fingerprint().count == 64)
+        let fractions = retryProgress.withLock { $0 }
+        #expect(fractions.contains { $0 > 0 && $0 < 1 })
+        #expect(fractions.last == 1)
+        #expect(zip(fractions, fractions.dropFirst()).allSatisfy { $0.0 <= $0.1 })
     }
 }
 

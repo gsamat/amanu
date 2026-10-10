@@ -234,6 +234,52 @@ struct SetupTests {
         }
     }
 
+    @Test("Active local and speaker progress stay inside equal-width cards at narrow window sizes")
+    @MainActor
+    func modelProgressFitsNarrowCards() throws {
+        let sink = NSResponder()
+        for names in [
+            ["Parakeet v3", "Whisper large-v3-turbo", "GigaAM v3"],
+            ["Nemotron 3", "LS-EEND AMI", "Community-1"],
+        ] {
+            for width: CGFloat in [640, 700] {
+                let progress = ModelDownloadProgress(
+                    model: names[0], identifier: "cancel.test", target: sink,
+                    action: #selector(NSResponder.cancelOperation(_:)))
+                progress.begin()
+                progress.update(0.37)
+                let cards = names.enumerated().map { index, name in
+                    ChoiceCard(id: "\(index)", title: name, detail: "About 460 MB",
+                               accessories: index == 0 ? [progress] : [])
+                }
+                let row = SetupLayout.cards(cards)
+                let host = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 300))
+                host.addSubview(row)
+                row.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    row.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+                    row.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+                    row.topAnchor.constraint(equalTo: host.topAnchor),
+                ])
+                host.layoutSubtreeIfNeeded()
+
+                #expect(cards.allSatisfy { abs($0.frame.width - cards[0].frame.width) <= 1 },
+                        "progress stretched \(names[0]) at \(width)pt")
+                let bar = try #require(progress.allDescendants
+                    .compactMap { $0 as? NSProgressIndicator }.first)
+                let cancel = try #require(progress.allDescendants
+                    .compactMap { $0 as? NSButton }.first)
+                let barFrame = cards[0].convert(bar.bounds, from: bar)
+                let cancelFrame = cards[0].convert(cancel.bounds, from: cancel)
+                #expect(barFrame.width > cards[0].frame.width / 2)
+                #expect(barFrame.minX >= 0 && barFrame.maxX <= cards[0].bounds.maxX + 1)
+                #expect(cancelFrame.minX - barFrame.maxX >= 7)
+                #expect(cancelFrame.maxX <= cards[0].bounds.maxX + 1,
+                        "the cancel button escaped \(names[0]) at \(width)pt")
+            }
+        }
+    }
+
     /// Catches the border looking clickable while only the small radio title
     /// actually responds.
     @Test("Clicking the body of a choice card selects it")

@@ -173,6 +173,39 @@ struct WindowShots {
         }
     }
 
+    @Test("Active local and speaker downloads in narrow settings, in both appearances")
+    @MainActor
+    func modelDownloadProgressInNarrowSettings() throws {
+        _ = NSApplication.shared
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try settingsPanel(builtIn: appearance, keeping: &owners)
+            panel.setContentSize(NSSize(width: 640, height: 900))
+            for (id, fraction, shot) in [
+                ("parakeet", 0.37, "local"),
+                ("diarization.nemotron-3", 0.64, "diarization"),
+            ] {
+                let card = try #require(panel.contentView?.allDescendants
+                    .compactMap { $0 as? ChoiceCard }.first { $0.id == id })
+                let progress = try #require(card.allDescendants
+                    .compactMap { $0 as? ModelDownloadProgress }.first)
+                let download = try #require(card.allDescendants
+                    .compactMap { $0 as? NSButton }
+                    .first { $0.identifier?.rawValue.contains(".download.") == true })
+                card.report("")
+                download.isHidden = true
+                progress.begin()
+                progress.update(fraction)
+                try scrollToCard("choice.\(id)", in: panel)
+                try write(panel, "settings-setup-\(name)-narrow-\(shot)-progress")
+                progress.end()
+                download.isHidden = false
+            }
+        }
+    }
+
     /// The About window, which is small enough that both appearances fit in
     /// one pass and has no state to drive it through. What there is to see is
     /// the spacing: an icon, a name, a version and three links, centred, and
@@ -237,10 +270,15 @@ struct WindowShots {
 
     @MainActor
     private func scrollToDiarization(in panel: NSWindow) throws {
+        try scrollToCard("choice.diarization.nemotron-3", in: panel)
+    }
+
+    @MainActor
+    private func scrollToCard(_ id: String, in panel: NSWindow) throws {
         let content = try #require(panel.contentView)
         content.layoutSubtreeIfNeeded()
         let card = try #require(content.allDescendants.first {
-            $0.identifier?.rawValue == "choice.diarization.nemotron-3"
+            $0.identifier?.rawValue == id
         })
         var ancestor = card.superview
         while ancestor != nil, !(ancestor is NSScrollView) { ancestor = ancestor?.superview }

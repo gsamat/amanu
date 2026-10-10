@@ -3,6 +3,7 @@ import CryptoKit
 import Darwin
 import FluidAudio
 import Foundation
+import os
 
 /// Owns the explicit model download and the inference lease. The SDK loader can
 /// fetch missing files, so inference loads only files verified here from disk.
@@ -120,19 +121,16 @@ actor DiarizationModelStore {
     nonisolated let model: DiarizationModel
     nonisolated let directory: URL
     private let verifier: @Sendable (URL) throws -> Void
-    private let fetch: @Sendable (URL) async throws -> URL
+    private let fetch: VerifiedModelStore.Downloader
     private var inUse = false
     private var downloading = false
     private var leaseFD: Int32?
 
     init(model: DiarizationModel = .community1, directory: URL? = nil,
          verifier: (@Sendable (URL) throws -> Void)? = nil,
-         fetch: @escaping @Sendable (URL) async throws -> URL = { url in
-             let (temporary, response) = try await URLSession.shared.download(from: url)
-             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                 throw StoreError.missingOrCorrupt(url.lastPathComponent)
-             }
-             return temporary
+         fetch: @escaping VerifiedModelStore.Downloader = { source, partial, progress in
+             try await ModelDownloader.download(
+                 source: source, partial: partial, progress: progress)
          }) {
         self.model = model
         self.directory = directory ?? Home.current.url.appendingPathComponent(
@@ -201,7 +199,7 @@ actor DiarizationModelStore {
 
     /// This is called only by the explicit Download control. A failed or
     /// cancelled transfer leaves the old verified set intact.
-    func download(progress: @Sendable (Double) -> Void = { _ in }) async throws {
+    func download(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
         guard !inUse && !downloading else { throw StoreError.busy }
         try acquireLease()
         defer { releaseLease() }
@@ -216,17 +214,34 @@ actor DiarizationModelStore {
         var completed = 0
         let assets = Self.assets(for: model)
         let total = assets.reduce(0) { $0 + $1.size }
+        let reported = OSAllocatedUnfairLock(initialState: 0.0)
+        let report: @Sendable (Double, Bool) -> Void = { fraction, force in
+            // Reserve 100% for a verified, atomically installed model.
+            let fraction = min(0.999, max(0, fraction))
+            let changed = reported.withLock { previous -> Bool in
+                guard fraction > previous,
+                      force || previous == 0 || fraction - previous >= 0.001
+                else { return false }
+                previous = fraction
+                return true
+            }
+            if changed { progress(fraction) }
+        }
         for asset in assets {
             try Task.checkCancellation()
             let remotePath = model == .nemotron3 ? "Nemotron-3-Diarization.q8_0.gguf" : asset.path
             let url = URL(string: "https://huggingface.co/\(model.repository)/resolve/\(model.revision)/\(remotePath)")!
-            let temporary = try await fetch(url)
             let target = staging.appendingPathComponent(asset.path)
             try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.moveItem(at: temporary, to: target)
+            let verifiedBytes = completed
+            try await fetch(url, target) { update in
+                let received = min(max(update.receivedBytes, 0), Int64(asset.size))
+                report(Double(verifiedBytes + Int(received)) / Double(total), false)
+            }
+            try Task.checkCancellation()
             try Self.verify(asset, in: staging)
             completed += asset.size
-            progress(Double(completed) / Double(total))
+            if completed < total { report(Double(completed) / Double(total), true) }
         }
         try verify(in: staging)
         try Task.checkCancellation()
@@ -237,6 +252,7 @@ actor DiarizationModelStore {
         do {
             try fm.moveItem(at: staging, to: directory)
             if hadOld { try? fm.removeItem(at: backup) }
+            progress(1)
         } catch {
             if hadOld { try? fm.moveItem(at: backup, to: directory) }
             throw error

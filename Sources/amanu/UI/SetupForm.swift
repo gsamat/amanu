@@ -142,6 +142,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let localSwitch = NSSwitch()
     private let localEngineCards = ChoiceGroup()
     private var localDownloadButtons: [String: NSButton] = [:]
+    private var localDownloadProgress: [String: ModelDownloadProgress] = [:]
+    private var localDownloadOperations: [String: UUID] = [:]
     private var localDownloadErrors: [String: String] = [:]
 
     private let language = NSPopUpButton()
@@ -153,9 +155,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let diarizationDetail = SetupLayout.detail("", lines: 2, width: 440)
     private let diarizationCards = ChoiceGroup()
     private var diarizationDownloadButtons: [DiarizationModel: NSButton] = [:]
+    private var diarizationDownloadProgress: [DiarizationModel: ModelDownloadProgress] = [:]
     private var diarizationDownloadTask: Task<Void, Never>?
     private var downloadingDiarizationModel: DiarizationModel?
-    private var diarizationProgress: [DiarizationModel: Double] = [:]
+    private var diarizationOperation: UUID?
     private var diarizationErrors: [DiarizationModel: String] = [:]
     var fetchDiarization: @MainActor (DiarizationModel, @escaping @Sendable (Double) -> Void) async throws -> Void = {
         model, progress in
@@ -179,8 +182,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// count that never reaches what it promised.
     private static let parakeetMegabytes = 460
 
-    private let parakeetStatus = NSTextField(labelWithString: "")
-    private let parakeetBar = NSProgressIndicator()
     /// The bar's clock, which is only worth running while somebody can see
     /// the bar.
     private var parakeetProgress: Timer?
@@ -355,7 +356,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// `auto_record.enabled`, and a form showing yesterday's answer is worse
     /// than no form at all.
     func reload() {
-        if parakeetDownload != nil, parakeetProgress == nil { watchParakeetSize() }
+        if parakeetDownload?.isCancelled == false, parakeetProgress == nil {
+            watchParakeetSize()
+        }
         refresh()
         // Detection runs off the main thread: finding `claude` can mean
         // starting the login shell, and a form that freezes while it asks
@@ -367,16 +370,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// way out: a timer polling a download directory has no reason to keep
     /// running behind a closed window.
     ///
-    /// The parakeet download itself is left running: FluidAudio offers no way
-    /// to stop one partway, and a bar put away is not a download abandoned.
-    /// `reload` puts the bar back.
+    /// The Parakeet download itself is left running; `reload` restores its
+    /// progress poll. The other local downloads pause when setup closes.
     func stop() {
         parakeetProgress?.invalidate()
         parakeetProgress = nil
         whisperDownloadTask?.cancel()
-        whisperDownloadTask = nil
+        localDownloadProgress["whisper"]?.cancelling()
         gigaAMDownloadTask?.cancel()
-        gigaAMDownloadTask = nil
+        localDownloadProgress["gigaam"]?.cancelling()
     }
     // MARK: - building
 
@@ -428,24 +430,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 action: #selector(downloadLocalClicked(_:)))
             download.identifier = NSUserInterfaceItemIdentifier("transcription.download.\(id)")
             localDownloadButtons[id] = download
-            return ChoiceCard(id: id, title: title, detail: detail, accessories: [download])
+            let progress = ModelDownloadProgress(
+                model: title, identifier: "transcription.cancel.\(id)",
+                target: self, action: #selector(cancelLocalClicked(_:)))
+            localDownloadProgress[id] = progress
+            return ChoiceCard(id: id, title: title, detail: detail,
+                              accessories: [download, progress])
         }
         localEngineCards.adopt(localCards)
         localEngineCards.onChange = { [weak self] id in self?.localEnginePicked(id) }
-        parakeetStatus.font = SetupLayout.statusFont
-        parakeetStatus.textColor = .secondaryLabelColor
-        parakeetStatus.lineBreakMode = .byTruncatingTail
-        parakeetStatus.isHidden = true
-        // FluidAudio reports no progress, so the bar is the cache directory
-        // growing towards the model's known size. Approximate, and better
-        // than a spinner that could mean anything.
-        parakeetBar.style = .bar
-        parakeetBar.isIndeterminate = false
-        parakeetBar.controlSize = .small
-        parakeetBar.minValue = 0
-        parakeetBar.maxValue = Double(Self.parakeetMegabytes)
-        parakeetBar.isHidden = true
-        parakeetBar.widthAnchor.constraint(equalToConstant: 90).isActive = true
 
         let localRow = SetupLayout.row(
             leading: localSwitch,
@@ -457,12 +450,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 lines: 2, width: 440),
             trailing: [])
 
-        let progress = NSStackView(views: [parakeetBar, parakeetStatus, NSView()])
-        progress.orientation = .horizontal
-        progress.alignment = .centerY
-        progress.spacing = 8
-
-        let localOptions = NSStackView(views: [SetupLayout.cards(localEngineCards.cards), progress])
+        let localOptions = NSStackView(views: [SetupLayout.cards(localEngineCards.cards)])
         localOptions.orientation = .vertical
         localOptions.alignment = .leading
         localOptions.spacing = 9
@@ -636,13 +624,18 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 action: #selector(downloadDiarizationClicked(_:)))
             download.identifier = .init("transcription.diarization.download.\(model.rawValue)")
             diarizationDownloadButtons[model] = download
+            let progress = ModelDownloadProgress(
+                model: model.title,
+                identifier: "transcription.diarization.cancel.\(model.rawValue)",
+                target: self, action: #selector(cancelDiarizationClicked(_:)))
+            diarizationDownloadProgress[model] = progress
             let size = Int((Double(model.advertisedBytes)
                 / (model == .community1 ? 1_048_576 : 1_000_000)).rounded())
             let detail = localised(
                 "(\(model.detailEnglish))\n\(model == .nemotron3 ? "Recommended · " : "")about \(size) MB",
                 "(\(model.detailRussian))\n\(model == .nemotron3 ? "Рекомендуется · " : "")около \(size) МБ")
             let card = ChoiceCard(id: "diarization.\(model.rawValue)", title: model.title,
-                                  detail: detail, accessories: [download])
+                                  detail: detail, accessories: [download, progress])
             return card
         }
         diarizationCards.adopt(cards)
@@ -688,28 +681,46 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard let raw = sender.identifier?.rawValue, raw.hasPrefix(prefix),
               let model = DiarizationModel(rawValue: String(raw.dropFirst(prefix.count))),
               sender.isEnabled, diarizationDownloadTask == nil else { return }
+        let operation = UUID()
         diarizationErrors[model] = nil
-        diarizationProgress[model] = 0
         downloadingDiarizationModel = model
-        diarizationDownloadTask = Task { [weak self, model] in
+        diarizationOperation = operation
+        diarizationDownloadProgress[model]?.begin()
+        diarizationDownloadTask = Task { [weak self, model, operation] in
             guard let self else { return }
             do {
                 try await fetchDiarization(model) { [weak self] fraction in
                     Task { @MainActor [weak self] in
-                        guard let self, self.downloadingDiarizationModel == model else { return }
-                        self.diarizationProgress[model] = max(self.diarizationProgress[model] ?? 0, fraction)
-                        self.refreshDiarization()
+                        guard let self, self.diarizationOperation == operation,
+                              self.diarizationDownloadTask?.isCancelled == false else { return }
+                        self.diarizationDownloadProgress[model]?.update(fraction)
                     }
                 }
+                try Task.checkCancellation()
             } catch {
-                diarizationErrors[model] = error.localizedDescription
+                if !Task.isCancelled, !(error is CancellationError) {
+                    diarizationErrors[model] = (error as? VerifiedModelStore.Error)?.description
+                        ?? error.localizedDescription
+                }
             }
+            guard diarizationOperation == operation else { return }
             diarizationDownloadTask = nil
             downloadingDiarizationModel = nil
-            diarizationProgress[model] = nil
+            diarizationOperation = nil
+            diarizationDownloadProgress[model]?.end()
             refreshDiarization()
         }
         refreshDiarization()
+    }
+
+    @objc private func cancelDiarizationClicked(_ sender: NSButton) {
+        let prefix = "transcription.diarization.cancel."
+        guard let raw = sender.identifier?.rawValue, raw.hasPrefix(prefix),
+              let model = DiarizationModel(rawValue: String(raw.dropFirst(prefix.count))),
+              downloadingDiarizationModel == model, let task = diarizationDownloadTask
+        else { return }
+        task.cancel()
+        diarizationDownloadProgress[model]?.cancelling()
     }
 
     private func refreshDiarization() {
@@ -739,16 +750,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                 ? localised("Download…", "Скачать…")
                 : localised("Retry…", "Повторить…")
             if downloadingDiarizationModel == model {
-                card?.report(localised("downloading · ", "загрузка · ")
-                    + "\(Int((diarizationProgress[model] ?? 0) * 100))%")
+                diarizationDownloadProgress[model]?.isHidden = false
+                card?.report("")
             } else if ready {
+                diarizationDownloadProgress[model]?.end()
                 card?.report(localised("ready · ", "готова · ")
                     + ModelStorage.describe(bytes: modelStorage.diarizationModel(model).bytes), good: true)
             } else if let error = diarizationErrors[model] {
+                diarizationDownloadProgress[model]?.end()
                 card?.report(localised("download failed: ", "ошибка загрузки: ") + error)
             } else if !Platform.supportsLocalModels {
+                diarizationDownloadProgress[model]?.end()
                 card?.report(localised("needs Apple Silicon", "нужен Apple Silicon"))
             } else {
+                diarizationDownloadProgress[model]?.end()
                 card?.report("")
             }
         }
@@ -1375,7 +1390,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func downloadLocalIfNeeded(_ requestedEngine: String? = nil) {
         let engine = requestedEngine ?? transcriptionChoice.localEngine
         localDownloadErrors[engine] = nil
-        parakeetStatus.stringValue = ""
         if engine == "whisper" {
             downloadWhisperIfNeeded()
         } else if engine == "gigaam" {
@@ -1388,49 +1402,35 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func downloadGigaAMIfNeeded() {
         guard gigaAMModelStore.bytesOnDisk == 0, gigaAMDownloadTask == nil else { return }
         let asset = "gigaam-v3-e2e-ctc-q8_0"
+        let operation = UUID()
+        localDownloadOperations["gigaam"] = operation
+        localDownloadProgress["gigaam"]?.begin()
         Analytics.track(.modelDownloadStarted, [.asset: .text(asset)])
-        parakeetBar.minValue = 0
-        parakeetBar.maxValue = 1
-        parakeetBar.doubleValue = 0
-        parakeetBar.isHidden = false
-        parakeetStatus.isHidden = false
-        gigaAMDownloadTask = Task { [self, gigaAMModelStore] in
+        gigaAMDownloadTask = Task { [self, gigaAMModelStore, operation] in
             do {
                 _ = try await gigaAMModelStore.download { update in
                     Task { @MainActor [self] in
-                        parakeetBar.isHidden = false
-                        if let fraction = update.fraction {
-                            parakeetBar.isIndeterminate = false
-                            parakeetBar.doubleValue = fraction
-                            parakeetStatus.stringValue = localised(
-                                "downloading · \(Int(fraction * 100))% of about 260 MB",
-                                "скачивание · \(Int(fraction * 100))% из примерно 260 МБ")
-                            localEngineCards.card("gigaam")?.report(parakeetStatus.stringValue)
-                        } else {
-                            parakeetBar.isIndeterminate = true
-                            parakeetBar.startAnimation(nil)
-                            parakeetStatus.stringValue = localised(
-                                "downloading · about 260 MB",
-                                "скачивание · около 260 МБ")
-                            localEngineCards.card("gigaam")?.report(parakeetStatus.stringValue)
-                        }
+                        guard localDownloadOperations["gigaam"] == operation,
+                              gigaAMDownloadTask?.isCancelled == false else { return }
+                        localDownloadProgress["gigaam"]?.update(update.fraction)
                     }
                 }
+                try Task.checkCancellation()
                 Analytics.track(.modelDownloadFinished, [.asset: .text(asset)])
-            } catch is CancellationError {
-                // The chosen engine remains selected and can resume next time.
             } catch {
-                Analytics.track(.modelDownloadFailed, [
-                    .asset: .text(asset),
-                    .reason: .text(Analytics.reason(for: error).rawValue),
-                ])
-                localDownloadErrors["gigaam"] =
-                    localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                if !Task.isCancelled, !(error is CancellationError) {
+                    Analytics.track(.modelDownloadFailed, [
+                        .asset: .text(asset),
+                        .reason: .text(Analytics.reason(for: error).rawValue),
+                    ])
+                    localDownloadErrors["gigaam"] =
+                        localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                }
             }
-            parakeetBar.stopAnimation(nil)
-            parakeetBar.isIndeterminate = false
-            parakeetBar.isHidden = true
+            guard localDownloadOperations["gigaam"] == operation else { return }
+            localDownloadOperations["gigaam"] = nil
             gigaAMDownloadTask = nil
+            localDownloadProgress["gigaam"]?.end()
             refresh()
         }
         refresh()
@@ -1438,54 +1438,37 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     private func downloadWhisperIfNeeded() {
         guard whisperModelStore.bytesOnDisk == 0, whisperDownloadTask == nil else { return }
+        let operation = UUID()
+        localDownloadOperations["whisper"] = operation
+        localDownloadProgress["whisper"]?.begin()
         Analytics.track(.modelDownloadStarted, [.asset: .text("whisper-large-v3-turbo-q5_0")])
-        parakeetBar.minValue = 0
-        parakeetBar.maxValue = 1
-        parakeetBar.doubleValue = 0
-        parakeetBar.isHidden = false
-        parakeetStatus.isHidden = false
-        whisperDownloadTask = Task { [self, whisperModelStore] in
+        whisperDownloadTask = Task { [self, whisperModelStore, operation] in
             do {
                 _ = try await whisperModelStore.download { update in
                     Task { @MainActor [self] in
-                        self.parakeetBar.isHidden = false
-                        if let fraction = update.fraction {
-                            self.parakeetBar.isIndeterminate = false
-                            self.parakeetBar.doubleValue = fraction
-                            self.parakeetStatus.stringValue = localised(
-                                "downloading · \(Int(fraction * 100))% of about 550 MB",
-                                "скачивание · \(Int(fraction * 100))% из примерно 550 МБ")
-                            self.localEngineCards.card("whisper")?.report(
-                                self.parakeetStatus.stringValue)
-                        } else {
-                            self.parakeetBar.isIndeterminate = true
-                            self.parakeetBar.startAnimation(nil)
-                            self.parakeetStatus.stringValue = localised(
-                                "downloading · about 550 MB",
-                                "скачивание · около 550 МБ")
-                            self.localEngineCards.card("whisper")?.report(
-                                self.parakeetStatus.stringValue)
-                        }
+                        guard self.localDownloadOperations["whisper"] == operation,
+                              self.whisperDownloadTask?.isCancelled == false else { return }
+                        self.localDownloadProgress["whisper"]?.update(update.fraction)
                     }
                 }
+                try Task.checkCancellation()
                 Analytics.track(.modelDownloadFinished, [
                     .asset: .text("whisper-large-v3-turbo-q5_0"),
                 ])
-            } catch is CancellationError {
-                // Closing setup pauses an optional download without turning
-                // the chosen engine back into another one.
             } catch {
-                Analytics.track(.modelDownloadFailed, [
-                    .asset: .text("whisper-large-v3-turbo-q5_0"),
-                    .reason: .text(Analytics.reason(for: error).rawValue),
-                ])
-                self.localDownloadErrors["whisper"] =
-                    localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                if !Task.isCancelled, !(error is CancellationError) {
+                    Analytics.track(.modelDownloadFailed, [
+                        .asset: .text("whisper-large-v3-turbo-q5_0"),
+                        .reason: .text(Analytics.reason(for: error).rawValue),
+                    ])
+                    self.localDownloadErrors["whisper"] =
+                        localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                }
             }
-            self.parakeetBar.stopAnimation(nil)
-            self.parakeetBar.isIndeterminate = false
-            self.parakeetBar.isHidden = true
+            guard self.localDownloadOperations["whisper"] == operation else { return }
+            self.localDownloadOperations["whisper"] = nil
             self.whisperDownloadTask = nil
+            self.localDownloadProgress["whisper"]?.end()
             self.refresh()
         }
         refresh()
@@ -1495,27 +1478,34 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard !parakeetIsHere() else { return }
         guard parakeetDownload == nil else { return }
         let asset = Config.transcriptionModel() == "v2" ? "parakeet-v2" : "parakeet-v3"
+        let operation = UUID()
+        localDownloadOperations["parakeet"] = operation
+        localDownloadProgress["parakeet"]?.begin()
         Analytics.track(.modelDownloadStarted, [.asset: .text(asset)])
         watchParakeetSize()
         let fetch = fetchParakeet
-        parakeetDownload = Task { [weak self] in
+        parakeetDownload = Task { [weak self, operation] in
             var failure: String?
             do {
                 try await fetch()
+                try Task.checkCancellation()
                 Analytics.track(.modelDownloadFinished, [.asset: .text(asset)])
             } catch {
-                Analytics.track(.modelDownloadFailed, [
-                    .asset: .text(asset),
-                    .reason: .text(Analytics.reason(for: error).rawValue),
-                ])
-                failure = localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                if !Task.isCancelled, !(error is CancellationError) {
+                    Analytics.track(.modelDownloadFailed, [
+                        .asset: .text(asset),
+                        .reason: .text(Analytics.reason(for: error).rawValue),
+                    ])
+                    failure = localised("download failed: ", "не удалось скачать: ") + "\(error)"
+                }
             }
-            guard let self else { return }
+            guard let self, localDownloadOperations["parakeet"] == operation else { return }
             if let failure { localDownloadErrors["parakeet"] = failure }
+            localDownloadOperations["parakeet"] = nil
             parakeetDownload = nil
             parakeetProgress?.invalidate()
             parakeetProgress = nil
-            parakeetBar.isHidden = true
+            localDownloadProgress["parakeet"]?.end()
             refresh()
         }
         // So the footer button says what is happening from the first second,
@@ -1523,27 +1513,39 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         refresh()
     }
 
-    /// FluidAudio hands back no progress, so the progress is the cache
-    /// directory growing. Approximate, and better than a spinner that could
-    /// mean anything.
+    @objc private func cancelLocalClicked(_ sender: NSButton) {
+        let prefix = "transcription.cancel."
+        guard let raw = sender.identifier?.rawValue, raw.hasPrefix(prefix) else { return }
+        let id = String(raw.dropFirst(prefix.count))
+        let task: Task<Void, Never>?
+        switch id {
+        case "parakeet": task = parakeetDownload
+        case "whisper": task = whisperDownloadTask
+        case "gigaam": task = gigaAMDownloadTask
+        default: return
+        }
+        guard let task else { return }
+        task.cancel()
+        localDownloadProgress[id]?.cancelling()
+        if id == "parakeet" {
+            parakeetProgress?.invalidate()
+            parakeetProgress = nil
+        }
+    }
+
+    /// FluidAudio reports each file separately; cache growth gives one
+    /// approximate percentage for the complete multi-file download.
     private func watchParakeetSize() {
         parakeetProgress?.invalidate()
         let cache = AsrModels.defaultCacheDirectory(for: ParakeetEngine.configuredVersion())
-        parakeetBar.isHidden = false
-        parakeetStatus.isHidden = false
-        parakeetBar.isIndeterminate = false
-        parakeetBar.maxValue = Double(Self.parakeetMegabytes)
-        parakeetBar.doubleValue = 0
+        let operation = localDownloadOperations["parakeet"]
         parakeetProgress = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
+                guard let self, self.localDownloadOperations["parakeet"] == operation,
+                      self.parakeetDownload?.isCancelled == false else { return }
                 let mb = Self.megabytes(of: cache)
-                self?.parakeetBar.doubleValue = Double(mb)
-                self?.parakeetStatus.stringValue = localised(
-                    "\(mb) of about \(Self.parakeetMegabytes) MB",
-                    "\(mb) из примерно \(Self.parakeetMegabytes) МБ")
-                if let status = self?.parakeetStatus.stringValue {
-                    self?.localEngineCards.card("parakeet")?.report(status)
-                }
+                self.localDownloadProgress["parakeet"]?.update(
+                    Double(mb) / Double(Self.parakeetMegabytes))
             }
         }
     }
@@ -1991,42 +1993,38 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         for card in localEngineCards.cards {
             card.isEnabled = Platform.supportsLocalModels
             let button = localDownloadButtons[card.id]
+            let progress = localDownloadProgress[card.id]
             guard Platform.supportsLocalModels else {
                 card.report(localised("needs Apple Silicon", "нужен Apple Silicon"))
                 button?.isHidden = true
+                progress?.end()
                 continue
             }
 
             let model = localModel(card.id)
-            if isLocalModelDownloaded(card.id, model: model) {
+            if localModelIsDownloading(card.id) {
+                card.report("")
+                button?.isHidden = true
+                progress?.isHidden = false
+            } else if isLocalModelDownloaded(card.id, model: model) {
+                progress?.end()
                 card.report(
                     model.bytes > 0
                         ? Self.downloaded(model)
                         : localised("downloaded", "скачана"),
                     good: true)
                 button?.isHidden = true
-            } else if localModelIsDownloading(card.id) {
-                card.report(localised(
-                    "downloading · about \(localModelMegabytes(card.id)) MB",
-                    "скачивание · около \(localModelMegabytes(card.id)) МБ"))
-                button?.isHidden = true
             } else if let error = localDownloadErrors[card.id] {
+                progress?.end()
                 card.report(error)
                 button?.isHidden = false
+                button?.title = localised("Retry…", "Повторить…")
             } else {
+                progress?.end()
                 card.report("")
                 button?.isHidden = false
+                button?.title = localised("Download…", "Скачать…")
             }
-        }
-
-        let downloading = localEngineCards.cards.contains {
-            localModelIsDownloading($0.id)
-        }
-        if !downloading {
-            parakeetBar.stopAnimation(nil)
-            parakeetBar.isHidden = true
-            parakeetStatus.isHidden = true
-            parakeetStatus.stringValue = ""
         }
     }
 
@@ -2047,14 +2045,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         case "whisper": return whisperDownloadTask != nil
         case "gigaam": return gigaAMDownloadTask != nil
         default: return parakeetDownload != nil
-        }
-    }
-
-    private func localModelMegabytes(_ id: String) -> Int {
-        switch id {
-        case "whisper": 550
-        case "gigaam": 260
-        default: Self.parakeetMegabytes
         }
     }
 
