@@ -100,6 +100,142 @@ struct LocalDiarizationPipelineTests {
         #expect(intervals.reduce(Int64(0)) { $0 + $1.endSample - $1.startSample } == 16_000)
     }
 
+    @Test("Short speech, gaps, overlap and final tail reach ASR without extending the timeline")
+    func shortCropsMeetASRMinimum() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("input.caf")
+        try TestAudio.write(to: input, seconds: 0.95, sampleRate: 16_000) { _, _ in 0.2 }
+        let source = try DiarizationAudioSource.prepare(
+            input: input, channel: nil, trackID: "them", clock: .sessionAligned,
+            destination: directory.appendingPathComponent("diarization-source-them.caf"))
+        let runtime = FixedTurns(turns: [
+            SpeakerTurn(speakerID: "A", start: 0, end: 0.15),
+            SpeakerTurn(speakerID: "B", start: 0.2, end: 0.5),
+            SpeakerTurn(speakerID: "C", start: 0.45, end: 0.55),
+            SpeakerTurn(speakerID: "D", start: 0.92, end: 0.95),
+        ])
+        let engine = MinimumCropEngine()
+        let result = try await LocalDiarizationPipeline.run(
+            source: source, engine: engine, runtime: runtime,
+            settings: DiarizationSettings(enabled: true),
+            cachedASR: [TranscriptSegment(start: 0, end: 0.95, text: "coarse")],
+            modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+            asrOptionsFingerprint: "fixture-asr")
+
+        #expect(result.resolution == .turn)
+        #expect(await engine.sampleCounts == [4_800, 4_800, 4_800, 4_800, 4_800, 5_920, 4_800])
+        #expect(result.segments.map(\.speaker) == [
+            "them A", "them ?", "them B", "them ?", "them C", "them ?", "them D",
+        ])
+        #expect(result.segments.map(\.start_ms) == [0, 150, 200, 450, 500, 550, 920])
+        #expect(result.segments.map(\.end_ms) == [150, 200, 450, 500, 550, 920, 950])
+        #expect(result.segments.allSatisfy { !$0.text.contains("coarse") })
+        try DiarizationAudioSource.verify(source)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            .allSatisfy { !$0.hasPrefix(".diarization-crop-") })
+    }
+
+    @Test("A 300 ms crop stays exact, while padded-only text is discarded")
+    func exactMinimumAndPaddedOnlyText() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let exact = try makeSource(in: directory, seconds: 1)
+        let minimum = MinimumCropEngine()
+        let exactResult = try await LocalDiarizationPipeline.run(
+            source: exact, engine: minimum,
+            runtime: FixedTurns(turns: [SpeakerTurn(speakerID: "A", start: 0, end: 0.3)]),
+            settings: DiarizationSettings(enabled: true),
+            cachedASR: [TranscriptSegment(start: 0, end: 1, text: "coarse")],
+            modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+            asrOptionsFingerprint: "fixture-asr")
+        #expect(await minimum.sampleCounts.first == 4_800)
+        #expect(exactResult.segments.first?.end_ms == 300)
+
+        let shortInput = directory.appendingPathComponent("short-input.caf")
+        try TestAudio.write(to: shortInput, seconds: 0.1, sampleRate: 16_000) { _, _ in 0.2 }
+        let short = try DiarizationAudioSource.prepare(
+            input: shortInput, channel: nil, trackID: "speaker", clock: .sessionAligned,
+            destination: directory.appendingPathComponent("diarization-source-speaker.caf"))
+        let paddedOnly = MinimumCropEngine(response: [
+            TranscriptSegment(start: 0.2, end: 0.25, text: "padding")])
+        let result = try await LocalDiarizationPipeline.run(
+            source: short, engine: paddedOnly,
+            runtime: FixedTurns(turns: [SpeakerTurn(speakerID: "A", start: 0, end: 0.1)]),
+            settings: DiarizationSettings(enabled: true),
+            cachedASR: [TranscriptSegment(start: 0, end: 0.1, text: "coarse")],
+            modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+            asrOptionsFingerprint: "fixture-asr")
+        #expect(result.segments.isEmpty)
+        #expect(await paddedOnly.sampleCounts == [4_800])
+    }
+
+    @Test("Padding clips intersecting text but still rejects invalid ASR timing")
+    func paddedCropTimingValidation() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("input.caf")
+        try TestAudio.write(to: input, seconds: 0.1, sampleRate: 16_000) { _, _ in 0.2 }
+        let source = try DiarizationAudioSource.prepare(
+            input: input, channel: nil, trackID: "speaker", clock: .sessionAligned,
+            destination: directory.appendingPathComponent("diarization-source-speaker.caf"))
+        let runtime = FixedTurns(turns: [SpeakerTurn(speakerID: "A", start: 0, end: 0.1)])
+        let cached = [TranscriptSegment(start: 0, end: 0.1, text: "coarse")]
+        let clipped = try await LocalDiarizationPipeline.run(
+            source: source,
+            engine: MinimumCropEngine(response: [
+                TranscriptSegment(start: 0.05, end: 0.25, text: "short reply")]),
+            runtime: runtime, settings: DiarizationSettings(enabled: true), cachedASR: cached,
+            modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+            asrOptionsFingerprint: "fixture-asr")
+        #expect(clipped.segments.map(\.start_ms) == [50])
+        #expect(clipped.segments.map(\.end_ms) == [100])
+        #expect(clipped.segments.map(\.text) == ["short reply"])
+
+        for invalid in [
+            TranscriptSegment(start: .nan, end: 0.2, text: "invalid"),
+            TranscriptSegment(start: 0, end: 0.31, text: "beyond crop"),
+            TranscriptSegment(start: 0, end: 0, text: "zero duration"),
+        ] {
+            do {
+                _ = try await LocalDiarizationPipeline.run(
+                    source: source, engine: MinimumCropEngine(response: [invalid]),
+                    runtime: runtime, settings: DiarizationSettings(enabled: true),
+                    cachedASR: cached,
+                    modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+                    asrOptionsFingerprint: "fixture-asr")
+                Issue.record("invalid ASR timing must fail")
+            } catch LocalDiarizationPipeline.PipelineError.invalidASR {}
+        }
+    }
+
+    @Test("A valid sub-millisecond reply at the crop edge remains visible")
+    func clippedSubMillisecondReply() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("input.caf")
+        try TestAudio.write(to: input, seconds: 0.1, sampleRate: 16_000) { _, _ in 0.2 }
+        let source = try DiarizationAudioSource.prepare(
+            input: input, channel: nil, trackID: "speaker", clock: .sessionAligned,
+            destination: directory.appendingPathComponent("diarization-source-speaker.caf"))
+        let result = try await LocalDiarizationPipeline.run(
+            source: source,
+            engine: MinimumCropEngine(response: [
+                TranscriptSegment(start: 0.0998, end: 0.2, text: "yes")]),
+            runtime: FixedTurns(turns: [SpeakerTurn(speakerID: "A", start: 0, end: 0.1)]),
+            settings: DiarizationSettings(enabled: true),
+            cachedASR: [TranscriptSegment(start: 0, end: 0.1, text: "coarse")],
+            modelFingerprint: "fixture-model", optionsFingerprint: "fixture-options",
+            asrOptionsFingerprint: "fixture-asr")
+        #expect(result.segments.count == 1)
+        #expect(result.segments[0].start_ms == 99)
+        #expect(result.segments[0].end_ms == 100)
+        #expect(result.segments[0].text == "yes")
+        #expect(result.segments[0].speaker == "speaker")
+        #expect(result.turnASR?.segments[0].start == 0.0998)
+        #expect(result.turnASR?.segments[0].end == 0.1)
+    }
+
     @Test("Cached word ASR splits one long phrase among three imported speakers without another ASR call")
     func cachedWordsAcrossSpeakers() async throws {
         let directory = try makeDirectory()
@@ -358,3 +494,25 @@ private actor CropRecordingEngine: TranscriptionEngine {
     }
     func release() async {}
 }
+
+private actor MinimumCropEngine: TranscriptionEngine {
+    nonisolated let name = "parakeet"
+    nonisolated let model = "fixture"
+    nonisolated let input: TranscriptionInput = .perTrack
+    private let response: [TranscriptSegment]?
+    private(set) var sampleCounts: [Int] = []
+
+    init(response: [TranscriptSegment]? = nil) { self.response = response }
+    func prepare() async throws {}
+    func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
+        let file = try AVAudioFile(forReading: audio)
+        let count = Int(file.length)
+        sampleCounts.append(count)
+        guard count >= 4_800 else { throw MinimumCropError() }
+        return response ?? [TranscriptSegment(
+            start: 0, end: Double(count) / 16_000, text: "crop \(sampleCounts.count)")]
+    }
+    func release() async {}
+}
+
+private struct MinimumCropError: Error {}

@@ -1,5 +1,6 @@
 import AVFoundation
 import CryptoKit
+import FluidAudio
 import Foundation
 
 /// Batch attribution on the same durable 16 kHz clock used for recognition.
@@ -203,10 +204,11 @@ enum LocalDiarizationPipeline {
             (id, ids.count == 1 ? prefix : "\(prefix) \(suffix(index))")
         })
         let segments = turnASR.map { segment in
-            Transcript.Segment(
+            let endMs = max(1, Int((segment.end * 1000).rounded()))
+            return Transcript.Segment(
                 speaker: segment.speaker.flatMap { labels[$0] } ?? "\(prefix) ?",
-                start_ms: Int((segment.start * 1000).rounded()),
-                end_ms: Int((segment.end * 1000).rounded()),
+                start_ms: min(Int((segment.start * 1000).rounded()), endMs - 1),
+                end_ms: endMs,
                 text: segment.text)
         }
         return TurnPath(
@@ -404,17 +406,23 @@ enum LocalDiarizationPipeline {
         start: Int64, speakerID: String?, asrPreparation: ASRPreparation
     ) async throws -> [TranscriptSegment] {
         defer { try? FileManager.default.removeItem(at: crop) }
-        try writeCrop(samples, to: crop)
+        let minimum = ASRConstants.minimumRequiredSamples(forSampleRate: 16_000)
+        let padded = samples.count < minimum
+            ? samples + [Float](repeating: 0, count: minimum - samples.count)
+            : samples
+        try writeCrop(padded, to: crop)
         try Task.checkCancellation()
         try await asrPreparation.beforeTranscribe()
         let relative = try await engine.transcribe(crop)
         try Task.checkCancellation()
         let origin = Double(start) / 16_000
         let duration = Double(samples.count) / 16_000
+        let paddedDuration = Double(padded.count) / 16_000
         return try relative.compactMap { segment in
             let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
-            guard validCached(segment, duration: duration) else { throw PipelineError.invalidASR }
+            guard validCached(segment, duration: paddedDuration) else { throw PipelineError.invalidASR }
+            guard segment.start < duration else { return nil }
             return TranscriptSegment(
                 start: origin + segment.start,
                 end: origin + min(duration, segment.end),

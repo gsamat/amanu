@@ -120,9 +120,15 @@ actor ParakeetEngine: TranscriptionEngine {
         // makes AVFoundation raise an ObjC exception deep inside the
         // resampler — uncatchable from Swift, so it takes the whole daemon
         // down. Check readability up front instead.
+        // FluidAudio's file-backed chunk path currently reports duration zero.
+        let audioDuration: TimeInterval
         do {
             let probe = try AVAudioFile(forReading: audio)
-            guard probe.length > 0 else { throw EngineError.unreadableAudio(audio, nil) }
+            guard probe.length > 0, probe.processingFormat.sampleRate.isFinite,
+                  probe.processingFormat.sampleRate > 0 else {
+                throw EngineError.unreadableAudio(audio, nil)
+            }
+            audioDuration = Double(probe.length) / probe.processingFormat.sampleRate
         } catch let error as EngineError {
             throw error
         } catch {
@@ -132,7 +138,8 @@ actor ParakeetEngine: TranscriptionEngine {
         // Where every expected language is written in the same alphabet, the
         // filter is known before a word is heard and one pass is the job.
         if let settled = Self.sharedScript(of: expected) {
-            return transcript(from: try await run(audio, hint: settled))
+            return Self.transcript(from: try await run(audio, hint: settled),
+                                   audioDuration: audioDuration)
         }
 
         // Otherwise the audio decides. The unfiltered pass is the question —
@@ -148,8 +155,9 @@ actor ParakeetEngine: TranscriptionEngine {
         let probe = try await run(audio, hint: nil)
         guard let script = Self.dominantScript(of: probe.text),
               let hint = expected.first(where: { $0.script == script })
-        else { return transcript(from: probe) }
-        return transcript(from: try await run(audio, hint: hint))
+        else { return Self.transcript(from: probe, audioDuration: audioDuration) }
+        return Self.transcript(from: try await run(audio, hint: hint),
+                               audioDuration: audioDuration)
     }
 
     private func run(_ audio: URL, hint: Language?) async throws -> ASRResult {
@@ -158,21 +166,21 @@ actor ParakeetEngine: TranscriptionEngine {
         return try await manager.transcribe(audio, decoderState: &state, language: hint)
     }
 
-    private func transcript(from result: ASRResult) -> [TranscriptSegment] {
+    static func transcript(from result: ASRResult, audioDuration: TimeInterval) -> [TranscriptSegment] {
         let words = buildWordTimings(from: result.tokenTimings ?? [])
         var previousStart = -Double.infinity
-        let validWords = result.duration.isFinite && words.allSatisfy { word in
+        let validWords = words.allSatisfy { word in
             defer { previousStart = word.startTime }
             return word.startTime.isFinite && word.endTime.isFinite
                 && word.startTime >= 0 && word.startTime < word.endTime
-                && word.endTime <= result.duration + 1.0 / 16_000
+                && word.endTime <= audioDuration + 1.0 / 16_000
                 && word.startTime >= previousStart
         }
         guard !words.isEmpty, validWords else {
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty
                 ? []
-                : [TranscriptSegment(start: 0, end: result.duration, text: text)]
+                : [TranscriptSegment(start: 0, end: audioDuration, text: text)]
         }
         return Self.segments(from: words.map {
             TranscriptWord(start: $0.startTime, end: $0.endTime, text: $0.word)
