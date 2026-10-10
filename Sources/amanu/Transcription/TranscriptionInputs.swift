@@ -94,8 +94,33 @@ struct TranscriptionInputs {
         return MultichannelSpeakerLabels.map(try await engine.transcribe(file))
     }
 
+    struct PerTrackResult {
+        let track: SessionMeta.Track
+        let segments: [TranscriptSegment]
+        let offsetApplied: Bool
+
+        var transcript: [Transcript.Segment] {
+            let offset = offsetApplied ? 0 : TimeInterval(track.offsetMs) / 1000
+            return segments.map {
+                Transcript.Segment(
+                    speaker: track.speaker,
+                    start_ms: Int(($0.start + offset) * 1000),
+                    end_ms: Int(($0.end + offset) * 1000),
+                    text: $0.text
+                )
+            }
+        }
+    }
+
     /// One pass per track, speaker taken from the track itself.
     func perTrack() async throws -> [Transcript.Segment] {
+        try await perTrackDetailed().flatMap(\.transcript)
+    }
+
+    /// Keep the engine's actual word times for a later local speaker pass.
+    func perTrackDetailed(
+        prepared: [String: DiarizationAudioSource.Prepared] = [:]
+    ) async throws -> [PerTrackResult] {
         let dir = audio
         // A track of its own that is not on disk at all is a silent side as
         // much as an empty one is: the microphone can fall back to raw
@@ -119,7 +144,7 @@ struct TranscriptionInputs {
             ])
         }
 
-        var merged: [Transcript.Segment] = []
+        var results: [PerTrackResult] = []
         for track in meta.tracks {
             let storedAudio = dir.appendingPathComponent(track.file)
             if track.channel == nil, missing.contains(where: { $0.file == track.file }) {
@@ -142,9 +167,9 @@ struct TranscriptionInputs {
                 continue
             }
 
-            var file = storedAudio
+            var file = prepared[track.speaker]?.url ?? storedAudio
             var temporary: URL?
-            if let channel = track.channel {
+            if prepared[track.speaker] == nil, let channel = track.channel {
                 let extracted = FileManager.default.temporaryDirectory
                     .appendingPathComponent("amanu-\(UUID().uuidString)-channel-\(channel).m4a")
                 do {
@@ -174,17 +199,10 @@ struct TranscriptionInputs {
                 throw error
             }
             if let temporary { try? FileManager.default.removeItem(at: temporary) }
-            let offset = TimeInterval(track.offsetMs) / 1000
-            merged += segments.map {
-                Transcript.Segment(
-                    speaker: track.speaker,
-                    start_ms: Int(($0.start + offset) * 1000),
-                    end_ms: Int(($0.end + offset) * 1000),
-                    text: $0.text
-                )
-            }
+            results.append(PerTrackResult(track: track, segments: segments,
+                                          offsetApplied: prepared[track.speaker] != nil))
         }
-        return merged
+        return results
     }
 
     /// A track that exists but has nothing in it: no bytes at all, or a

@@ -149,6 +149,10 @@ final class ChoiceCard: NSView, LayerTinted {
             SetupLayout.fitRowHeight(stack)
             return
         }
+        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: stack.trailingAnchor,
+            constant: -SetupLayout.cardInsets.right).isActive = true
         for accessory in accessories where !(accessory is NSButton) {
             accessory.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         }

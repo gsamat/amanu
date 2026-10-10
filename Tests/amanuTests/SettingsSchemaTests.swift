@@ -227,6 +227,10 @@ struct SettingsSchemaTests {
             "transcription.cloud",
             // The local-engine picker beside the local switch.
             "transcription.local_engine",
+            // The optional speaker-separation switch in Setup.
+            "transcription.local_diarization",
+            // The three speaker-model cards directly under that switch.
+            "transcription.diarization_model",
             // The live-transcript switch — Apple Silicon only, on both sides.
             "live_transcription.enabled",
             // Files: the switch, and the folder chosen with an open panel.
@@ -308,7 +312,9 @@ struct SettingsSchemaTests {
             case .toggle:
                 #expect(Config.flag(key, in: [:]) == entry.defaultValue as? Bool, "\(key)")
             case .number:
-                #expect(Config.number(key, in: [:]) == (entry.defaultValue as? Int).map(Double.init),
+                let expected = (entry.defaultValue as? Double)
+                    ?? (entry.defaultValue as? Int).map(Double.init)
+                #expect(Config.number(key, in: [:]) == expected,
                         "\(key)")
             default:
                 #expect(Config.string(key, in: [:]) == entry.defaultValue as? String, "\(key)")
@@ -461,7 +467,10 @@ struct SettingsSchemaTests {
                 case .toggle:
                     #expect(entry.defaultValue is Bool, "\(entry.path) toggle default isn't a Bool")
                 case .number:
-                    #expect(entry.defaultValue is Int, "\(entry.path) number default isn't an Int")
+                    let integer = entry.defaultValue as? Int
+                    let real = entry.defaultValue as? Double
+                    #expect(integer != nil || real?.isFinite == true,
+                            "\(entry.path) number default must be a finite Int or Double")
                 case .choice(let options):
                     // A default outside its own option list can't be selected,
                     // so the pop-up would open on something else and the first

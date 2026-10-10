@@ -505,7 +505,8 @@ enum SpeakerNamer {
     static func orderedLabels(of transcript: Transcript) -> [String] {
         var seen = Set<String>()
         var out: [String] = []
-        for segment in transcript.segments where !seen.contains(segment.speaker) {
+        for segment in transcript.segments where !SpeakerNames.isUnknown(segment.speaker)
+            && !seen.contains(segment.speaker) {
             seen.insert(segment.speaker)
             out.append(segment.speaker)
         }

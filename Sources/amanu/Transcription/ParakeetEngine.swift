@@ -64,6 +64,7 @@ actor ParakeetEngine: TranscriptionEngine {
 
     nonisolated let name = "parakeet"
     nonisolated let model: String
+    nonisolated let optionsFingerprint: String
     nonisolated let input: TranscriptionInput = .perTrack
 
     private let version: AsrModelVersion
@@ -93,6 +94,8 @@ actor ParakeetEngine: TranscriptionEngine {
         // The script hint is a v3 decoder feature; FluidAudio ignores it
         // elsewhere, so don't record provenance implying it was applied.
         expected = version == .v3 ? codes.compactMap { Language(rawValue: $0) } : []
+        optionsFingerprint = "version=\(version == .v2 ? "v2" : "v3");script_hints="
+            + expected.map(\.rawValue).joined(separator: "+")
 
         let base = version == .v2
             ? "parakeet-tdt-0.6b-v2-coreml"
@@ -117,9 +120,15 @@ actor ParakeetEngine: TranscriptionEngine {
         // makes AVFoundation raise an ObjC exception deep inside the
         // resampler — uncatchable from Swift, so it takes the whole daemon
         // down. Check readability up front instead.
+        // FluidAudio's file-backed chunk path currently reports duration zero.
+        let audioDuration: TimeInterval
         do {
             let probe = try AVAudioFile(forReading: audio)
-            guard probe.length > 0 else { throw EngineError.unreadableAudio(audio, nil) }
+            guard probe.length > 0, probe.processingFormat.sampleRate.isFinite,
+                  probe.processingFormat.sampleRate > 0 else {
+                throw EngineError.unreadableAudio(audio, nil)
+            }
+            audioDuration = Double(probe.length) / probe.processingFormat.sampleRate
         } catch let error as EngineError {
             throw error
         } catch {
@@ -129,7 +138,8 @@ actor ParakeetEngine: TranscriptionEngine {
         // Where every expected language is written in the same alphabet, the
         // filter is known before a word is heard and one pass is the job.
         if let settled = Self.sharedScript(of: expected) {
-            return transcript(from: try await run(audio, hint: settled))
+            return Self.transcript(from: try await run(audio, hint: settled),
+                                   audioDuration: audioDuration)
         }
 
         // Otherwise the audio decides. The unfiltered pass is the question —
@@ -145,8 +155,9 @@ actor ParakeetEngine: TranscriptionEngine {
         let probe = try await run(audio, hint: nil)
         guard let script = Self.dominantScript(of: probe.text),
               let hint = expected.first(where: { $0.script == script })
-        else { return transcript(from: probe) }
-        return transcript(from: try await run(audio, hint: hint))
+        else { return Self.transcript(from: probe, audioDuration: audioDuration) }
+        return Self.transcript(from: try await run(audio, hint: hint),
+                               audioDuration: audioDuration)
     }
 
     private func run(_ audio: URL, hint: Language?) async throws -> ASRResult {
@@ -155,15 +166,25 @@ actor ParakeetEngine: TranscriptionEngine {
         return try await manager.transcribe(audio, decoderState: &state, language: hint)
     }
 
-    private func transcript(from result: ASRResult) -> [TranscriptSegment] {
+    static func transcript(from result: ASRResult, audioDuration: TimeInterval) -> [TranscriptSegment] {
         let words = buildWordTimings(from: result.tokenTimings ?? [])
-        guard !words.isEmpty else {
+        var previousStart = -Double.infinity
+        let validWords = words.allSatisfy { word in
+            defer { previousStart = word.startTime }
+            return word.startTime.isFinite && word.endTime.isFinite
+                && word.startTime >= 0 && word.startTime < word.endTime
+                && word.endTime <= audioDuration + 1.0 / 16_000
+                && word.startTime >= previousStart
+        }
+        guard !words.isEmpty, validWords else {
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty
                 ? []
-                : [TranscriptSegment(start: 0, end: result.duration, text: text)]
+                : [TranscriptSegment(start: 0, end: audioDuration, text: text)]
         }
-        return Self.segments(from: words)
+        return Self.segments(from: words.map {
+            TranscriptWord(start: $0.startTime, end: $0.endTime, text: $0.word)
+        })
     }
 
     /// The alphabet every expected language shares, or nil when they disagree
@@ -212,28 +233,29 @@ actor ParakeetEngine: TranscriptionEngine {
     /// Group word timings into readable segments: break on sentence-ending
     /// punctuation (parakeet emits punctuation), a silence gap, or a hard
     /// length cap so a run-on speaker still wraps.
-    private static func segments(from words: [WordTiming]) -> [TranscriptSegment] {
+    static func segments(from words: [TranscriptWord]) -> [TranscriptSegment] {
         var out: [TranscriptSegment] = []
-        var current: [WordTiming] = []
+        var current: [TranscriptWord] = []
 
         func flush() {
             guard let first = current.first, let last = current.last else { return }
             out.append(TranscriptSegment(
-                start: first.startTime,
-                end: last.endTime,
-                text: current.map(\.word).joined(separator: " ")
+                start: first.start,
+                end: last.end,
+                text: current.map(\.text).joined(separator: " "),
+                words: current
             ))
             current = []
         }
 
         for word in words {
-            if let last = current.last, word.startTime - last.endTime > 1.0 {
+            if let last = current.last, word.start - last.end > 1.0 {
                 flush()
             }
             current.append(word)
-            let endsSentence = word.word.hasSuffix(".")
-                || word.word.hasSuffix("?")
-                || word.word.hasSuffix("!")
+            let endsSentence = word.text.hasSuffix(".")
+                || word.text.hasSuffix("?")
+                || word.text.hasSuffix("!")
             if endsSentence || current.count >= 60 {
                 flush()
             }

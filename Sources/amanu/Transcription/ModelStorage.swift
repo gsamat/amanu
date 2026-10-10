@@ -18,6 +18,7 @@ import Foundation
 /// connection the person was trying to spare — and the space they thought
 /// they had freed is gone again without anybody being told.
 struct ModelStorage {
+    enum StorageError: Error { case useDiarizationStore }
     /// One model, as a person is shown it.
     struct Model: Equatable {
         /// Which switch in the setup form asks for this model. The version is
@@ -28,6 +29,7 @@ struct ModelStorage {
             case whisper
             case gigaAM
             case live
+            case diarization
         }
 
         let kind: Kind
@@ -41,19 +43,36 @@ struct ModelStorage {
         /// What a fresh download is expected to transfer. Unlike `bytes`,
         /// this is useful before the model exists.
         let advertisedBytes: Int
+        let diarizationModel: DiarizationModel?
 
-        var isDownloaded: Bool { bytes > 0 }
+        init(kind: Kind, name: String, directory: URL, bytes: Int,
+             advertisedBytes: Int, diarizationModel: DiarizationModel? = nil) {
+            self.kind = kind
+            self.name = name
+            self.directory = directory
+            self.bytes = bytes
+            self.advertisedBytes = advertisedBytes
+            self.diarizationModel = diarizationModel
+        }
+
+        var isDownloaded: Bool {
+            kind == .diarization
+                ? DiarizationModelStore.isReady(at: directory, model: diarizationModel ?? .community1)
+                : bytes > 0
+        }
     }
 
     private let live: LiveTranscriptionModelStore
     private let whisper: WhisperModelStore
     private let gigaAM: GigaAMModelStore
     private let parakeetCache: @Sendable (AsrModelVersion) -> URL
+    private let diarizationDirectory: URL
 
     init(
         live: LiveTranscriptionModelStore = LiveTranscriptionModelStore(),
         whisper: WhisperModelStore = WhisperModelStore(),
         gigaAM: GigaAMModelStore = GigaAMModelStore(),
+        diarizationDirectory: URL = DiarizationModelStore.shared.directory,
         parakeetCache: @escaping @Sendable (AsrModelVersion) -> URL = {
             AsrModels.defaultCacheDirectory(for: $0)
         }
@@ -62,6 +81,7 @@ struct ModelStorage {
         self.whisper = whisper
         self.gigaAM = gigaAM
         self.parakeetCache = parakeetCache
+        self.diarizationDirectory = diarizationDirectory
     }
 
     /// Every model worth showing, in the order the setup form asks for them.
@@ -80,6 +100,7 @@ struct ModelStorage {
         models.append(whisperModel())
         models.append(gigaAMModel())
         models.append(liveModel())
+        models.append(contentsOf: DiarizationModel.allCases.map(diarizationModel))
         return models
     }
 
@@ -120,6 +141,19 @@ struct ModelStorage {
             advertisedBytes: 600 * 1_048_576)
     }
 
+    func diarizationModel(_ model: DiarizationModel = .community1) -> Model {
+        let directory = model == .community1 ? diarizationDirectory
+            : diarizationDirectory.deletingLastPathComponent()
+                .appendingPathComponent(model.assetDirectoryName, isDirectory: true)
+        return Model(
+            kind: .diarization,
+            name: model.title,
+            directory: directory,
+            bytes: Self.bytes(of: directory),
+            advertisedBytes: model.advertisedBytes,
+            diarizationModel: model)
+    }
+
     /// What everything listed comes to. The number a person came to the
     /// window for, and the one they can compare against what the disk says.
     func total(_ models: [Model]) -> Int {
@@ -131,6 +165,7 @@ struct ModelStorage {
     /// writes more into it than it reads back, and a half-emptied cache is
     /// the state its downloader is worst at recovering from.
     func delete(_ model: Model) throws {
+        if model.kind == .diarization { throw StorageError.useDiarizationStore }
         guard FileManager.default.fileExists(atPath: model.directory.path) else { return }
         try FileManager.default.removeItem(at: model.directory)
     }
@@ -146,16 +181,22 @@ struct ModelStorage {
     static func updatesAfterDeleting(
         _ kind: Model.Kind,
         choice: TranscriptionChoice,
-        liveEnabled: Bool
+        liveEnabled: Bool,
+        diarizationEnabled: Bool = false,
+        deletedDiarizationModel: DiarizationModel = .community1,
+        selectedDiarizationModel: DiarizationModel = .community1
     ) -> [(path: [String], value: Any?)] {
         switch kind {
+        case .diarization:
+            return diarizationEnabled && deletedDiarizationModel == selectedDiarizationModel
+                ? [(["transcription", "local_diarization"], nil)] : []
         case .parakeet, .whisper, .gigaAM:
             let deleted: String
             switch kind {
             case .parakeet: deleted = "parakeet"
             case .whisper: deleted = "whisper"
             case .gigaAM: deleted = "gigaam"
-            case .live: preconditionFailure("handled below")
+            case .live, .diarization: preconditionFailure("handled below")
             }
             guard choice.local, choice.localEngine == deleted else { return [] }
             return TranscriptionChoice(

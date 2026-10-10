@@ -341,7 +341,14 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
 
         shownModels = modelStorage.all()
         let total = modelStorage.total(shownModels)
-        modelsTotal.stringValue = total == 0
+        let hasIncompleteDiarizer = shownModels.contains {
+            $0.kind == .diarization && !$0.isDownloaded
+                && FileManager.default.fileExists(atPath: $0.directory.path)
+        }
+        modelsTotal.stringValue = total == 0 && hasIncompleteDiarizer
+            ? localised("An incomplete speaker model cache is present.",
+                        "Найдена неполная папка модели разделения говорящих.")
+            : total == 0
             ? localised(
                 "Nothing downloaded yet. The setup tab is where they are fetched.",
                 "Пока ничего не скачано. Скачиваются они на вкладке настройки.")
@@ -358,11 +365,21 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         let name = NSTextField(labelWithString: model.name)
         name.lineBreakMode = .byTruncatingTail
 
-        let size = NSTextField(labelWithString: model.isDownloaded
-            ? ModelStorage.describe(bytes: model.bytes)
-            : localised("not downloaded · about ", "не скачана · около ")
-                + ModelStorage.describe(bytes: model.advertisedBytes))
-        size.textColor = model.isDownloaded ? .labelColor : .secondaryLabelColor
+        let ready = model.isDownloaded
+        let partial = model.kind == .diarization && !ready
+            && FileManager.default.fileExists(atPath: model.directory.path)
+        let description: String
+        if ready {
+            description = ModelStorage.describe(bytes: model.bytes)
+        } else if partial {
+            description = localised("incomplete · ", "неполная · ")
+                + ModelStorage.describe(bytes: model.bytes)
+        } else {
+            description = localised("not downloaded · about ", "не скачана · около ")
+                + ModelStorage.describe(bytes: model.advertisedBytes)
+        }
+        let size = NSTextField(labelWithString: description)
+        size.textColor = ready ? .labelColor : .secondaryLabelColor
         size.alignment = .right
 
         let delete = NSButton(
@@ -374,7 +391,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         // Present and disabled rather than absent: the row is the same row
         // whether or not the model is here, and a button that comes and goes
         // moves everything beside it.
-        delete.isEnabled = model.isDownloaded
+        delete.isEnabled = ready || partial
 
         let line = NSStackView(views: [name, size, delete])
         line.orientation = .horizontal
@@ -385,7 +402,7 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             size.widthAnchor.constraint(equalToConstant: 190),
         ])
 
-        let help = NSTextField(labelWithString: Self.purpose(of: model.kind))
+        let help = NSTextField(labelWithString: Self.purpose(of: model))
         help.font = .systemFont(ofSize: 11)
         help.textColor = .secondaryLabelColor
         help.lineBreakMode = .byWordWrapping
@@ -402,8 +419,8 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
     /// What the model is for, in the words the setup form uses for the switch
     /// that asks for it — so somebody who deletes the wrong one has to have
     /// misread the same sentence twice.
-    private static func purpose(of kind: ModelStorage.Model.Kind) -> String {
-        switch kind {
+    private static func purpose(of model: ModelStorage.Model) -> String {
+        switch model.kind {
         case .parakeet:
             return localised(
                 "Transcribes on this Mac, after the meeting.",
@@ -420,6 +437,14 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             return localised(
                 "The live transcript shown during a meeting.",
                 "Расшифровка, которая идёт прямо во время встречи.")
+        case .diarization:
+            let chosen = model.diarizationModel ?? .community1
+            let license = switch chosen {
+            case .nemotron3: "OpenMDW 1.1"
+            case .lsEendAMI: "MIT"
+            case .community1: "CC BY 4.0"
+            }
+            return localised(chosen.detailEnglish, chosen.detailRussian) + " · " + license
         }
     }
 
@@ -444,7 +469,10 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
             localModels: Platform.supportsLocalModels,
             localEngine: Config.transcriptionLocalEngine())
         let updates = ModelStorage.updatesAfterDeleting(
-            model.kind, choice: choice, liveEnabled: Config.liveTranscriptionEnabled())
+            model.kind, choice: choice, liveEnabled: Config.liveTranscriptionEnabled(),
+            diarizationEnabled: Config.localDiarizationEnabled(),
+            deletedDiarizationModel: model.diarizationModel ?? .community1,
+            selectedDiarizationModel: Config.diarizationModel())
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -455,6 +483,35 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         alert.addButton(withTitle: localised("Cancel", "Отмена"))
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        if model.kind == .diarization {
+            sender.isEnabled = false
+            Task { @MainActor [weak self] in
+                do {
+                    try await DiarizationModelStore.shared(
+                        for: model.diarizationModel ?? .community1).delete()
+                    let currentUpdates = ModelStorage.updatesAfterDeleting(
+                        .diarization, choice: choice,
+                        liveEnabled: Config.liveTranscriptionEnabled(),
+                        diarizationEnabled: Config.localDiarizationEnabled(),
+                        deletedDiarizationModel: model.diarizationModel ?? .community1,
+                        selectedDiarizationModel: Config.diarizationModel())
+                    for update in currentUpdates {
+                        Config.update(path: update.path, value: update.value)
+                    }
+                } catch {
+                    let failed = NSAlert()
+                    failed.alertStyle = .warning
+                    failed.messageText = localised(
+                        "Couldn't delete \(model.name)", "Не удалось удалить \(model.name)")
+                    failed.informativeText = error.localizedDescription
+                    failed.runModal()
+                }
+                self?.refreshModels()
+                self?.setup.refresh()
+            }
+            return
+        }
 
         do {
             try modelStorage.delete(model)
@@ -486,12 +543,21 @@ final class SettingsWindow: NSObject, NSTextFieldDelegate {
         let freed = localised(
             "\(ModelStorage.describe(bytes: model.bytes)) comes back. ",
             "Освободится \(ModelStorage.describe(bytes: model.bytes)). ")
+        if model.kind == .diarization {
+            return freed + (switchesOff
+                ? localised("Speaker separation turns off. Download the model explicitly to use it later.",
+                            "Разделение говорящих выключится. Чтобы вернуть его, скачайте модель отдельно.")
+                : localised("Download the model explicitly to use speaker separation later.",
+                            "Чтобы разделять говорящих позже, скачайте модель отдельно."))
+        }
         guard switchesOff else {
             return freed + localised(
                 "It downloads again if you switch it back on.",
                 "Скачается снова, если её опять включить.")
         }
         switch model.kind {
+        case .diarization:
+            preconditionFailure("handled above")
         case .parakeet, .whisper, .gigaAM:
             if choice.cloud {
                 return freed + localised(

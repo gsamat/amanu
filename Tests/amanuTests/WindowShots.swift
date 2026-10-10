@@ -33,6 +33,7 @@ import Testing
 /// `docs/testing/window-shots.md` says what comes out and how to read it.
 @Suite(
     .serialized, .enabled(if: ProcessInfo.processInfo.environment["AMANU_SHOTS"] != nil),
+    .freshHome(config: speakerShotsConfig),
     .speaking(shotsLanguage))
 struct WindowShots {
     private var directory: String {
@@ -57,8 +58,13 @@ struct WindowShots {
             // the form, which is where anchoring mistakes show up.
             panel.setContentSize(NSSize(width: 700, height: 760))
             try write(panel, "setup-\(name)-window")
+            panel.setContentSize(NSSize(width: 640, height: 760))
+            try write(panel, "setup-\(name)-narrow")
             panel.setContentSize(NSSize(width: 700, height: 1600))
             try write(panel, "setup-\(name)-full")
+            panel.setContentSize(NSSize(width: 640, height: 760))
+            try scrollToDiarization(in: panel)
+            try write(panel, "setup-\(name)-narrow-diarization")
         }
 
         // A window built under one appearance and shown under the other. Layer
@@ -88,6 +94,11 @@ struct WindowShots {
             let tabs = try tabs(of: panel)
             tabs.selectTabViewItem(at: 0)
             try write(panel, "settings-setup-\(name)")
+            panel.setContentSize(NSSize(width: 640, height: 900))
+            try write(panel, "settings-setup-\(name)-narrow")
+            try scrollToDiarization(in: panel)
+            try write(panel, "settings-setup-\(name)-narrow-diarization")
+            panel.setContentSize(NSSize(width: 700, height: 900))
             tabs.selectTabViewItem(at: 1)
             try write(panel, "settings-advanced-\(name)")
             // The narrowest the window goes. Some settings appear nowhere but
@@ -114,6 +125,85 @@ struct WindowShots {
         try write(panel, "settings-setup-switched-to-light")
         show(panel, in: dark)
         try write(panel, "settings-setup-switched-back-to-dark")
+    }
+
+    @Test("Cloud-only transcription visibly disables speaker model controls")
+    @MainActor
+    func cloudOnlyWindows() throws {
+        _ = NSApplication.shared
+        try withFreshHome(config: [
+            "transcription": ["enabled": true, "engine": "openai", "local_diarization": true],
+        ]) { _ in
+            var owners: [Any] = []
+            defer { withExtendedLifetime(owners) {} }
+            for (name, appearance) in [("light", light), ("dark", dark)] {
+                let setup = try setupPanel(builtIn: appearance, keeping: &owners)
+                setup.setContentSize(NSSize(width: 700, height: 1600))
+                try write(setup, "setup-cloud-only-\(name)")
+                let settings = try settingsPanel(builtIn: appearance, keeping: &owners)
+                settings.setContentSize(NSSize(width: 700, height: 900))
+                try write(settings, "settings-cloud-only-\(name)")
+                try scrollToDiarization(in: settings)
+                try write(settings, "settings-cloud-only-\(name)-diarization")
+            }
+        }
+    }
+
+    @Test("A long speaker-model error in narrow settings, in both appearances")
+    @MainActor
+    func diarizationErrorInNarrowSettings() throws {
+        _ = NSApplication.shared
+
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try settingsPanel(builtIn: appearance, keeping: &owners)
+            panel.setContentSize(NSSize(width: 640, height: 900))
+            let card = try #require(panel.contentView?.allDescendants
+                .compactMap { $0 as? ChoiceCard }
+                .first { $0.id == "diarization.nemotron-3" })
+            card.report(localised(
+                "download error: The speaker model is incomplete or corrupt: "
+                    + "Nemotron-3-Diarization.q8_0.gguf.",
+                "ошибка загрузки: The speaker model is incomplete or corrupt: "
+                    + "Nemotron-3-Diarization.q8_0.gguf."))
+            try scrollToDiarization(in: panel)
+            try write(panel, "settings-setup-\(name)-narrow-diarization-error")
+        }
+    }
+
+    @Test("Active local and speaker downloads in narrow settings, in both appearances")
+    @MainActor
+    func modelDownloadProgressInNarrowSettings() throws {
+        _ = NSApplication.shared
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try settingsPanel(builtIn: appearance, keeping: &owners)
+            panel.setContentSize(NSSize(width: 640, height: 900))
+            for (id, fraction, shot) in [
+                ("parakeet", 0.37, "local"),
+                ("diarization.nemotron-3", 0.64, "diarization"),
+            ] {
+                let card = try #require(panel.contentView?.allDescendants
+                    .compactMap { $0 as? ChoiceCard }.first { $0.id == id })
+                let progress = try #require(card.allDescendants
+                    .compactMap { $0 as? ModelDownloadProgress }.first)
+                let download = try #require(card.allDescendants
+                    .compactMap { $0 as? NSButton }
+                    .first { $0.identifier?.rawValue.contains(".download.") == true })
+                card.report("")
+                download.isHidden = true
+                progress.begin()
+                progress.update(fraction)
+                try scrollToCard("choice.\(id)", in: panel)
+                try write(panel, "settings-setup-\(name)-narrow-\(shot)-progress")
+                progress.end()
+                download.isHidden = false
+            }
+        }
     }
 
     /// The About window, which is small enough that both appearances fit in
@@ -176,6 +266,29 @@ struct WindowShots {
             scroll.reflectScrolledClipView(scroll.contentView)
         }
         view.layoutSubtreeIfNeeded()
+    }
+
+    @MainActor
+    private func scrollToDiarization(in panel: NSWindow) throws {
+        try scrollToCard("choice.diarization.nemotron-3", in: panel)
+    }
+
+    @MainActor
+    private func scrollToCard(_ id: String, in panel: NSWindow) throws {
+        let content = try #require(panel.contentView)
+        content.layoutSubtreeIfNeeded()
+        let card = try #require(content.allDescendants.first {
+            $0.identifier?.rawValue == id
+        })
+        var ancestor = card.superview
+        while ancestor != nil, !(ancestor is NSScrollView) { ancestor = ancestor?.superview }
+        let scroll = try #require(ancestor as? NSScrollView)
+        let document = try #require(scroll.documentView)
+        let cardFrame = card.convert(card.bounds, to: document)
+        let y = max(0, cardFrame.midY - scroll.contentView.bounds.height / 2)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        content.layoutSubtreeIfNeeded()
     }
 
     // MARK: - the windows
@@ -361,7 +474,8 @@ struct WindowGallery {
     /// measured: the form is laid out tall, its real height read back, and the
     /// window closed onto it, so the whole screen is in one image with no
     /// scrollbar and nothing to spare.
-    @Test("The setup window at the full height of its form")
+    @Test("The setup window at the full height of its form",
+          .freshHome(config: speakerShotsConfig))
     @MainActor
     func setupWhole() throws {
         _ = NSApplication.shared
@@ -459,7 +573,10 @@ struct WindowGallery {
             NSApp.appearance = appearance
             var window: RecordingsWindow?
             appearance?.performAsCurrentDrawingAppearance { window = RecordingsWindow(root: root) }
-            owners.append(try #require(window))
+            let recordings = try #require(window)
+            recordings.onRetryDiarization = { _ in }
+            recordings.onSkipDiarization = { _ in }
+            owners.append(recordings)
             let title = localised("Recordings", "Записи")
             let panel = try #require(NSApp.windows.last { $0.title == title })
             panel.appearance = appearance
@@ -470,6 +587,12 @@ struct WindowGallery {
             // The detail half of the window is empty until something is
             // selected, and an empty half is not what the window looks like.
             if let table = firstTableView(in: content), table.numberOfRows > 0 {
+                table.selectRowIndexes([0], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-completed-\(name)")
+                table.selectRowIndexes([1], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-pending-\(name)")
+                table.selectRowIndexes([2], byExtendingSelection: false)
+                try write(panel, "recordings-diarization-failed-\(name)")
                 table.selectRowIndexes([0], byExtendingSelection: false)
             }
             try write(panel, "recordings-\(name)")
@@ -539,15 +662,24 @@ struct WindowGallery {
                 "trigger": "mic-activity",
             ],
             transcript: true, speakers: true, summary: true)
+        var completed = DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .completed)
+        completed.confirmedSpeakers = 3
+        completed.hasUnknown = true
+        try completed.write(to: root.appendingPathComponent("2026.08.20-1030"))
 
         try session(
             in: root, named: "2026.08.19-1615",
             meta: [
                 "started": "2026-08-19T16:15:00Z", "duration_seconds": 1500,
                 "title": localised("Weekly with Fyodor", "Планёрка с Фёдором"),
-                "trigger": "calendar",
+                "trigger": "calendar", "files": ["source": "source.m4a"],
             ],
             transcript: true, speakers: false, summary: false)
+        try DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .pending)
+            .write(to: root.appendingPathComponent("2026.08.19-1615"))
+        try Data([0]).write(to: root.appendingPathComponent("2026.08.19-1615/source.m4a"))
 
         try session(
             in: root, named: "2026.08.19-0905",
@@ -560,6 +692,10 @@ struct WindowGallery {
                     "no spoken audio in the recording",
             ],
             transcript: false, speakers: false, summary: false)
+        var failedDiarization = DiarizationState(
+            request: .init(engine: "parakeet", threshold: 0.6), status: .failed)
+        failedDiarization.reason = localised("Model unavailable", "Модель недоступна")
+        try failedDiarization.write(to: root.appendingPathComponent("2026.08.19-0905"))
         try Data([0]).write(to: root
             .appendingPathComponent("2026.08.19-0905/source.m4a"))
 
@@ -690,3 +826,5 @@ private final class GalleryGround: NSView {
 private let shotsLanguage: InterfaceLanguage =
     ProcessInfo.processInfo.environment["AMANU_SHOTS_LANGUAGE"]
         .flatMap(InterfaceLanguage.init(rawValue:)) ?? .english
+
+private let speakerShotsConfig = #"{"transcription":{"enabled":true,"engine":"parakeet","local_diarization":true}}"#

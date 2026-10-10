@@ -63,6 +63,9 @@ TRANSCRIBE_FW = $(shell find .build/artifacts/*/TranscribeCppFramework -type d \
 LOCALVQE_ROOT = .build/localvqe
 LOCALVQE_LIB = $(LOCALVQE_ROOT)/lib/liblocalvqe.dylib
 LOCALVQE_MODEL = $(LOCALVQE_ROOT)/model/localvqe-v1.4-aec-200K-f32.gguf
+NEMOTRON_ROOT = .build/nemotron
+NEMOTRON_HELPER = $(NEMOTRON_ROOT)/bin/nemo-speech
+NEMOTRON_BUNDLE = $(APP)/Contents/Helpers/NeMoSpeech
 
 # Prefer Developer ID (distributable, long-lived) over Apple Development
 # (fine for a machine-local tool). Falls back to ad-hoc so a clean checkout on
@@ -77,7 +80,14 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build localvqe verify-localvqe app icon run-app identities verify clean release release-dry
+# Ad-hoc signatures have no Team ID for hardened runtime library validation.
+ifeq ($(strip $(SIGN_ID)),-)
+SIGN_OPTIONS = --options 0
+else
+SIGN_OPTIONS = --options runtime
+endif
+
+.PHONY: all build localvqe verify-localvqe nemotron verify-nemotron app icon run-app identities verify clean release release-dry
 
 all: app
 
@@ -87,7 +97,16 @@ localvqe:
 verify-localvqe: localvqe
 	@scripts/verify-localvqe.py
 
-build: localvqe
+nemotron:
+	@AMANU_MINIMUM_MACOS=$(MINIMUM_MACOS) scripts/build-nemotron-diar.sh
+
+verify-nemotron: nemotron
+	@python3 scripts/verify-nemotron-diar.py $(NEMOTRON_ROOT) \
+		--build $(NEMOTRON_ROOT)/build \
+		--sentencepiece-build $(NEMOTRON_ROOT)/sentencepiece-build \
+		--minimum $(MINIMUM_MACOS)
+
+build: localvqe nemotron
 	swift build -c release --arch arm64 --arch x86_64
 
 # Drawn from the same feather the menu bar uses, so the Dock, the window and
@@ -100,12 +119,16 @@ $(ICON):
 
 app: build $(ICON)
 	@rm -rf $(APP)
-	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources/Models $(APP)/Contents/Frameworks
+	@mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources/Models $(APP)/Contents/Frameworks \
+		$(NEMOTRON_BUNDLE)/bin $(NEMOTRON_BUNDLE)/lib
 	@scripts/build-app-icon.sh $(ADAPTIVE_ICON) $(ICON) $(BUILT_ICON) $(MINIMUM_MACOS)
 	@cp $(BUILT) $(APP)/Contents/MacOS/$(APP_NAME)
 	@cp $(LOCALVQE_LIB) $(APP)/Contents/Frameworks/liblocalvqe.dylib
 	@cp $(LOCALVQE_MODEL) $(APP)/Contents/Resources/Models/
 	@cp $(LOCALVQE_ROOT)/verification.json $(APP)/Contents/Resources/LocalVQE-verification.json
+	@cp $(NEMOTRON_HELPER) $(NEMOTRON_BUNDLE)/bin/nemo-speech
+	@cp -R $(NEMOTRON_ROOT)/lib/. $(NEMOTRON_BUNDLE)/lib/
+	@cp $(NEMOTRON_ROOT)/verification.json $(APP)/Contents/Resources/Nemotron-verification.json
 	@sed -e 's/__SHORT_VERSION__/$(VERSION)/' -e 's/__BUILD_VERSION__/$(BUILD)/' \
 		Packaging/Amanu-Info.plist > $(APP)/Contents/Info.plist
 	@printf 'APPL????' > $(APP)/Contents/PkgInfo
@@ -136,13 +159,19 @@ app: build $(ICON)
 		$(APP)/Contents/Resources/Licenses/transcribe.cpp-ggml-LICENSE
 	@cp Resources/Licenses/transcribe.cpp-miniz-LICENSE \
 		$(APP)/Contents/Resources/Licenses/transcribe.cpp-miniz-LICENSE
+	@cp Resources/Licenses/LS-EEND-AMI-LICENSE \
+		Resources/Licenses/Nemotron-3-Diarization-OpenMDW-1.1.html \
+		Resources/Licenses/NeMo-Speech.cpp-* \
+		$(APP)/Contents/Resources/Licenses/
 	@test -s $(APP)/Contents/Resources/LICENSE \
 		&& test -s $(APP)/Contents/Resources/Amanu.icns \
 		&& test -s $(APP)/Contents/Resources/Assets.car \
 		&& test -s $(APP)/Contents/Resources/THIRD-PARTY-NOTICES.md \
 		&& test -s $(APP)/Contents/Resources/Models/localvqe-v1.4-aec-200K-f32.gguf \
 		&& test -s $(APP)/Contents/Resources/LocalVQE-verification.json \
-		&& test "$$(find $(APP)/Contents/Resources/Licenses -type f | wc -l | tr -d ' ')" = 12
+		&& test -s $(APP)/Contents/Resources/Nemotron-verification.json \
+		&& test -x $(NEMOTRON_BUNDLE)/bin/nemo-speech \
+		&& test "$$(find $(APP)/Contents/Resources/Licenses -type f | wc -l | tr -d ' ')" = 22
 	@test -n "$(SPARKLE_FW)" || (echo "Sparkle.framework not found — run swift build first"; exit 1)
 	@test -n "$(WHISPER_FW)" || (echo "whisper.framework not found — run swift build first"; exit 1)
 	@test -n "$(TRANSCRIBE_FW)" || (echo "CTranscribe.framework not found — run swift build first"; exit 1)
@@ -177,23 +206,30 @@ app: build $(ICON)
 	@# shows up as a Gatekeeper rejection on someone else's Mac, not here.
 	@for nested in \
 		$(APP)/Contents/Frameworks/liblocalvqe.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libggml-base.0.25.1.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libggml-blas.0.25.1.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libggml-cpu.0.25.1.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libggml-metal.0.25.1.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libggml.0.25.1.dylib \
+		$(NEMOTRON_BUNDLE)/lib/libnemo_speech_asr.dylib \
+		$(NEMOTRON_BUNDLE)/bin/nemo-speech \
 		$(APP)/Contents/Frameworks/whisper.framework \
 		$(APP)/Contents/Frameworks/CTranscribe.framework \
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate \
 		$(APP)/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app \
 		$(APP)/Contents/Frameworks/Sparkle.framework ; do \
-		codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp "$$nested" \
+		codesign --force --sign "$(SIGN_ID)" $(SIGN_OPTIONS) --timestamp "$$nested" \
 			2>/dev/null \
-		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
+		|| codesign --force --sign "$(SIGN_ID)" $(SIGN_OPTIONS) --timestamp=none "$$nested" ; \
 	done
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(SIGN_OPTIONS) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp $(APP) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
-		--options runtime \
+		$(SIGN_OPTIONS) \
 		--entitlements Packaging/Amanu.entitlements \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
@@ -212,6 +248,9 @@ app: build $(ICON)
 		&& lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe | grep -q arm64 \
 		|| (echo "CTranscribe.framework not universal: $$(lipo -archs $(APP)/Contents/Frameworks/CTranscribe.framework/Versions/A/CTranscribe)"; exit 1)
 	@python3 scripts/verify-macos-compatibility.py $(APP) $(MINIMUM_MACOS)
+	@python3 scripts/verify-nemotron-diar.py $(NEMOTRON_BUNDLE) \
+		--skip-licenses --minimum $(MINIMUM_MACOS)
+	@"$(APP)/Contents/MacOS/$(APP_NAME)" --help >/dev/null
 	@echo "built → $(APP) ($(VERSION) build $(BUILD)) · $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"
 
 # Launch the way a person would: through LaunchServices, so the app is its own

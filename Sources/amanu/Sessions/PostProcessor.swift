@@ -64,7 +64,9 @@ enum PostProcessor {
             return failedFor == MeetingEgress.fingerprint(for: purpose)
         }
 
-        guard exists("transcript.json"), !TranscriptVersions.isRequested(dir) else { return Work() }
+        guard exists("transcript.json"), !TranscriptVersions.isRequested(dir),
+              DiarizationState.persisted(in: dir).isFinal
+        else { return Work() }
 
         var work = Work()
         work.names = policy.names
@@ -364,6 +366,10 @@ enum PostProcessor {
         do {
             try SessionClaim.acquire(dir, stage: .transcribe)
             defer { SessionClaim.release(dir) }
+            guard !DiarizationState.persisted(in: dir).isUnreadable else {
+                appendSessionLog("can't replace unreadable saved diarization request", to: dir)
+                return false
+            }
             let engine = EngineResolver.configuredEngine(for: dir)
             try Data(engine.utf8).write(to: dir.appendingPathComponent(TranscriptVersions.requestFile), options: .atomic)
             try SessionState.amend(dir, with: [
@@ -371,6 +377,9 @@ enum PostProcessor {
                 SessionState.Key.transcriptionAttempts: nil,
                 SessionState.Key.transcriptionDeferred: nil,
             ])
+            // The old speaker result still belongs to the current transcript
+            // until a new transcript is committed. The coordinator snapshots
+            // the current speaker switch and model for this new request.
             TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
             appendSessionLog("queued a new transcript version", to: dir)
             return true

@@ -9,6 +9,17 @@ import Testing
 // Assert the timeout/cancellation outcome, with a separate runaway-test limit.
 @Suite(.timeLimit(.minutes(1)))
 struct SubprocessTests {
+    @Test("Explicit child environment is isolated from inherited process variables")
+    func childEnvironment() async throws {
+        let result = try await Subprocess.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "printf '%s:%s' \"${AMANU_TEST_ONLY-}\" \"${PATH-}\""],
+            input: Data(), timeout: 2,
+            environment: ["AMANU_TEST_ONLY": "child", "PATH": "/usr/bin:/bin"])
+        #expect(result.status == 0)
+        #expect(String(decoding: result.stdout, as: UTF8.self) == "child:/usr/bin:/bin")
+    }
+
     @Test("Cancelling CLI processing stops waiting for the child")
     func cancellation() async throws {
         let task = Task {
