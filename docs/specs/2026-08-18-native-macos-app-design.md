@@ -137,9 +137,10 @@ windows, permissions, the recording session and post-processing. It is the only
 process allowed to start audio capture or mutate an active session. Two things
 a bundle needs that the daemon did not: a second launch hands over to the copy
 already running rather than becoming a second recorder (`SingleInstance`), and
-the process holds a `userInitiated` activity for its whole life, because App
-Nap throttles a background application and a recorder is in the background by
-definition.
+the process holds a `userInitiatedAllowingIdleSystemSleep` activity for its
+whole life, because App Nap throttles a background application and a recorder
+is in the background by definition. The Mac may still idle-sleep between
+meetings; sleep is held off only while recording and while transcribing.
 
 Repeated launches activate the existing app instead of starting another
 recorder. Window closure and Dock visibility are AppKit state, not process
