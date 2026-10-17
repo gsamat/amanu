@@ -10,10 +10,14 @@ This document is for people changing the implementation.
 
 ## App Nap
 
-The app holds a `userInitiated` activity for its whole life and a
-sleep-blocking one while recording. Remove either and the symptoms are
-confusing rather than obvious: IPC that answers seconds late, timers that
-drift, a request obeyed after the caller gave up.
+The app holds `userInitiatedAllowingIdleSystemSleep` for its whole life, and a
+sleep-blocking activity while recording and while transcribing. Remove the
+first and the symptoms are confusing rather than obvious: IPC that answers
+seconds late, timers that drift, a request obeyed after the caller gave up.
+Remove the others and the Mac sleeps in the middle of a meeting or its
+transcript. Plain `userInitiated` is not the App Nap opt-out it looks like: it
+includes `idleSystemSleepDisabled`, and holding it for the life of the app
+keeps the Mac awake for as long as amanu runs.
 
 ## `Bundle.main` and the symlink
 

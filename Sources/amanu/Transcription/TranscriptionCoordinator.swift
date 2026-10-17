@@ -44,6 +44,7 @@ actor TranscriptionCoordinator {
     private var current: TranscriptionEngine?
     private let onStop: @Sendable () -> String?
     private let echoCanceller: EchoCancellerFactory
+    private let keepAwake: Wakefulness.Hold
 
     typealias EchoCancellerFactory = @Sendable () throws -> EchoCanceller
 
@@ -52,18 +53,22 @@ actor TranscriptionCoordinator {
     /// real wants the configured answer, and wants it decided late.
     init(engine: TranscriptionEngine? = nil,
          onStop: @escaping @Sendable () -> String? = { Config.onStop() },
-         echoCanceller: @escaping EchoCancellerFactory = { try EchoCanceller() }) {
+         echoCanceller: @escaping EchoCancellerFactory = { try EchoCanceller() },
+         keepAwake: @escaping Wakefulness.Hold = Wakefulness.holdAwake) {
         engines = EngineResolver(fixed: engine)
         self.onStop = onStop
         self.echoCanceller = echoCanceller
+        self.keepAwake = keepAwake
     }
 
     init(engines: EngineResolver,
          onStop: @escaping @Sendable () -> String? = { Config.onStop() },
-         echoCanceller: @escaping EchoCancellerFactory = { try EchoCanceller() }) {
+         echoCanceller: @escaping EchoCancellerFactory = { try EchoCanceller() },
+         keepAwake: @escaping Wakefulness.Hold = Wakefulness.holdAwake) {
         self.engines = engines
         self.onStop = onStop
         self.echoCanceller = echoCanceller
+        self.keepAwake = keepAwake
     }
 
     func setStatusHandler(_ handler: @escaping @Sendable (Status) -> Void) {
@@ -174,6 +179,11 @@ actor TranscriptionCoordinator {
     }
 
     private func drain() async {
+        // Idle sleep is held off while the queue drains, and only then. The
+        // `defer` gives the activity back on every way out, and a drain
+        // restarted at the bottom begins its own.
+        let release = keepAwake("amanu is transcribing a meeting")
+        defer { release() }
         while !queue.isEmpty {
             let dir = queue.removeFirst()
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
