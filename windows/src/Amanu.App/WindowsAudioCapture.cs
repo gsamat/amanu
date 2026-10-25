@@ -206,13 +206,15 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
 /// The WASAPI callback only copies the packet into a queue. Writing — the gaps
 /// above all, which can be minutes of zeros — happens on a thread of its own, so
 /// the capture thread never stalls and the audio after a gap is not lost to a
-/// buffer overrun.
+/// buffer overrun. Whatever a write throws, the queue keeps draining and the
+/// file is closed at the end: a writer fault must neither hold the recording in
+/// memory nor leave the track locked for the transcription that follows.
 /// </remarks>
 internal sealed class TrackWriter : IDisposable
 {
     private static readonly long MaximumGap100ns = TimeSpan.FromMinutes(30).Ticks;
     private readonly Lock gate = new();
-    private readonly WaveFileWriter writer;
+    private readonly ITrackFile writer;
     private readonly WaveFormat format;
     private readonly long origin100ns;
     private readonly byte[] zeros;
@@ -225,10 +227,13 @@ internal sealed class TrackWriter : IDisposable
     private readonly record struct Packet(byte[] Data, int Length, bool Silent, long At100ns);
 
     public TrackWriter(string path, WaveFormat format, long origin100ns)
+        : this(new Rf64WaveWriter(path, format), format, origin100ns) { }
+
+    internal TrackWriter(ITrackFile file, WaveFormat format, long origin100ns)
     {
         this.format = format;
         this.origin100ns = origin100ns;
-        writer = new WaveFileWriter(path, format);
+        writer = file;
         zeros = new byte[Math.Max(format.BlockAlign, format.AverageBytesPerSecond / 10 / format.BlockAlign * format.BlockAlign)];
         drain = Task.Run(DrainAsync);
     }
@@ -255,10 +260,11 @@ internal sealed class TrackWriter : IDisposable
             {
                 lock (gate) WritePacket(packet);
             }
-            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            catch (Exception)
             {
-                // A full disk or a closed file: the rest of this track is lost, and
-                // the recording carries on with what was written.
+                // A full disk, a closed file or any other writer fault: that audio is
+                // lost, and the recording carries on with what was written. The loop
+                // must not end here, or every later packet would pile up in memory.
             }
             finally
             {
@@ -306,7 +312,15 @@ internal sealed class TrackWriter : IDisposable
     public void Dispose()
     {
         packets.Writer.TryComplete();
-        drain.Wait(TimeSpan.FromSeconds(30));
+        try
+        {
+            drain.Wait(TimeSpan.FromSeconds(30));
+        }
+        catch (AggregateException)
+        {
+            // Nothing may stop the file being closed below; an open handle would
+            // keep the track locked until the app exits.
+        }
         lock (gate)
         {
             writer.Dispose();
