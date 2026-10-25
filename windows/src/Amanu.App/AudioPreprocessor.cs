@@ -88,18 +88,32 @@ public static class AudioPreprocessor
         using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         using var reader = new BinaryReader(stream);
         using var writer = new BinaryWriter(stream);
-        if (stream.Length < 44 || new string(reader.ReadChars(4)) != "RIFF") return;
+        if (stream.Length < 44) return;
+        var riff = new string(reader.ReadChars(4));
+        if (riff != "RIFF" && riff != "RF64") return;
         stream.Position = 12;
         var blockAlign = 1;
+        var factSizePosition = -1L;
+        // Rf64WaveWriter reserves a 28-byte chunk here, so its tracks can always be described as RF64.
+        var reserved = false;
         while (stream.Position + 8 <= stream.Length)
         {
             var id = new string(reader.ReadChars(4));
             var sizePosition = stream.Position;
             var size = reader.ReadUInt32();
+            if (sizePosition == 16 && id is "JUNK" or "ds64" && size == Rf64WaveWriter.Ds64Length) reserved = true;
             if (id == "fmt " && size >= 14)
             {
                 stream.Position = sizePosition + 4 + 12;
                 blockAlign = Math.Max(1, (int)reader.ReadUInt16());
+            }
+            if (id == "fact" && size >= 4) factSizePosition = sizePosition + 4;
+            if (id == "data" && reserved)
+            {
+                // Whole frames only, and past 4 GB too: the header rolls over to RF64 if it has to.
+                var data = stream.Length - (sizePosition + 4);
+                Rf64WaveWriter.WriteSizes(writer, sizePosition, factSizePosition, data - data % blockAlign, blockAlign);
+                return;
             }
             if (id == "data")
             {
