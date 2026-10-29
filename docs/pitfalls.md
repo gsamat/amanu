@@ -116,13 +116,32 @@ up with the recording nor attributed to a speaker.
 speakers, and `chunking_strategy` is required with it for any audio over 30
 seconds — without that field the API answers 400 rather than transcribing.
 
-Its 25 MB per request is a real limit, not a guideline: the mix reaches it at
-around 55 minutes, so `AudioSlicer` cuts longer meetings up. Speaker labels are
-per request, so they are prefixed per piece rather than merged — the "A" of the
-second piece is not the "A" of the first, and treating them as one person would
-hand two strangers one name. That is not a theory: a four-minute mix run
-through the real API in four pieces on 19 August came back with the Russian
-voice labelled `1A` in the first piece and `4B` in the last.
+Its 25 MB per request is a real limit, and so is 1400 seconds of audio — the
+one a meeting reaches first. Until October 2026 `AudioSlicer` knew only the
+bytes, and every meeting over 23 minutes failed as permanent. A file over
+25 MB is refused with "Audio file might be corrupted or unsupported", which
+says nothing about size.
+
+How long the answer takes grows faster than the audio: measured on 29 October
+2026, twenty minutes took 7–9 minutes as one request and 2.2 as four
+five-minute pieces sent together, and an hour as sixty one-minute pieces took
+69 seconds. So meetings are cut into five-minute pieces, in pauses, and sent
+all at once. Requests are streamed (`stream=true`): unstreamed, the server says
+nothing for minutes, and on 28 October one such request from amanu was never
+answered while curl's copy of it was. One stream in thirty ends without
+`transcript.text.done`; that piece is asked for again, not cached.
+
+Speaker labels are per request, so they are prefixed per piece rather than
+merged — the "A" of the second piece is not the "A" of the first, and treating
+them as one person would hand two strangers one name. That is not a theory: a
+four-minute mix run through the real API in four pieces on 19 August came back
+with the Russian voice labelled `1A` in the first piece and `4B` in the last.
+What carries a voice across is `known_speaker_names[]` and
+`known_speaker_references[]`: the first piece goes ahead, and up to four of its
+voices, two to eight seconds of each as a 16 kHz WAV `data:` URL, go with every
+other piece, which then labels them `1A`, `1B`… itself. A voice first heard
+after the first piece still gets a label per piece. From curl, send the URL
+with `--form-string`: `-F` reads the `;` in `audio/wav;base64` as its own.
 
 Both paths have been run against the API for real — one request, and four —
 which is what `requestLimit` being an init parameter is for: proving the sliced

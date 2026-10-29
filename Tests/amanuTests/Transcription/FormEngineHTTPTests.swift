@@ -19,7 +19,12 @@ struct FormEngineHTTPTests {
         let audio = dir.appendingPathComponent("mixed.caf")
         try TestAudio.writeTone(to: audio, seconds: 1, frequency: 440, sampleRate: 16_000)
         let service = StubHTTP { _, _ in
-            .json(200, #"{"text":"hi","duration":1,"segments":[{"start":0.1,"end":0.8,"text":"hi","speaker":"A"}]}"#)
+            .json(200, """
+            data: {"type":"transcript.text.segment","text":"hi","speaker":"A","start":0.1,"end":0.8}
+
+            data: {"type":"transcript.text.done","text":"hi"}
+
+            """)
         }
         let engine = try OpenAITranscriptionEngine(apiKey: "sk-test", session: service.session)
 

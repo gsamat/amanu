@@ -140,4 +140,115 @@ struct OpenAIEngineTests {
         // And not so cautious that it turns one meeting into a dozen uploads.
         #expect(length > 2000)
     }
+
+    /// 1400 seconds is the ceiling an ordinary meeting reaches first, and the
+    /// pieces are re-encoded at 64k whatever the mix was.
+    @Test("Slice length keeps every piece under the duration limit and at 64k")
+    func sliceDuration() throws {
+        let limit = OpenAITranscriptionEngine.defaultRequestLimit
+        // An hour at 25 kbit/s fits 25 MB whole, and is still cut by length.
+        #expect(AudioSlicer.sliceLength(
+            bytes: 3600 * 25_000 / 8, duration: 3600, limit: limit, maxDuration: 300) == 300)
+        #expect(AudioSlicer.sliceLength(
+            bytes: 200 * 25_000 / 8, duration: 200, limit: limit, maxDuration: 300) == nil)
+        // Sized at a 40k source alone, a piece written at 64k would come out
+        // 60% over its estimate.
+        let length = try #require(AudioSlicer.sliceLength(
+            bytes: 7200 * 40_000 / 8 + limit, duration: 7200, limit: limit))
+        #expect(length * Double(AudioSlicer.encodedBitRate) / 8 < Double(limit))
+    }
+
+    @Test("Voice samples come from whoever talked longest, two to eight seconds each")
+    func voiceChoice() throws {
+        let decoded = try Self.response("""
+        {"text":"","segments":[
+          {"start":0,"end":12,"text":"a","speaker":"A"},
+          {"start":12,"end":13,"text":"b","speaker":"B"},
+          {"start":13,"end":16,"text":"b","speaker":"B"},
+          {"start":16,"end":17.5,"text":"c","speaker":"C"},
+          {"start":20,"end":24,"text":"d","speaker":"D"},
+          {"start":24,"end":27,"text":"e","speaker":"E"},
+          {"start":27,"end":29.5,"text":"f","speaker":"F"}]}
+        """)
+        let samples = OpenAITranscriptionEngine.voiceSamples(
+            in: decoded.segments ?? [], labelPrefix: "1")
+
+        // C never spoke for two seconds at once; four is the API's maximum.
+        #expect(samples.map(\.name) == ["1A", "1B", "1D", "1E"])
+        #expect(samples[0].start == 0)
+        #expect(samples[0].length == 8)
+        // B's sample is its longest utterance, not its first.
+        #expect(samples[1].start == 13)
+        #expect(samples[1].length == 3)
+    }
+
+    /// What the API sends with `stream=true`, trimmed from a real response of
+    /// 28 October 2026.
+    static let stream = """
+    data: {"type":"transcript.text.segment","text":" Вот это я знаю.","speaker":"1B","start":0.0,"end":0.8,"id":"seg_0"}
+
+    : ping - 2026-10-28 19:36:02.280424+00:00
+
+    data: {"type":"transcript.text.segment","text":" Да, он живёт там.","speaker":"A","start":0.8,"end":2.25,"id":"seg_1"}
+
+    data: {"type":"transcript.text.done","text":"Вот это я знаю. Да, он живёт там.","usage":{"type":"tokens","total_tokens":7285}}
+
+    data: [DONE]
+
+    """
+
+    @Test("A streamed answer keeps a known voice's name and prefixes the rest")
+    func streamedResponse() throws {
+        let response = try #require(OpenAITranscriptionEngine.parse(Data(Self.stream.utf8)))
+        let segments = OpenAITranscriptionEngine.segments(
+            from: response, offset: 300, labelPrefix: "2", known: ["1B"])
+        #expect(segments.map(\.speaker) == ["1B", "2A"])
+        #expect(segments.map(\.text) == ["Вот это я знаю.", "Да, он живёт там."])
+        #expect(segments[1].start == 300.8)
+    }
+
+    /// A stream cut off halfway is half a piece. Taken as an answer, it would
+    /// be cached and never asked for again.
+    @Test("A stream that stops short or reports an error is no answer")
+    func unfinishedStream() {
+        let cut = Self.stream.components(separatedBy: "data: {\"type\":\"transcript.text.done")[0]
+        #expect(OpenAITranscriptionEngine.parse(Data(cut.utf8)) == nil)
+        let failed = cut + #"data: {"type":"error","error":{"message":"server_error"}}"#
+        #expect(OpenAITranscriptionEngine.parse(Data(failed.utf8)) == nil)
+        let broken = Self.stream.replacingOccurrences(of: #""start":0.8,"#, with: "")
+        #expect(OpenAITranscriptionEngine.parse(Data(broken.utf8)) == nil)
+    }
+
+    /// Past 1400 seconds the API refuses the piece, and the meeting with it.
+    @Test("Pieces stay under the API's 1400 seconds")
+    func durationLimit() {
+        #expect(OpenAITranscriptionEngine.defaultDurationLimit < 1400)
+    }
+
+    @Test("Every piece after the first streams, and is told the first piece's voices in order")
+    func requestFields() {
+        let voices = [("1A", "data:a"), ("1B", "data:b")].map {
+            OpenAITranscriptionEngine.Voice(name: $0.0, sample: $0.1)
+        }
+        let fields = OpenAITranscriptionEngine.fields(
+            model: "gpt-4o-transcribe-diarize", expected: [], voices: voices)
+        #expect(fields.contains { $0 == ("stream", "true") })
+        #expect(fields.filter { $0.0 == "known_speaker_names[]" }.map(\.1) == ["1A", "1B"])
+        #expect(fields.filter { $0.0 == "known_speaker_references[]" }.map(\.1) == ["data:a", "data:b"])
+    }
+
+    /// The first piece heard again can give its names to other voices, and a
+    /// later piece cached under the old ones would then mean other people.
+    @Test("A piece's cache depends on the voices' samples, not only their names")
+    func cacheFollowsVoices() async throws {
+        let engine = try OpenAITranscriptionEngine(apiKey: "test-key")
+        let (folder, audio) = (URL(fileURLWithPath: "/tmp"), URL(fileURLWithPath: "/tmp/mixed.m4a"))
+        func cache(_ sample: String?) async -> URL {
+            await engine.cacheURL(
+                in: folder, audio: audio, piece: 1, of: 3,
+                voices: sample.map { [.init(name: "1A", sample: $0)] } ?? [])
+        }
+        #expect(await cache("data:a") != cache(nil))
+        #expect(await cache("data:a") != cache("data:b"))
+    }
 }

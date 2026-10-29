@@ -321,14 +321,17 @@ struct CloudHTTP: Sendable {
     }
 
     /// Send a file as a multipart form: the one request shape OpenAI and
-    /// ElevenLabs share.
+    /// ElevenLabs share. `retryTransportErrors` is for a file small enough
+    /// that uploading it again is cheaper than giving up — a piece of a
+    /// meeting, not the whole of one.
     func sendMultipart(
         to url: URL,
         fields: [(String, String)],
         file: URL,
         key: String,
         what: String,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        retryTransportErrors: Bool = false
     ) async throws -> Data {
         let boundary = "amanu.\(UUID().uuidString)"
         let body = FileManager.default.temporaryDirectory
@@ -342,7 +345,8 @@ struct CloudHTTP: Sendable {
             "multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "content-type")
         request.timeoutInterval = timeout
         return try await send(
-            request, body: .file(body), key: key, what: what, retryTransportErrors: false)
+            request, body: .file(body), key: key, what: what,
+            retryTransportErrors: retryTransportErrors)
     }
 }
 
