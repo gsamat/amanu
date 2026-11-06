@@ -179,6 +179,10 @@ actor TranscriptionCoordinator {
             publish(.transcribing(session: dir.lastPathComponent, queued: queue.count))
             do {
                 try await transcribeAndAnnounce(dir)
+            } catch is CancellationError {
+                // A user stopping work has not used up an attempt on this recording.
+                log(dir, "transcription cancelled — audio kept for another attempt")
+                if Task.isCancelled { break }
             } catch let busy as SessionClaim.Busy {
                 // Not a failure of this session — a collision with another
                 // process that has it. Counting it would retire a perfectly
@@ -244,6 +248,10 @@ actor TranscriptionCoordinator {
     func transcribeNow(_ dir: URL) async throws {
         do {
             try await transcribeAndAnnounce(dir)
+        } catch is CancellationError {
+            log(dir, "transcription cancelled — audio kept for another attempt")
+            await releaseEngine()
+            throw CancellationError()
         } catch let busy as SessionClaim.Busy {
             // The app has this session. Nothing failed, so nothing is recorded
             // against it — the person gets the sentence and the folder is left
@@ -435,6 +443,7 @@ actor TranscriptionCoordinator {
             segments: merged
         )
         try TranscriptVersions.commit(transcript, to: dir)
+        try SpeakerReview.recordTranscript(dir, supportsDiarization: engine.supportsDiarization)
         SessionState.update(dir, with: [
             StopHook.key: StopHook.owed,
             "transcription_input": engine.input.metadataName,
@@ -446,17 +455,15 @@ actor TranscriptionCoordinator {
         ])
         log(dir, "done — \(merged.count) segments")
 
-        // The audio was recorded uncompressed so it would survive a crash, and
-        // that only had to hold until the transcript existed. It does now, so
-        // the tracks become one stereo archive — or are deleted, if
-        // `keep_audio` is off.
-        //
-        // Before naming and summarizing rather than after, because both of
-        // those want a language model and can sit for hours waiting for one,
-        // and neither reads the audio: they work from the transcript. Making
-        // the gigabyte wait for a model it isn't going to be shown to would be
-        // paying twice for nothing.
-        TrackCompressor.settle(sessionDir: dir)
+        // Compact PCM as soon as ASR succeeds. A human review still needs voice
+        // samples; its decision applies keep_audio before post-processing resumes.
+        if SpeakerReview.isPending(dir) {
+            // Review may need a voice sample even when keep_audio is off. Compress
+            // now, and apply the existing deletion preference after the decision.
+            TrackCompressor.compress(sessionDir: dir)
+        } else {
+            TrackCompressor.settle(sessionDir: dir)
+        }
         TranscriptionScratch.remove(in: dir)
         return engine
     }

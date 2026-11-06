@@ -50,6 +50,7 @@ enum StopHook {
     @discardableResult
     static func fireIfOwed(_ dir: URL, command: @autoclosure () -> String? = Config.onStop()) -> Bool {
         guard SessionState.value(dir, key) as? String == owed else { return false }
+        guard !SpeakerReview.isPending(dir) else { return false }
         if let reason = Config.unreadableReason {
             appendSessionLog(
                 "on_stop hook waits — config.json can't be read (\(reason))", to: dir)

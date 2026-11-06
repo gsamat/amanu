@@ -113,7 +113,9 @@ enum TranscriptVersions {
         let archive = try archiveCurrent(dir)
         let files = ["transcript.md", "transcript.json", SpeakerNames.file, "meta.json"]
         let previous = Dictionary(uniqueKeysWithValues: files.map { ($0, try? Data(contentsOf: dir.appendingPathComponent($0))) })
-        let manual = SpeakerNames.read(from: dir)?.manual ?? [:]
+        // Only the microphone owner's side has meaning independent of the ASR.
+        // A/B and chunk-qualified numbers may identify different voices next time.
+        let manual = (SpeakerNames.read(from: dir)?.manual ?? [:]).filter { $0.key == "me" }
         let names = manual.isEmpty ? nil : SpeakerNames(speakers: manual)
         do {
             if let names { try names.write(to: dir) }
@@ -123,6 +125,8 @@ enum TranscriptVersions {
             try transcript.write(to: dir)
             try SessionState.amend(dir, with: [
                 SessionState.Key.summaryStale: archive != nil && fm.fileExists(atPath: dir.appendingPathComponent("summary.md").path) ? true : nil,
+                SessionState.Key.summaryManualUpdate: nil, SessionState.Key.summaryUpdateRequested: nil,
+                SessionState.Key.speakerReview: nil,
                 SessionState.Key.speakersStatus: nil, SessionState.Key.summaryStatus: nil,
                 SessionState.Key.speakersFailedFor: nil, SessionState.Key.summaryFailedFor: nil,
                 SessionState.Key.speakersDeferrals: nil, SessionState.Key.summaryDeferrals: nil,
@@ -150,6 +154,7 @@ private enum RecordingsEngineName {
         case "assemblyai": return "AssemblyAI"
         case "openai": return "OpenAI"
         case "elevenlabs": return "ElevenLabs"
+        case "compatible": return localised("STT server", "Сервер STT")
         case "auto": return localised("Automatic", "Автоматически")
         default: return id
         }
