@@ -414,7 +414,13 @@ enum PostProcessor {
                 SessionState.Key.transcriptionAttempts: nil,
                 SessionState.Key.transcriptionDeferred: nil,
             ])
-            TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
+            // Completed pieces of a failed compatible run are a continuation,
+            // not a stale answer: their keys already change with the audio,
+            // endpoint, model and parameters, and a success removes them. The
+            // pieces a successful run produced are gone by now, so a new
+            // version of a finished transcript still asks the server afresh.
+            TranscriptionScratch.remove(in: dir, includingDerivedAudio: true,
+                                        keepingResumable: engine == "compatible")
             appendSessionLog("queued a new transcript version", to: dir)
             return true
         } catch {

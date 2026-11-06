@@ -272,6 +272,124 @@ struct SpeakerReviewTests {
         #expect(archived[1].start == 6)
     }
 
+    @Test("A voice attribution could not place still has a clip when compression left two tracks")
+    func unplacedVoiceOnSeparateTracks() throws {
+        let dir = try SessionFixture.make(segments: [
+            .init(speaker: "A", start_ms: 0, end_ms: 1000, text: "Hello."),
+            .init(speaker: "A", start_ms: 1000, end_ms: 2500, text: "The longer turn of the same voice."),
+            .init(speaker: "B", start_ms: 2500, end_ms: 3000, text: "Hi."),
+        ], meta: ["files": ["mic": "mic.caf", "system": "system.caf"],
+                  "start_offset_ms": ["mic": 0, "system": 500]])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // Preparing controls must not open or decode the source files.
+        try Data().write(to: dir.appendingPathComponent("mic.caf"))
+        try Data().write(to: dir.appendingPathComponent("system.caf"))
+        let transcript = try #require(PostProcessor.readTranscript(dir))
+        let sample = try #require(SessionInventory.samples(transcript: transcript, names: nil).first)
+        #expect(sample.label == "A")
+        let clips = SpeakerReview.audioSamples(for: sample, in: dir)
+        #expect(clips.count == 2)
+        let first = try #require(clips.first)
+        #expect(first.sources.map { $0.file.lastPathComponent } == ["mic.caf", "system.caf"])
+        #expect(first.sources.map(\.start) == [0, 0])
+        #expect(first.sources.map(\.delay) == [0, 0.5])
+        let longest = try #require(clips.last)
+        #expect(longest.sources.map(\.start) == [1, 0.5])
+        #expect(longest.sources.map(\.delay) == [0, 0])
+
+        // The mix the engine heard, when it is still in the folder, is preferred.
+        try Data().write(to: dir.appendingPathComponent(TranscriptionInputs.mixedFile))
+        #expect(SpeakerReview.audioSamples(for: sample, in: dir)
+            .allSatisfy { $0.file.lastPathComponent == TranscriptionInputs.mixedFile })
+    }
+
+    @Test("An unreadable transcript cannot silently skip speaker review")
+    func missingOrInvalidTranscriptFailsReviewRecord() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-review-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(throws: (any Error).self) {
+            try SpeakerReview.pendingRecord(dir, supportsDiarization: true)
+        }
+        try Data("invalid".utf8).write(to: dir.appendingPathComponent("transcript.json"))
+        #expect(throws: (any Error).self) {
+            try SpeakerReview.pendingRecord(dir, supportsDiarization: true)
+        }
+    }
+
+    @Test("A diarized first transcript publishes its review with it, or not at all")
+    func firstTranscriptCarriesItsReview() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("amanu-session-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try JSONSerialization.data(withJSONObject: ["files": ["source": "source.m4a"]])
+            .write(to: dir.appendingPathComponent("meta.json"))
+        try TranscriptVersions.commit(SessionFixture.transcript, to: dir, supportsDiarization: true)
+        #expect(SpeakerReview.isPending(dir))
+
+        // meta.json that can't be amended: the transcript must not be left
+        // behind as a completion marker without the review that belongs to it.
+        for file in ["transcript.json", "transcript.md"] {
+            try FileManager.default.removeItem(at: dir.appendingPathComponent(file))
+        }
+        try Data("{".utf8).write(to: dir.appendingPathComponent("meta.json"))
+        #expect(throws: (any Error).self) {
+            try TranscriptVersions.commit(SessionFixture.transcript, to: dir, supportsDiarization: true)
+        }
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.json").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("transcript.md").path))
+    }
+
+    @Test("A re-transcription publishes its review in the same step that replaces the transcript")
+    func retranscriptionCarriesItsReview() throws {
+        let dir = try SessionFixture.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(PostProcessor.markForRetranscription(dir))
+        try TranscriptVersions.commit(Transcript(engine: "compatible", model: "new", created_at: "2026-11-06T12:00:00Z",
+            segments: [.init(speaker: "A", start_ms: 0, end_ms: 1000, text: "One voice."),
+                       .init(speaker: "B", start_ms: 1000, end_ms: 2000, text: "Another voice.")]),
+            to: dir, supportsDiarization: true)
+        #expect(!TranscriptVersions.isRequested(dir))
+        #expect(SpeakerReview.isPending(dir))
+        #expect(PostProcessor.outstanding(dir, policy: .init(names: true, summary: true)) == .init(review: true))
+    }
+
+    @Test("A meta.json write that fails after the new transcript is written restores the old result and request")
+    func retranscriptionRollsBackWhenMetaCannotBeWritten() throws {
+        let dir = try SessionFixture.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        PostProcessor.rename("them A", to: "Мария", in: dir)
+        #expect(PostProcessor.markForRetranscription(dir))
+        let oldID = try #require(SpeakerReview.transcriptID(dir))
+        let kept = ["transcript.json", "transcript.md", SpeakerNames.file]
+        var before: [String: Data] = [:]
+        for name in kept { before[name] = try Data(contentsOf: dir.appendingPathComponent(name)) }
+        // Unparsable meta.json lets the snapshot, the removal of the old
+        // anonymous names and the new transcript's write all succeed; the one
+        // amend that publishes them, the review included, is what fails.
+        let brokenMeta = Data("{".utf8)
+        try brokenMeta.write(to: dir.appendingPathComponent("meta.json"))
+        let replacement = Transcript(engine: "compatible", model: "new", created_at: "2026-11-06T12:00:00Z",
+            segments: [.init(speaker: "A", start_ms: 0, end_ms: 1000, text: "One voice."),
+                       .init(speaker: "B", start_ms: 1000, end_ms: 2000, text: "Another voice.")])
+        #expect(throws: (any Error).self) {
+            try TranscriptVersions.commit(replacement, to: dir, supportsDiarization: true)
+        }
+        for name in kept {
+            #expect(try Data(contentsOf: dir.appendingPathComponent(name)) == before[name], "\(name) not restored")
+        }
+        #expect(try Data(contentsOf: dir.appendingPathComponent("meta.json")) == brokenMeta)
+        #expect(TranscriptVersions.isRequested(dir), "The request survives for another attempt")
+        #expect(SpeakerReview.transcriptID(dir) == oldID)
+        // The snapshot taken first is harmless: it is the current result, so it
+        // is neither lost nor listed a second time.
+        #expect(FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("transcripts").appendingPathComponent(oldID).path))
+        #expect(TranscriptVersions.read(dir).filter { !$0.isRequest }.count == 1)
+    }
+
     @Test("A new ASR never inherits an anonymous voice's manual name or review decision")
     func newTranscriptResetsAnonymousNames() throws {
         let dir = try SessionFixture.make()

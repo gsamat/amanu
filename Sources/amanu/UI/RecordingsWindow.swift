@@ -101,7 +101,7 @@ final class RecordingsWindow: NSObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
     private var audioSamples: [String: SpeakerReview.AudioSample] = [:]
-    private var audioPlayer: AVAudioPlayer?
+    private var audioPlayers: [AVAudioPlayer] = []
     private var audioStop: Timer?
     private weak var playingButton: NSButton?
 
@@ -935,21 +935,34 @@ final class RecordingsWindow: NSObject {
         let prefix = "speaker-audio-"
         guard let identifier = sender.identifier?.rawValue, identifier.hasPrefix(prefix),
               let sample = audioSamples[String(identifier.dropFirst(prefix.count))] else { return }
-        let wasPlaying = playingButton === sender && audioPlayer?.isPlaying == true
+        let wasPlaying = playingButton === sender && audioPlayers.contains(where: \.isPlaying)
         stopAudioSample()
         guard !wasPlaying else { return }
         do {
-            let player = try AVAudioPlayer(contentsOf: sample.file)
-            guard sample.start < player.duration else { return }
-            player.currentTime = sample.start
-            audioPlayer = player
+            let players = try sample.sources.compactMap { source -> (AVAudioPlayer, TimeInterval)? in
+                let player = try AVAudioPlayer(contentsOf: source.file)
+                guard source.start < player.duration else { return nil }
+                player.currentTime = source.start
+                guard player.prepareToPlay() else { throw CocoaError(.fileReadUnknown) }
+                return (player, source.delay)
+            }
+            guard let clock = players.first?.0.deviceCurrentTime else { return }
+            audioPlayers = players.map(\.0)
             playingButton = sender
             sender.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
-            guard player.play() else { throw CocoaError(.fileReadUnknown) }
-            audioStop = Timer.scheduledTimer(withTimeInterval: min(sample.end, player.duration) - sample.start,
-                                             repeats: false) { [weak self] _ in
+            // The same audio-device clock aligns separate original tracks;
+            // a late track starts after its recorded offset on the clip clock.
+            let lead: TimeInterval = 0.1
+            for (player, delay) in players {
+                guard player.play(atTime: clock + lead + delay) else { throw CocoaError(.fileReadUnknown) }
+            }
+            let timer = Timer(timeInterval: sample.duration + lead, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.stopAudioSample() }
             }
+            // Menus and window dragging switch run-loop modes; the sample's
+            // eight-second boundary still applies while they are open.
+            audioStop = timer
+            RunLoop.main.add(timer, forMode: .common)
         } catch {
             stopAudioSample()
             if let item = selected { say(error.localizedDescription, about: item) }
@@ -959,8 +972,8 @@ final class RecordingsWindow: NSObject {
     private func stopAudioSample() {
         audioStop?.invalidate()
         audioStop = nil
-        audioPlayer?.stop()
-        audioPlayer = nil
+        audioPlayers.forEach { $0.stop() }
+        audioPlayers.removeAll()
         playingButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
         playingButton = nil
     }

@@ -442,8 +442,7 @@ actor TranscriptionCoordinator {
             created_at: created.string(from: Date()),
             segments: merged
         )
-        try TranscriptVersions.commit(transcript, to: dir)
-        try SpeakerReview.recordTranscript(dir, supportsDiarization: engine.supportsDiarization)
+        try TranscriptVersions.commit(transcript, to: dir, supportsDiarization: engine.supportsDiarization)
         SessionState.update(dir, with: [
             StopHook.key: StopHook.owed,
             "transcription_input": engine.input.metadataName,

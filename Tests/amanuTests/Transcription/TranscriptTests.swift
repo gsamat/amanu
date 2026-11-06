@@ -19,8 +19,10 @@ struct TranscriptTests {
         ])
         try transcript.write(to: dir)
         let raw = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+        // The summarizer's prompt defines "me" and "them"; translated sides
+        // would contradict it in a Russian interface.
         #expect(transcript.named(with: nil).segments.map(\.speaker)
-            == ["Участник 1", "Участник 2", "Участник 1", "я", "они A"])
+            == ["Участник 1", "Участник 2", "Участник 1", "me", "them A"])
         let names = SpeakerNames(speakers: ["p1-A": .init(name: "Мария", source: .manual)])
         try transcript.writeMarkdown(to: dir, names: names)
         let markdown = try String(contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8)
@@ -28,7 +30,7 @@ struct TranscriptTests {
         #expect(markdown.contains("Участник 2 → Мария"))
         #expect(!markdown.contains("p2-B") && !markdown.contains("p1-A"))
         #expect(transcript.named(with: names).segments.map(\.speaker)
-            == ["Участник 1", "Мария", "Участник 1", "я", "они A"])
+            == ["Участник 1", "Мария", "Участник 1", "me", "them A"])
         #expect(SessionInventory.opening(of: transcript, names: names).hasPrefix("Участник 1:"))
         #expect(try Data(contentsOf: dir.appendingPathComponent("transcript.json")) == raw)
         #expect(names.speakers.keys.sorted() == ["p1-A"])

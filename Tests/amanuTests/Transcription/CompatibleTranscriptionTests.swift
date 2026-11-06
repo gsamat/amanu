@@ -232,6 +232,132 @@ struct CompatibleTranscriptionTests {
         #expect(TranscriptionScratch.items(in: session).contains { $0.lastPathComponent.hasPrefix("transcript.compatible.") })
     }
 
+    /// A recording, a config with no echo cancellation (so the mix lives in the
+    /// session folder) and no installed review UI, for the coordinator tests.
+    private func withRecording(
+        attempts: Int? = nil, _ body: (URL) async throws -> Void
+    ) async throws {
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        var state: [String: Any] = [:]
+        if let attempts { state[SessionState.Key.transcriptionAttempts] = attempts }
+        let dir = try recordings.session("2026-11-06-a", seconds: 3, state: state)
+        let home = Home.withModels([])
+        defer { try? FileManager.default.removeItem(at: home.url) }
+        try home.writeConfig(["offline_echo_cancellation": false, "keep_audio": true,
+                              "transcription": ["engine": "compatible"]])
+        try await Home.$scoped.withValue(home) {
+            try await SpeakerReview.$usesInstalledHandler.withValue(false) { try await body(dir) }
+        }
+    }
+
+    @Test("A manual retry after a later piece fails pays only for that piece, also once attempts run out",
+          arguments: [false, true])
+    func compatibleManualRetryReusesCompletedPieces(exhausted: Bool) async throws {
+        try await withRecording(attempts: exhausted ? TranscriptionFailurePolicy.maxAttempts - 1 : nil) { dir in
+            let stub = StubHTTP { _, count in count == 2 ? .status(503) : .json(200, Self.mlx) }
+            let engine = try Engine(baseURL: "http://localhost/v1", model: "test", session: stub.session,
+                                    retry: .once, chunkDuration: 2)
+            let coordinator = TranscriptionCoordinator(engine: engine, onStop: { nil })
+            await #expect(throws: Engine.Failure.unavailable(503)) { try await coordinator.transcribeNow(dir) }
+            #expect(stub.requests.count == 2)
+            #expect(PostProcessor.readTranscript(dir) == nil)
+            #expect(TranscriptionFailurePolicy.hasGivenUp(on: dir) == exhausted)
+            #expect(TranscriptionScratch.resumableCaches(in: dir).count == 1)
+            // Retirement compresses audio only when nothing paid for depends on it.
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("mic.caf").path))
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(TranscriptionInputs.mixedFile).path))
+            #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(TranscriptionInputs.mixedIdentityFile).path))
+
+            // The window's Re-transcribe, its inline retry and `amanu process --again`.
+            #expect(PostProcessor.markForRetranscription(dir))
+            #expect(TranscriptionScratch.resumableCaches(in: dir).count == 1)
+            try await coordinator.transcribeNow(dir)
+            #expect(stub.requests.count == 3, "Only the failed piece is sent again")
+            let transcript = try #require(PostProcessor.readTranscript(dir))
+            #expect(transcript.segments.count == 2)
+            #expect(transcript.segments[1].start_ms >= 2_000)
+            #expect(TranscriptionScratch.resumableCaches(in: dir).isEmpty,
+                    "A published transcript leaves no cached piece behind")
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(TranscriptionInputs.mixedIdentityFile).path))
+        }
+    }
+
+    @Test("A retry remixes changed source audio or timing instead of reusing a stale transcript",
+          arguments: ["audio", "offset"])
+    func compatibleRetryRechecksMixSources(_ change: String) async throws {
+        try await withRecording { dir in
+            let stub = StubHTTP { _, count in count == 2 ? .status(503) : .json(200, Self.mlx) }
+            let engine = try Engine(baseURL: "http://localhost/v1", model: "test", session: stub.session,
+                                    retry: .once, chunkDuration: 2)
+            let coordinator = TranscriptionCoordinator(engine: engine, onStop: { nil })
+            await #expect(throws: Engine.Failure.unavailable(503)) { try await coordinator.transcribeNow(dir) }
+            #expect(stub.requests.count == 2)
+            #expect(TranscriptionScratch.resumableCaches(in: dir).count == 1)
+
+            if change == "audio" {
+                let source = dir.appendingPathComponent("mic.caf")
+                let attrs = try FileManager.default.attributesOfItem(atPath: source.path)
+                let modified = try #require(attrs[.modificationDate] as? Date)
+                try FileManager.default.removeItem(at: source)
+                try TestAudio.writeTone(to: source, seconds: 3, frequency: 880)
+                try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: source.path)
+                let updated = try FileManager.default.attributesOfItem(atPath: source.path)
+                #expect((updated[.size] as? NSNumber) == (attrs[.size] as? NSNumber),
+                        "The fingerprint must notice changed bytes even with unchanged size and mtime")
+            } else {
+                try SessionState.amend(dir, with: ["start_offset_ms": ["mic": 0, "system": 500]])
+            }
+
+            #expect(PostProcessor.markForRetranscription(dir))
+            try await coordinator.transcribeNow(dir)
+            #expect(stub.requests.count == 4, "Both chunks must be requested for the changed mix")
+            #expect(PostProcessor.readTranscript(dir) != nil)
+            #expect(TranscriptionScratch.resumableCaches(in: dir).isEmpty)
+        }
+    }
+
+    @Test("A retry with a different model after a failed piece pays again and never reuses the old piece")
+    func compatibleRetryWithChangedSettingsDoesNotReuse() async throws {
+        try await withRecording { dir in
+            let stub = StubHTTP { _, count in count == 2 ? .status(503) : .json(200, Self.mlx) }
+            let first = try Engine(baseURL: "http://localhost/v1", model: "one", session: stub.session,
+                                   retry: .once, chunkDuration: 2)
+            await #expect(throws: Engine.Failure.unavailable(503)) {
+                try await TranscriptionCoordinator(engine: first, onStop: { nil }).transcribeNow(dir)
+            }
+            #expect(PostProcessor.markForRetranscription(dir))
+            let second = try Engine(baseURL: "http://localhost/v1", model: "two", session: stub.session,
+                                    retry: .once, chunkDuration: 2)
+            try await TranscriptionCoordinator(engine: second, onStop: { nil }).transcribeNow(dir)
+            #expect(stub.requests.count == 4, "Both pieces are asked of the new model")
+            #expect(PostProcessor.readTranscript(dir)?.model == "two")
+            #expect(TranscriptionScratch.resumableCaches(in: dir).isEmpty,
+                    "The other model's piece goes with the published transcript")
+        }
+    }
+
+    @Test("Only compatible pieces are kept for a retry; other providers' answers are still cleared")
+    func retryKeepsOnlyResumablePieces() throws {
+        let dir = try folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let piece = dir.appendingPathComponent("transcript.compatible.0011223344556677.json")
+        let other = dir.appendingPathComponent("transcript.assemblyai.multichannel.json")
+        let mix = dir.appendingPathComponent(TranscriptionInputs.mixedFile)
+        let identity = dir.appendingPathComponent(TranscriptionInputs.mixedIdentityFile)
+        let multichannel = dir.appendingPathComponent(TranscriptionInputs.multichannelFile)
+        for file in [piece, other, mix, identity, multichannel] { try Data("x".utf8).write(to: file) }
+        let kept = TranscriptionScratch.items(in: dir, includingDerivedAudio: true, keepingResumable: true)
+        #expect(Set(kept.map(\.lastPathComponent)) == [other.lastPathComponent, multichannel.lastPathComponent])
+        #expect(TranscriptionScratch.items(in: dir, includingDerivedAudio: true).count == 5,
+                "Without a resumable run nothing changes")
+        try FileManager.default.removeItem(at: piece)
+        #expect(TranscriptionScratch.items(in: dir, includingDerivedAudio: true, keepingResumable: true)
+            .contains(mix), "The mix is kept only for pieces cut from it")
+        #expect(TranscriptionScratch.items(in: dir, includingDerivedAudio: true, keepingResumable: true)
+            .contains(identity), "An identity without a resumable run is removed")
+    }
+
     @Test func compatibleCacheIncludesEndpointModelAndAudioContent() async throws {
         let dir = try folder()
         defer { try? FileManager.default.removeItem(at: dir) }

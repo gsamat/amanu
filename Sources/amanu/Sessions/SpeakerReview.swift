@@ -90,13 +90,26 @@ enum SpeakerReview {
     /// Capability comes from the engine; two diarized voices may still be named
     /// `me/them` after channel attribution, so label spelling is not a capability.
     static func recordTranscript(_ dir: URL, supportsDiarization: Bool) throws {
-        guard let transcript = PostProcessor.readTranscript(dir), let id = transcriptID(dir) else { return }
+        try SessionState.amend(dir, with: [
+            SessionState.Key.speakerReview: try pendingRecord(dir, supportsDiarization: supportsDiarization),
+        ])
+    }
+
+    /// The review record for the transcript now at the root, or nil when none is
+    /// owed. Separate from writing it so `TranscriptVersions.commit` can publish
+    /// it in the same meta.json write that publishes the transcript: written
+    /// afterwards, a failure left a new transcript with no review and a
+    /// recorded transcription failure.
+    static func pendingRecord(_ dir: URL, supportsDiarization: Bool) throws -> [String: Any]? {
+        let data = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+        let transcript = try JSONDecoder().decode(Transcript.self, from: data)
+        let id = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         let labels = Set(transcript.segments.map(\.speaker))
-        let required = supportsDiarization && labels.count > 1
-        try SessionState.amend(dir, with: [SessionState.Key.speakerReview: required ? [
+        guard supportsDiarization && labels.count > 1 else { return nil }
+        return [
             "transcript": id, "state": "ready", "owner_pid": ProcessInfo.processInfo.processIdentifier,
             "interactive": offerHandler != nil,
-        ] : nil])
+        ]
     }
 
     /// Covers the brief handoff between the ASR claim and the review claim.
@@ -185,10 +198,28 @@ enum SpeakerReview {
     }
 
     struct AudioSample {
+        struct Source {
+            let file: URL
+            let start: TimeInterval
+            /// Delay on the meeting clock when a track begins after this clip.
+            let delay: TimeInterval
+        }
         let file: URL
         let start: TimeInterval
         let end: TimeInterval
         let title: String
+        let sources: [Source]
+        let duration: TimeInterval
+
+        init(file: URL, start: TimeInterval, end: TimeInterval, title: String,
+             sources: [Source]? = nil, duration: TimeInterval? = nil) {
+            self.file = file
+            self.start = start
+            self.end = end
+            self.title = title
+            self.sources = sources ?? [Source(file: file, start: start, delay: 0)]
+            self.duration = duration ?? end - start
+        }
     }
 
     static func audioSample(for sample: SessionInventory.Sample, in session: URL) -> AudioSample? {
@@ -198,14 +229,9 @@ enum SpeakerReview {
     static func audioSamples(for sample: SessionInventory.Sample, in session: URL) -> [AudioSample] {
         guard let meta = try? SessionMeta.read(from: session) else { return [] }
         let shared = meta.tracks.count > 1 && Set(meta.tracks.map(\.file)).count == 1
-        let track: SessionMeta.Track?
-        if meta.isSingleSource || shared { track = meta.tracks.first }
-        else if sample.label == "me" || sample.label.hasPrefix("me ") { track = meta.track(for: "me") }
-        else if sample.label == "them" || sample.label.hasPrefix("them ") { track = meta.track(for: "them") }
-        else { track = nil }
-        guard let track else { return [] }
-        let file = session.appendingPathComponent(track.file)
-        guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        let exists = { (track: SessionMeta.Track) in
+            FileManager.default.fileExists(atPath: session.appendingPathComponent(track.file).path)
+        }
         var ranges: [(Int?, Int?, String)] = [
             (sample.firstStartMs, sample.firstEndMs, localised("First turn", "Первая реплика")),
         ]
@@ -213,11 +239,50 @@ enum SpeakerReview {
             ranges.append((sample.longestStartMs, sample.longestEndMs,
                            localised("Longest turn", "Самая длинная реплика")))
         }
-        return ranges.compactMap { first, last, title in
-            guard let first, let last else { return nil }
-            let start = max(0, Double(first - track.offsetMs) / 1000)
-            let end = max(start, min(Double(last - track.offsetMs) / 1000, start + 8))
-            return end > start ? AudioSample(file: file, start: start, end: end, title: title) : nil
+        func clips(on track: SessionMeta.Track) -> [AudioSample] {
+            let file = session.appendingPathComponent(track.file)
+            return ranges.compactMap { first, last, title in
+                guard let first, let last else { return nil }
+                let start = max(0, Double(first - track.offsetMs) / 1000)
+                let end = max(start, min(Double(last - track.offsetMs) / 1000, start + 8))
+                return end > start ? AudioSample(file: file, start: start, end: end, title: title) : nil
+            }
         }
+        let track: SessionMeta.Track?
+        if meta.isSingleSource || shared { track = meta.tracks.first }
+        else if sample.label == "me" || sample.label.hasPrefix("me ") { track = meta.track(for: "me") }
+        else if sample.label == "them" || sample.label.hasPrefix("them ") { track = meta.track(for: "them") }
+        else {
+            // A diarized label with no side is what attribution leaves when it
+            // could not place a voice. Once the tracks are archived together
+            // that is still playable; while they are separate — compression
+            // failed, or has not happened yet — the mix the engine heard is
+            // the honest source. If it is absent, play both original tracks
+            // together on their recorded clock rather than guessing a side.
+            let mix = SessionMeta.Track(
+                file: TranscriptionInputs.mixedFile, speaker: "speaker", offsetMs: 0, channel: nil)
+            let present = meta.tracks.filter(exists)
+            if exists(mix) { track = mix }
+            else {
+                return ranges.compactMap { first, last, title in
+                    guard let first, let last, last > first else { return nil }
+                    let duration = min(Double(last - first) / 1000, 8)
+                    let sources = present.compactMap { candidate -> AudioSample.Source? in
+                        let delay = max(0, Double(candidate.offsetMs - first) / 1000)
+                        guard delay < duration else { return nil }
+                        return AudioSample.Source(
+                            file: session.appendingPathComponent(candidate.file),
+                            start: max(0, Double(first - candidate.offsetMs) / 1000), delay: delay)
+                    }
+                    guard let primary = sources.first else { return nil }
+                    return AudioSample(file: primary.file, start: primary.start,
+                                       end: primary.start + duration, title: title,
+                                       sources: sources, duration: duration)
+                }
+            }
+        }
+        guard let track, exists(track) else { return [] }
+        return clips(on: track)
     }
+
 }

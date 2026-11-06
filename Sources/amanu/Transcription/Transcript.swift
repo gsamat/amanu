@@ -44,8 +44,12 @@ struct Transcript: Codable {
     /// take the speaker straight off the segment — the summarizer, mainly,
     /// which writes "Фёдор will send the contract" only if that is what it was
     /// given to read.
+    ///
+    /// An unnamed side stays `me` or `them` here rather than being translated:
+    /// the summarizer's system prompt defines those two words, and a Russian
+    /// interface used to hand it `я` and `они` instead.
     func named(with names: SpeakerNames?) -> Transcript {
-        let labels = displayNames(names: names)
+        let labels = displayNames(names: names, translatingSides: false)
         return Transcript(
             engine: engine,
             model: model,
@@ -67,7 +71,7 @@ struct Transcript: Codable {
         displayNames(names: names)[label] ?? label
     }
 
-    private func displayNames(names: SpeakerNames?) -> [String: String] {
+    private func displayNames(names: SpeakerNames?, translatingSides: Bool = true) -> [String: String] {
         Dictionary(uniqueKeysWithValues: SpeakerNamer.orderedLabels(of: self).enumerated().map { index, label in
             let name = names?.speakers[label]?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
             let readable: String
@@ -75,7 +79,7 @@ struct Transcript: Codable {
                 readable = name
             } else if label == "me" || label.hasPrefix("me ")
                 || label == "them" || label.hasPrefix("them ") {
-                readable = SpeakerNames.described(label: label)
+                readable = translatingSides ? SpeakerNames.described(label: label) : label
             } else {
                 readable = localised("Participant \(index + 1)", "Участник \(index + 1)")
             }
