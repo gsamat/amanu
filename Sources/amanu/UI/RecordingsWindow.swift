@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 
 /// The list of recordings, and what is still owed on each of them.
 ///
@@ -22,6 +23,7 @@ final class RecordingsWindow: NSObject {
         .init(id: "assemblyai", title: "AssemblyAI"),
         .init(id: "openai", title: "OpenAI"),
         .init(id: "elevenlabs", title: "ElevenLabs"),
+        .init(id: "compatible", title: localised("Compatible server", "Совместимый сервер")),
     ] }
 
     var onImportFiles: (([URL]) -> Void)?
@@ -61,6 +63,34 @@ final class RecordingsWindow: NSObject {
     private let busyLabel = NSTextField(labelWithString: "")
     private let importStatus = MediaImportStatusView()
     private let retranscriptionMenu = NSMenu()
+    private let reviewNotice = NSTextField(wrappingLabelWithString: "")
+    private let confirmReviewButton = NSButton()
+    private let skipReviewButton = NSButton()
+    private let updateSummaryButton = NSButton()
+    private var reviewDirectories: [URL] = []
+    private var activeReviewDirectory: URL?
+    private var nameFields: [NSTextField] = []
+    private var flushingSpeakerNames = false
+    private var suppressReviewPresentation = false
+    private var quitting = false
+    private var reviewWork: Task<Void, Never>?
+    private var postReviewWork: [UUID: Task<Void, Never>] = [:]
+    var confirmLeavingReview: @MainActor (Int) -> Bool = { count in
+        let alert = NSAlert()
+        alert.messageText = localised("Create the summary with these names?", "Создать сводку с текущими именами?")
+        alert.informativeText = count > 1
+            ? localised("Saved names will be used for \(count) meetings waiting for review.",
+                        "Сохранённые имена будут использованы для встреч в очереди: \(count).")
+            : localised("Saved names will be kept. You can correct them again later.",
+                        "Сохранённые имена останутся. Позже их можно исправить ещё раз.")
+        alert.addButton(withTitle: localised("Create summary", "Создать сводку"))
+        alert.addButton(withTitle: localised("Continue naming", "Продолжить именование"))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+    private var audioSamples: [String: SpeakerReview.AudioSample] = [:]
+    private var audioPlayer: AVAudioPlayer?
+    private var audioStop: Timer?
+    private weak var playingButton: NSButton?
 
     private var items: [SessionInventory.Item] = []
     private var selected: SessionInventory.Item? {
@@ -85,6 +115,7 @@ final class RecordingsWindow: NSObject {
 
         panel.title = localised("Recordings", "Записи")
         panel.isReleasedWhenClosed = false
+        panel.delegate = self
         panel.setFrameAutosaveName("amanu.recordings")
         panel.contentMinSize = NSSize(width: 860, height: 560)
 
@@ -99,6 +130,7 @@ final class RecordingsWindow: NSObject {
     }
 
     func show() {
+        suppressReviewPresentation = false
         if !panel.isVisible {
             Analytics.track(.artifactOpened, [
                 .artifact: .text(Analytics.Artifact.recordingsWindow.rawValue),
@@ -106,6 +138,33 @@ final class RecordingsWindow: NSObject {
         }
         reload()
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    /// Review is offered without taking focus away from the app in use.
+    func showSpeakerReview(_ directory: URL) async {
+        let directory = directory.standardizedFileURL
+        if !reviewDirectories.contains(directory) { reviewDirectories.append(directory) }
+        if suppressReviewPresentation {
+            skipQueuedReviewsWithoutPresenting()
+            return
+        }
+        if let current = activeReviewDirectory, current != directory, SpeakerReview.isPending(current) {
+            reload()
+            return
+        }
+        let target = reviewDirectories.first ?? directory
+        activeReviewDirectory = target
+        if root.standardizedFileURL != target.deletingLastPathComponent() {
+            setRoot(target.deletingLastPathComponent())
+        } else { reload() }
+        await settled()
+        if let row = items.firstIndex(where: { $0.dir.standardizedFileURL == target }) {
+            table.selectRowIndexes([row], byExtendingSelection: false)
+            versionKey = nil
+            showDetail()
+            detailTabs.selectTabViewItem(withIdentifier: "speakers")
+            panel.orderFront(nil)
+        }
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -221,7 +280,7 @@ final class RecordingsWindow: NSObject {
 
         let processingButtons = NSStackView(views: [
             finishButton, retranscribeButton, openTranscriptButton,
-            openFolderButton, deleteButton,
+            openFolderButton, deleteButton, updateSummaryButton,
         ])
         processingButtons.orientation = .horizontal
         processingButtons.spacing = 8
@@ -242,7 +301,27 @@ final class RecordingsWindow: NSObject {
                 equalTo: detailScroll.contentView.trailingAnchor, constant: -8),
         ])
 
-        let speakersContent = NSStackView(views: [openingLabel, detailScroll])
+        reviewNotice.font = .systemFont(ofSize: 12)
+        reviewNotice.textColor = .secondaryLabelColor
+        reviewNotice.identifier = .init("speaker-review-notice")
+        for (button, title, action, id) in [
+            (confirmReviewButton, localised("Create summary", "Создать сводку"),
+             #selector(confirmReviewClicked), "confirm-speaker-review"),
+            (skipReviewButton, localised("Skip", "Пропустить"),
+             #selector(skipReviewClicked), "skip-speaker-review"),
+            (updateSummaryButton, localised("Update summary", "Обновить саммари"),
+             #selector(updateSummaryClicked), "update-summary"),
+        ] {
+            button.title = title
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+            button.identifier = .init(id)
+        }
+        let reviewActions = NSStackView(views: [confirmReviewButton, skipReviewButton])
+        reviewActions.orientation = .horizontal
+        reviewActions.spacing = 8
+        let speakersContent = NSStackView(views: [reviewNotice, reviewActions, openingLabel, detailScroll])
         speakersContent.orientation = .vertical
         speakersContent.distribution = .fill
         speakersContent.alignment = .leading
@@ -250,6 +329,7 @@ final class RecordingsWindow: NSObject {
         speakersContent.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         NSLayoutConstraint.activate([
             openingLabel.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
+            reviewNotice.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
             detailScroll.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
         ])
         // NSTabView owns its content view's frame. A stack view calculates
@@ -425,11 +505,24 @@ final class RecordingsWindow: NSObject {
     }
 
     @objc private func versionSelected(_ sender: NSPopUpButton) {
+        if let directory = selected?.dir, SpeakerReview.isPending(directory),
+           selectedVersion?.dir != directory {
+            let wanted = selectedVersion.map(key)
+            if let previous = versions.firstIndex(where: { key($0) == versionKey }) {
+                versionSelector.selectItem(at: previous)
+            }
+            guard !working, confirmLeavingReview(1) else { return }
+            completeSpeakerReview(version: wanted)
+            return
+        }
         versionKey = selectedVersion.map(key)
         showDetail()
     }
 
     private func showDetail() {
+        stopAudioSample()
+        audioSamples.removeAll()
+        nameFields.removeAll()
         if versionSession != selected?.dir {
             versionSession = selected?.dir
             versionKey = nil
@@ -482,9 +575,11 @@ final class RecordingsWindow: NSObject {
             : localised("No summary yet.", "Саммари пока нет."))
         summaryText.identifier = summary == nil ? nil : .init("meeting-words")
         if summary != nil && !PostProcessor.hasCurrentSummary(dir) {
-            summaryPreview = localised(
-                "This summary belongs to the previous transcript.\n\n",
-                "Это саммари предыдущей расшифровки.\n\n") + summaryPreview
+            summaryPreview = (PostProcessor.summaryNeedsManualUpdate(dir)
+                ? localised("Names changed. Update the summary when ready.\n\n",
+                            "Имена изменились. Обновите саммари, когда будете готовы.\n\n")
+                : localised("This summary belongs to the previous transcript.\n\n",
+                            "Это саммари предыдущей расшифровки.\n\n")) + summaryPreview
         }
         summaryText.textStorage?.setAttributedString(MarkdownPreview.render(summaryPreview))
         let transcript = PostProcessor.readTranscript(dir)
@@ -509,7 +604,8 @@ final class RecordingsWindow: NSObject {
         openingLabel.stringValue = SessionInventory.opening(of: transcript, names: names)
             .replacingOccurrences(of: "\n", with: " · ")
         for sample in SessionInventory.samples(transcript: transcript, names: names) {
-            speakersStack.addArrangedSubview(speakerRow(sample, in: dir))
+            speakersStack.addArrangedSubview(speakerRow(sample, in: dir, audioSession: item.dir,
+                title: transcript.displaySpeaker(label: sample.label, names: nil)))
         }
         updateButtons()
     }
@@ -520,8 +616,8 @@ final class RecordingsWindow: NSObject {
     /// first line is where somebody gets greeted by name, and the longest turn
     /// is what identifies a person by what they were talking about when nobody
     /// said any names at all.
-    private func speakerRow(_ sample: SessionInventory.Sample, in dir: URL) -> NSView {
-        let label = NSTextField(labelWithString: SpeakerNames.described(label: sample.label))
+    private func speakerRow(_ sample: SessionInventory.Sample, in dir: URL, audioSession: URL, title: String) -> NSView {
+        let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 12, weight: .medium)
         label.widthAnchor.constraint(equalToConstant: 80).isActive = true
 
@@ -530,7 +626,9 @@ final class RecordingsWindow: NSObject {
         field.widthAnchor.constraint(equalToConstant: 160).isActive = true
         field.target = self
         field.action = #selector(nameEdited(_:))
+        field.delegate = self
         field.identifier = .init("\(dir.path)\n\(sample.label)")
+        nameFields.append(field)
 
         let turns = localised("\(sample.turns) turns", "реплик: \(sample.turns)")
         let provenance = NSTextField(labelWithString: sample.source.map {
@@ -559,11 +657,42 @@ final class RecordingsWindow: NSObject {
         row.orientation = .vertical
         row.alignment = .leading
         row.spacing = 2
+        let samples = SpeakerReview.audioSamples(for: sample, in: audioSession)
+        if !samples.isEmpty {
+            let buttons = samples.map { audio -> NSButton in
+                let button = NSButton(title: audio.title, target: self, action: #selector(playAudioSample(_:)))
+                let id = UUID().uuidString
+                audioSamples[id] = audio
+                button.identifier = .init("speaker-audio-\(id)")
+                button.bezelStyle = .rounded
+                button.controlSize = .small
+                button.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+                button.imagePosition = .imageLeading
+                button.setAccessibilityLabel(localised("Play ", "Воспроизвести: ") + audio.title)
+                button.toolTip = localised("Play up to eight seconds", "Воспроизвести до восьми секунд")
+                return button
+            }
+            let audioRow = NSStackView(views: buttons)
+            audioRow.orientation = .horizontal
+            audioRow.spacing = 8
+            row.addArrangedSubview(audioRow)
+        }
         return row
     }
 
     private func updateButtons() {
         let item = selected
+        let review = artifactDirectory == item?.dir && item.map { SpeakerReview.isPending($0.dir) } == true
+        reviewNotice.isHidden = !review
+        reviewNotice.stringValue = review ? localised(
+            "Listen to the short clips and correct names before the summary. Changes are saved as you edit.",
+            "Прослушайте короткие фрагменты и уточните имена перед саммари. Изменения сохраняются при редактировании.") : ""
+        confirmReviewButton.isHidden = !review
+        skipReviewButton.isHidden = !review
+        confirmReviewButton.isEnabled = !working
+        skipReviewButton.isEnabled = !working
+        updateSummaryButton.isHidden = artifactDirectory.map { !PostProcessor.summaryNeedsManualUpdate($0) } ?? true
+        updateSummaryButton.isEnabled = !working && !review && selectedVersion?.isRequest != true
         finishButton.isEnabled = !working && (selectedVersion?.isRequest == true
             ? item?.transcript.isOutstanding ?? false
             : artifactDirectory.map { !PostProcessor.outstanding($0).isEmpty } ?? item?.isOutstanding ?? false)
@@ -578,6 +707,163 @@ final class RecordingsWindow: NSObject {
         busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
     }
 
+    @objc private func playAudioSample(_ sender: NSButton) {
+        let prefix = "speaker-audio-"
+        guard let identifier = sender.identifier?.rawValue, identifier.hasPrefix(prefix),
+              let sample = audioSamples[String(identifier.dropFirst(prefix.count))] else { return }
+        let wasPlaying = playingButton === sender && audioPlayer?.isPlaying == true
+        stopAudioSample()
+        guard !wasPlaying else { return }
+        do {
+            let player = try AVAudioPlayer(contentsOf: sample.file)
+            guard sample.start < player.duration else { return }
+            player.currentTime = sample.start
+            audioPlayer = player
+            playingButton = sender
+            sender.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: nil)
+            guard player.play() else { throw CocoaError(.fileReadUnknown) }
+            audioStop = Timer.scheduledTimer(withTimeInterval: min(sample.end, player.duration) - sample.start,
+                                             repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stopAudioSample() }
+            }
+        } catch {
+            stopAudioSample()
+            if let item = selected { say(error.localizedDescription, about: item) }
+        }
+    }
+
+    private func stopAudioSample() {
+        audioStop?.invalidate()
+        audioStop = nil
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playingButton?.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
+        playingButton = nil
+    }
+
+    @objc private func confirmReviewClicked() { completeSpeakerReview() }
+    @objc private func skipReviewClicked() { completeSpeakerReview() }
+
+    func completeSpeakerReview(selecting nextSelection: URL? = nil, version nextVersion: String? = nil) {
+        guard !working, let item = selected, SpeakerReview.isPending(item.dir) else { return }
+        flushSpeakerNames()
+        stopAudioSample()
+        working = true
+        updateButtons()
+        reviewWork = Task { [weak self] in
+            guard let self else { return }
+            defer { reviewWork = nil }
+            do {
+                try await Self.finishReview(item.dir)
+                reviewDirectories.removeAll { $0.standardizedFileURL == item.dir.standardizedFileURL }
+                if activeReviewDirectory == item.dir.standardizedFileURL { activeReviewDirectory = nil }
+                working = false
+                reload()
+                continueAfterReview(item.dir)
+                if let nextVersion {
+                    await settled()
+                    versionKey = nextVersion
+                    showDetail()
+                } else if let nextSelection {
+                    await settled()
+                    if let row = items.firstIndex(where: { $0.dir == nextSelection }) {
+                        table.selectRowIndexes([row], byExtendingSelection: false)
+                        if SpeakerReview.isPending(nextSelection) {
+                            activeReviewDirectory = nextSelection.standardizedFileURL
+                            detailTabs.selectTabViewItem(withIdentifier: "speakers")
+                        }
+                    }
+                } else if let next = reviewDirectories.first { await showSpeakerReview(next) }
+            } catch {
+                working = false
+                updateButtons()
+                say(error.localizedDescription, about: item)
+            }
+        }
+    }
+
+    func waitForReviewWork() async { await reviewWork?.value }
+
+    func waitForPostReviewWork() async {
+        while let task = postReviewWork.values.first { await task.value }
+    }
+
+    private static func finishReview(_ directory: URL) async throws {
+        let home = Home.current
+        try await Task.detached(priority: .utility) {
+            try Home.$scoped.withValue(home) { try SpeakerReview.complete(directory) }
+        }.value
+    }
+
+    private func continueAfterReview(_ directory: URL) {
+        let id = UUID()
+        postReviewWork[id] = Task { [weak self] in
+            defer { self?.postReviewWork[id] = nil }
+            await PostProcessor.finish(directory)
+            StopHook.fireIfOwed(directory)
+            self?.reload()
+        }
+    }
+
+    /// Quit waits only for durable decisions and audio settlement. The summary
+    /// remains owed if the process exits before its background task finishes.
+    func reviewBeforeTermination() async -> Bool {
+        if let reviewWork { await reviewWork.value }
+        guard reviewDirectories.isEmpty || confirmLeavingReview(reviewDirectories.count) else { return false }
+        quitting = true
+        suppressReviewPresentation = true
+        stopAudioSample()
+        return await completeQueuedReviews()
+    }
+
+    private func completeQueuedReviews() async -> Bool {
+        flushSpeakerNames()
+        working = true
+        updateButtons()
+        defer { working = false; reload() }
+        do {
+            while let directory = reviewDirectories.first {
+                try await Self.finishReview(directory)
+                reviewDirectories.removeAll { $0 == directory }
+                if activeReviewDirectory == directory { activeReviewDirectory = nil }
+                continueAfterReview(directory)
+            }
+            return true
+        } catch {
+            quitting = false
+            suppressReviewPresentation = false
+            panel.orderFront(nil)
+            if let item = selected { say(error.localizedDescription, about: item) }
+            return false
+        }
+    }
+
+    private func skipQueuedReviewsWithoutPresenting() {
+        guard reviewWork == nil else { return }
+        reviewWork = Task { [weak self] in
+            guard let self else { return }
+            _ = await completeQueuedReviews()
+            reviewWork = nil
+            if !quitting { suppressReviewPresentation = false }
+        }
+    }
+
+    @objc private func updateSummaryClicked() {
+        guard !working, let item = selected, let directory = artifactDirectory,
+              !SpeakerReview.isPending(item.dir) else { return }
+        flushSpeakerNames()
+        do { try PostProcessor.requestSummaryUpdate(directory) }
+        catch { say(error.localizedDescription, about: item); return }
+        working = true
+        updateButtons()
+        Task { [weak self] in
+            await PostProcessor.finish(directory)
+            guard let self else { return }
+            working = false
+            reload()
+        }
+    }
+
     /// The row-level action belongs only beside a failed transcript whose
     /// source audio still exists. A generic action column would put buttons
     /// beside healthy rows and make the failure harder, not easier, to act on.
@@ -589,11 +875,27 @@ final class RecordingsWindow: NSObject {
     // MARK: - actions
 
     @objc private func nameEdited(_ sender: NSTextField) {
-        guard let id = sender.identifier?.rawValue else { return }
+        if persistName(sender), !flushingSpeakerNames { reload() }
+    }
+
+    private func flushSpeakerNames() {
+        flushingSpeakerNames = true
+        defer { flushingSpeakerNames = false }
+        let fields = nameFields
+        panel.makeFirstResponder(nil)
+        for field in fields { _ = persistName(field) }
+    }
+
+    @discardableResult
+    private func persistName(_ sender: NSTextField) -> Bool {
+        guard let id = sender.identifier?.rawValue else { return false }
         let parts = id.components(separatedBy: "\n")
-        guard parts.count == 2 else { return }
-        PostProcessor.rename(parts[1], to: sender.stringValue, in: URL(fileURLWithPath: parts[0]))
-        reload()
+        guard parts.count == 2 else { return false }
+        let directory = URL(fileURLWithPath: parts[0])
+        let entered = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard entered != (SpeakerNames.read(from: directory)?.speakers[parts[1]]?.name ?? "") else { return false }
+        PostProcessor.rename(parts[1], to: entered, in: directory)
+        return true
     }
 
     /// What Finish processing does about one recording.
@@ -920,7 +1222,40 @@ final class RecordingsWindow: NSObject {
     var onRetranscribe: ((URL) -> Void)?
 }
 
+extension RecordingsWindow: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        if !quitting { suppressReviewPresentation = false }
+    }
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        stopAudioSample()
+        guard !reviewDirectories.isEmpty else {
+            suppressReviewPresentation = true
+            return true
+        }
+        guard !working else { return false }
+        guard confirmLeavingReview(reviewDirectories.count) else { return false }
+        suppressReviewPresentation = true
+        panel.orderOut(nil)
+        skipQueuedReviewsWithoutPresenting()
+        return false
+    }
+}
+
+extension RecordingsWindow: NSTextFieldDelegate {
+    func controlTextDidEndEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField else { return }
+        nameEdited(field)
+    }
+}
+
 extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard items.indices.contains(row), row != tableView.selectedRow,
+              let item = selected, SpeakerReview.isPending(item.dir) else { return true }
+        guard !working, confirmLeavingReview(1) else { return false }
+        completeSpeakerReview(selecting: items[row].dir)
+        return false
+    }
     func menuWillOpen(_ menu: NSMenu) {
         let enabled = selected?.hasAudio == true && !working
         for item in menu.items { item.isEnabled = enabled }

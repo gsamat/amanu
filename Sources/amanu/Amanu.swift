@@ -145,6 +145,7 @@ struct Run: ParsableCommand {
                 controller.prepareForTermination(completion: completion)
             }
         }
+        delegate.onReviewQuit = { await controller.reviewBeforeTermination() }
         // Asked before the quit rather than after it, which is the whole
         // difference: onTerminate saves the session, this decides whether the
         // meeting should be interrupted at all.
@@ -276,12 +277,16 @@ final class AppController {
     }
     private var ticker: Timer?
     private var recordingsBuilt = false
+    private var speakerReviewHandler: SpeakerReview.HandlerToken?
     private lazy var recordings: RecordingsWindow = {
         recordingsBuilt = true
         let window = RecordingsWindow(root: root)
         window.onImportFiles = { [weak self] files in self?.importFiles(files) }
         window.onCancelImport = { [weak self] in self?.cancelImport() }
         window.onChooseImport = { [weak self] in self?.chooseMediaToImport() }
+        window.onRetranscribe = { [weak self] _ in
+            self?.resumeTranscriptionQueue()
+        }
         return window
     }()
     private var network: NetworkMonitor?
@@ -338,6 +343,12 @@ final class AppController {
                 await PostProcessor.sweep(root: root)
                 sessionsChanged()
             })
+
+        speakerReviewHandler = SpeakerReview.registerHandler { [weak self] directory in
+            Task { @MainActor [weak self] in
+                await self?.recordings.showSpeakerReview(directory)
+            }
+        }
 
         menuBar.onToggle = { [weak self] in self?.toggle() }
         menuBar.onTogglePause = { [weak self] in self?.togglePause() }
@@ -586,6 +597,11 @@ final class AppController {
             completion()
         }
         return true
+    }
+
+    func reviewBeforeTermination() async -> Bool {
+        guard recordingsBuilt else { return true }
+        return await recordings.reviewBeforeTermination()
     }
 
     private func showImport(_ update: MediaImportCoordinator.Update) {
@@ -1038,6 +1054,12 @@ final class AppController {
         }
         NSApp.activate(ignoringOtherApps: true)
         recordings.show()
+    }
+
+    private func resumeTranscriptionQueue() {
+        let folder = root
+        let coordinator = transcription
+        Task { await coordinator.resumePending(root: folder) }
     }
 
     /// The elapsed time as the status window shows it. Not private and not

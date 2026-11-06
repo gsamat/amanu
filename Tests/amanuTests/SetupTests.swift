@@ -501,9 +501,10 @@ struct SetupTests {
         let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
         let keyFields = panel.contentView?.allDescendants
             .compactMap { $0 as? NSSecureTextField } ?? []
-        // Both of them: the cloud key and the summary key sit under the same
-        // default button and had the same problem.
-        #expect(keyFields.count == 2)
+        // All credential fields sit under the same default button, including
+        // the separately stored compatible-server token.
+        #expect(Set(keyFields.compactMap { $0.identifier?.rawValue })
+            == ["transcription.key", "summary.key", "transcription.compatible.token"])
 
         let editor = NSTextView()
         for field in keyFields {

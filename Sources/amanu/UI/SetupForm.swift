@@ -77,6 +77,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         await check.ask()
     }
 
+    var checkCompatibleConnection: @MainActor () async throws -> String = {
+        try await CompatibleTranscriptionProbe.connection(
+            baseURL: Config.compatibleTranscriptionBaseURL(), token: Config.compatibleTranscriptionKey())
+    }
+    var checkCompatibleRecognition: @MainActor () async throws -> String = {
+        try await CompatibleTranscriptionProbe.recognition(
+            baseURL: Config.compatibleTranscriptionBaseURL(), model: Config.compatibleTranscriptionModel(),
+            token: Config.compatibleTranscriptionKey(), apiProtocol: Config.compatibleTranscriptionProtocol())
+    }
+
     /// The system-audio test: a tone out of the speakers and a tap listening
     /// for it. A seam so a test can prove when it is *not* played without
     /// playing it.
@@ -140,6 +150,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// The provider in force, read back from the config on every refresh.
     private var provider = "assemblyai"
     private let localSwitch = NSSwitch()
+    private let compatibleSwitch = NSSwitch()
+    private let compatibleURL = NSTextField()
+    private let compatibleModel = NSTextField()
+    private let compatibleProtocol = NSPopUpButton()
+    private let compatibleToken = NSSecureTextField()
+    private let compatibleStatus = NSTextField(labelWithString: "")
+    private let compatibleOptions = NSStackView()
+    private let compatibleConnectionButton = NSButton()
+    private let compatibleRecognitionButton = NSButton()
+    private var compatibleProbeTask: Task<Void, Never>?
     private let localEngineCards = ChoiceGroup()
     private var localDownloadButtons: [String: NSButton] = [:]
     private var localDownloadErrors: [String: String] = [:]
@@ -305,6 +325,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // label through however many stacks the layout has this week.
         for (toggle, name) in [
             (cloudSwitch, "transcription.cloud"), (localSwitch, "transcription.local"),
+            (compatibleSwitch, "transcription.compatible"),
             (liveTranscription, "transcription.live"), (keepAudio, "files.keep-audio"),
             (summariesOn, "summary.enabled"), (menuBarIcon, "icons.menu-bar"),
             (dockIcon, "icons.dock"), (autoRecord, "auto-record"), (analytics, "analytics"),
@@ -352,6 +373,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// to stop one partway, and a bar put away is not a download abandoned.
     /// `reload` puts the bar back.
     func stop() {
+        compatibleProbeTask?.cancel()
+        compatibleProbeTask = nil
         parakeetProgress?.invalidate()
         parakeetProgress = nil
         whisperDownloadTask?.cancel()
@@ -463,7 +486,89 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         // One row, not two, on an Intel Mac: there is no local model to offer,
         // and the row explains itself rather than vanishing.
-        return SetupLayout.box([cloudRow, providerRow(), localBlock])
+        return SetupLayout.box([cloudRow, providerRow(), localBlock, compatibleServerRow()])
+    }
+
+    private func compatibleServerRow() -> NSView {
+        compatibleSwitch.target = self
+        compatibleSwitch.action = #selector(compatibleToggled)
+        let row = SetupLayout.row(
+            leading: compatibleSwitch,
+            title: SetupLayout.title(localised("Through a compatible server", "Через совместимый сервер")),
+            detail: SetupLayout.detail(localised(
+                "Use MLX Audio on this Mac, DeepInfra, or OpenRouter. The server receives the audio.",
+                "MLX Audio на этом маке, DeepInfra или OpenRouter. Звук получает выбранный сервер."),
+                lines: 2, width: 440), trailing: [])
+        configureSummaryField(compatibleURL, id: "transcription.compatible.base-url")
+        configureSummaryField(compatibleModel, id: "transcription.compatible.model")
+        configureSummaryField(compatibleToken, id: "transcription.compatible.token")
+        compatibleURL.placeholderString = "http://127.0.0.1:8000/v1"
+        compatibleModel.placeholderString = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4"
+        compatibleToken.placeholderString = localised("optional token", "токен, если нужен")
+        compatibleProtocol.identifier = .init("transcription.compatible.protocol")
+        for (title, value) in [
+            (localised("Automatic", "Автоматически"), "auto"),
+            ("MLX Audio", "mlx-audio"), ("DeepInfra", "deepinfra"), ("OpenRouter", "openrouter"),
+        ] {
+            compatibleProtocol.addItem(withTitle: title)
+            compatibleProtocol.lastItem?.representedObject = value
+        }
+        compatibleProtocol.target = self
+        compatibleProtocol.action = #selector(compatibleProtocolChanged)
+        compatibleProtocol.setAccessibilityLabel(localised("Server protocol", "Протокол сервера"))
+        compatibleStatus.font = SetupLayout.statusFont
+        compatibleStatus.textColor = .secondaryLabelColor
+        compatibleStatus.maximumNumberOfLines = 3
+        compatibleStatus.lineBreakMode = .byWordWrapping
+        compatibleStatus.identifier = .init("transcription.compatible.status")
+        let save = SetupLayout.actionButton(localised("Save token", "Сохранить токен"),
+                                            target: self, action: #selector(saveCompatibleTokenClicked))
+        let remove = SetupLayout.actionButton(localised("Remove token", "Удалить токен"),
+                                              target: self, action: #selector(removeCompatibleTokenClicked))
+        remove.identifier = .init("transcription.compatible.remove-token")
+        let tokenActions = NSStackView(views: [save, remove, NSView()])
+        tokenActions.orientation = .horizontal
+        tokenActions.spacing = 8
+        for (button, title, action, id) in [
+            (compatibleConnectionButton, localised("Check connection", "Проверить подключение"),
+             #selector(checkCompatibleConnectionClicked), "connection"),
+            (compatibleRecognitionButton, localised("Test recognition", "Проверить распознавание"),
+             #selector(checkCompatibleRecognitionClicked), "recognition"),
+        ] {
+            button.title = title
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+            button.identifier = .init("transcription.compatible.check-\(id)")
+        }
+        compatibleRecognitionButton.toolTip = localised(
+            "Creates a short public test phrase on this Mac. Meeting recordings are not used.",
+            "Создаёт короткую тестовую фразу на этом маке. Записи встреч не используются.")
+        let checks = NSStackView(views: [compatibleConnectionButton, compatibleRecognitionButton, NSView()])
+        checks.orientation = .horizontal
+        checks.spacing = 8
+        compatibleOptions.orientation = .vertical
+        compatibleOptions.alignment = .leading
+        compatibleOptions.spacing = 8
+        compatibleOptions.edgeInsets = .init(top: 0, left: 58, bottom: 13, right: 14)
+        for option in [
+            summaryFieldRow(localised("Server URL", "URL сервера"), compatibleURL),
+            summaryFieldRow(localised("Model", "Модель"), compatibleModel),
+            summaryFieldRow(localised("Protocol", "Протокол"), compatibleProtocol),
+            summaryFieldRow(localised("Token", "Токен"), compatibleToken),
+            tokenActions, checks, compatibleStatus,
+        ] {
+            compatibleOptions.addArrangedSubview(option)
+            option.widthAnchor.constraint(equalTo: compatibleOptions.widthAnchor, constant: -72).isActive = true
+        }
+        let block = NSStackView(views: [row, compatibleOptions])
+        block.orientation = .vertical
+        block.alignment = .leading
+        block.spacing = 0
+        for child in block.arrangedSubviews {
+            child.widthAnchor.constraint(equalTo: block.widthAnchor).isActive = true
+        }
+        return block
     }
 
     /// The provider cards and the one key field they share, indented under
@@ -918,6 +1023,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// it was, because a switch that says "on" while every transcript fails
     /// with HTTP 401 is a lie the person only finds out about after a meeting.
     @objc private func cloudToggled() {
+        if cloudSwitch.state == .on { compatibleSwitch.state = .off }
         if cloudSwitch.state == .on, !Credentials.hasTranscriptionKey(for: provider) {
             pendingProvider = provider
             cloudSwitch.state = .off
@@ -942,6 +1048,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         pendingProvider = nil
         provider = id
         cloudSwitch.state = .on
+        compatibleSwitch.state = .off
         commitTranscription()
     }
 
@@ -963,12 +1070,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// asks whether the local model is wanted and missing, and a choice that
     /// was never written is not wanted.
     @objc private func localToggled() {
+        if localSwitch.state == .on { compatibleSwitch.state = .off }
         commitTranscription()
         if localSwitch.state == .on { downloadLocalIfNeeded() }
     }
 
     private func localEnginePicked(_ id: String) {
         localEngineCards.select(id)
+        if localSwitch.state == .on { compatibleSwitch.state = .off }
         commitTranscription()
         if localSwitch.state == .on { downloadLocalIfNeeded(id) }
     }
@@ -982,6 +1091,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard Config.localEngines.contains(id) else { return }
         localEngineCards.select(id)
         localSwitch.state = .on
+        compatibleSwitch.state = .off
         commitTranscription()
         downloadLocalIfNeeded(id)
     }
@@ -993,11 +1103,94 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             cloud: cloudSwitch.state == .on,
             local: localSwitch.state == .on && Platform.supportsLocalModels,
             provider: provider,
-            localEngine: selectedLocal)
+            localEngine: selectedLocal,
+            compatible: compatibleSwitch.state == .on)
         for update in choice.updates {
             write(update.path, update.value)
         }
         refresh()
+    }
+
+    @objc private func compatibleToggled() {
+        if compatibleSwitch.state == .on {
+            cloudSwitch.state = .off
+            localSwitch.state = .off
+            pendingProvider = nil
+        }
+        commitTranscription()
+    }
+
+    @objc private func compatibleProtocolChanged() {
+        let value = compatibleProtocol.selectedItem?.representedObject as? String ?? "auto"
+        write(["transcription", "compatible", "protocol"], value == "auto" ? nil : value)
+    }
+
+    @objc private func saveCompatibleTokenClicked() { saveCompatibleToken() }
+
+    @objc private func checkCompatibleConnectionClicked() { checkCompatibleServer(recognition: false) }
+    @objc private func checkCompatibleRecognitionClicked() { checkCompatibleServer(recognition: true) }
+
+    func checkCompatibleServer(recognition: Bool) {
+        guard compatibleProbeTask == nil else { return }
+        view.window?.makeFirstResponder(nil)
+        compatibleConnectionButton.isEnabled = false
+        compatibleRecognitionButton.isEnabled = false
+        compatibleStatus.stringValue = recognition
+            ? localised("Checking a generated test phrase…", "Проверяю сгенерированную тестовую фразу…")
+            : localised("Checking the server without sending audio…", "Проверяю сервер без отправки звука…")
+        compatibleProbeTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                compatibleProbeTask = nil
+                compatibleConnectionButton.isEnabled = true
+                compatibleRecognitionButton.isEnabled = true
+            }
+            do {
+                let result = try await (recognition ? checkCompatibleRecognition() : checkCompatibleConnection())
+                try Task.checkCancellation()
+                compatibleStatus.stringValue = result
+            } catch is CancellationError {
+                compatibleStatus.stringValue = localised("Check cancelled.", "Проверка отменена.")
+            } catch {
+                compatibleStatus.stringValue = error.localizedDescription
+            }
+        }
+    }
+
+    func waitForCompatibleCheck() async { await compatibleProbeTask?.value }
+
+    func saveCompatibleToken() {
+        let token = compatibleToken.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { return }
+        let slot = Credentials.transcriptionSlot(for: "compatible", in: Config.raw())
+        guard slot.isAmanus else {
+            compatibleStatus.stringValue = Credentials.notOursToWrite(slot)
+            return
+        }
+        do {
+            try Credentials.writeSecret(token, to: slot.path)
+            compatibleToken.stringValue = ""
+            compatibleStatus.stringValue = localised(
+                "Token saved. The server will check it when transcribing.",
+                "Токен сохранён. Сервер проверит его при расшифровке.")
+        } catch {
+            compatibleStatus.stringValue = localised("Couldn't save token: ", "Не удалось сохранить токен: ") + "\(error)"
+        }
+    }
+
+    @objc private func removeCompatibleTokenClicked() {
+        let slot = Credentials.transcriptionSlot(for: "compatible", in: Config.raw())
+        guard slot.isAmanus else {
+            compatibleStatus.stringValue = Credentials.notOursToWrite(slot)
+            return
+        }
+        do {
+            if FileManager.default.fileExists(atPath: slot.path.path) { try FileManager.default.removeItem(at: slot.path) }
+            compatibleToken.stringValue = ""
+            compatibleStatus.stringValue = localised("Saved token removed.", "Сохранённый токен удалён.")
+        } catch {
+            compatibleStatus.stringValue = localised("Couldn't remove token: ", "Не удалось удалить токен: ") + "\(error)"
+        }
     }
 
     /// Whichever window is showing the form — the setup wizard or the
@@ -1133,7 +1326,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
     }
 
-    private func summaryFieldRow(_ title: String, _ field: NSTextField) -> NSView {
+    private func summaryFieldRow(_ title: String, _ field: NSView) -> NSView {
         let label = NSTextField(labelWithString: title)
         label.font = SetupLayout.detailFont
         label.textColor = .secondaryLabelColor
@@ -1419,6 +1612,26 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard let field = notification.object as? NSTextField else { return }
         if field === cloudKey { Task { await saveCloudKey() } }
         if field === summaryKey { Task { await saveSummaryKey() } }
+        if field === compatibleToken { saveCompatibleToken() }
+        if field === compatibleURL || field === compatibleModel {
+            let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if field === compatibleURL, !value.isEmpty {
+                guard OpenAICompatible.endpoint(baseURL: value, path: "models") != nil,
+                      let parsed = URLComponents(string: value),
+                      parsed.user == nil, parsed.password == nil,
+                      parsed.query == nil, parsed.fragment == nil
+                else {
+                    compatibleStatus.stringValue = localised(
+                        "Use an HTTPS server URL, or HTTP on localhost, without a token in the URL.",
+                        "Укажите HTTPS-адрес или HTTP на localhost, без токена в URL.")
+                    return
+                }
+            }
+            write(["transcription", "compatible", field === compatibleURL ? "base_url" : "model"],
+                  value.isEmpty ? nil : value)
+            compatibleStatus.stringValue = ""
+            refresh()
+        }
         let summaryPaths: [(NSTextField, String)] = [
             (summaryOpenAIBaseURL, "openai_base_url"),
             (summaryOpenAIModel, "openai_model"),
@@ -1452,6 +1665,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     ) -> Bool {
         guard selector == #selector(NSResponder.insertNewline(_:)),
               control === cloudKey || control === summaryKey
+                || control === compatibleURL || control === compatibleModel || control === compatibleToken
                 || control === summaryOpenAIBaseURL || control === summaryOpenAIModel
                 || control === summaryOllamaBaseURL || control === summaryOllamaModel
         else { return false }
@@ -1808,6 +2022,17 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         }
 
         cloudSwitch.state = choice.cloud ? .on : .off
+        compatibleSwitch.state = choice.compatible ? .on : .off
+        compatibleOptions.isHidden = !choice.compatible
+        compatibleURL.stringValue = Config.compatibleTranscriptionBaseURL()
+        compatibleModel.stringValue = Config.compatibleTranscriptionModel()
+        let serverProtocol = Config.compatibleTranscriptionProtocol()
+        if let index = compatibleProtocol.itemArray.firstIndex(where: {
+            $0.representedObject as? String == serverProtocol
+        }) { compatibleProtocol.selectItem(at: index) }
+        compatibleToken.placeholderString = Config.compatibleTranscriptionKey() == nil
+            ? localised("optional token", "токен, если нужен")
+            : localised("token saved — paste to replace", "токен сохранён — вставьте замену")
         // The card under the key field is the one being answered, so a
         // provider waiting for a key is the one shown chosen.
         providerCards.select(pendingProvider ?? provider)
