@@ -237,11 +237,147 @@ struct SpeakerReviewWindowTests {
                        created_at: before.created_at, segments: segments).write(to: dir)
         window.sessionsChanged()
         await window.settled()
-        let fields = try #require(window.view).allDescendants.compactMap { $0 as? NSTextField }
+        let views = try #require(window.view).allDescendants
+        let fields = views.compactMap { $0 as? NSTextField }
         #expect(fields.contains { $0.identifier?.rawValue.hasSuffix("\nc001:s2") == true },
                 "a new speaker must appear after an external transcript update")
-        #expect(fields.contains { $0.stringValue == localised("Participants · 3", "Участники · 3") })
+        #expect(views.filter { $0.identifier?.rawValue == "participant-row" }.count == 3)
         panel.orderOut(nil)
+    }
+
+    @Test("The review's action stays in reach from every tab, and the actions that would race it step aside")
+    func reviewActionIsOutsideTheTabs() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        try offer(dir)
+        defer { SessionClaim.release(dir) }
+        let window = RecordingsWindow(root: root)
+        await window.showSpeakerReview(dir)
+        let view = try #require(window.view)
+        let tabs = try #require(view.allDescendants.compactMap { $0 as? NSTabView }.first)
+        tabs.selectTabViewItem(withIdentifier: "transcript")
+        view.layoutSubtreeIfNeeded()
+        func shown(_ id: String) -> NSButton? {
+            view.allDescendants.compactMap { $0 as? NSButton }.first {
+                $0.identifier?.rawValue == id && !$0.isHidden
+            }
+        }
+        for id in ["skip-speaker-review", "confirm-speaker-review"] {
+            let button = try #require(shown(id),
+                                      "checking a voice in the transcript must not hide \(id)")
+            #expect(!button.isDescendant(of: tabs))
+            #expect(button.keyEquivalent.isEmpty, "Return in a name field must not end the review")
+        }
+        #expect(shown("finish-processing") == nil)
+        #expect(shown("update-summary") == nil)
+
+        window.completeSpeakerReview()
+        await window.waitForReviewWork()
+        await window.waitForPostReviewWork()
+        await window.settled()
+        #expect(shown("confirm-speaker-review") == nil)
+        #expect(shown("skip-speaker-review") == nil)
+        window.view?.window?.orderOut(nil)
+    }
+
+    @Test("Skip and Create summary both keep a half-named list and go on with processing",
+          arguments: ["skip-speaker-review", "confirm-speaker-review"])
+    func bothReviewActionsKeepEnteredNames(_ action: String) async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        try offer(dir)
+        defer { SessionClaim.release(dir) }
+        let window = RecordingsWindow(root: root)
+        await window.showSpeakerReview(dir)
+        let views = try #require(window.view).allDescendants
+        // One name typed and not yet committed with Return, the other left empty.
+        let field = try #require(views.compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue.hasSuffix("\nc001:s0") == true
+        })
+        field.stringValue = "Мария"
+        let button = try #require(views.compactMap { $0 as? NSButton }.first {
+            $0.identifier?.rawValue == action && !$0.isHidden
+        })
+        // `performClick` can end the headless SwiftPM runner before it reports
+        // a result. Send the same control action without synthesizing a click.
+        #expect(button.sendAction(button.action, to: button.target))
+        await window.waitForReviewWork()
+        await window.waitForPostReviewWork()
+        await window.settled()
+        #expect(SpeakerNames.read(from: dir)?.speakers["c001:s0"]?.name == "Мария")
+        #expect(SpeakerNames.read(from: dir)?.speakers["c001:s1"]?.name == nil)
+        #expect(!SpeakerReview.isPending(dir) && SpeakerReview.hasDecision(dir))
+        #expect(!SessionClaim.isHeld(dir), "processing goes on rather than waiting on the window")
+        window.view?.window?.orderOut(nil)
+    }
+
+    /// The review adds two buttons to the row with the meeting's name, and a
+    /// meeting's name can be any length; neither may become the window's
+    /// minimum width, in review or after it, in either language.
+    @Test("A long Russian title and the review's buttons keep the window's minimum width",
+          arguments: InterfaceLanguage.allCases)
+    func reviewFitsTheMinimumWidth(_ language: InterfaceLanguage) async throws {
+        try await InterfaceLanguage.$scoped.withValue(language) {
+            let root = try root()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let dir = try session(in: root, name: "2026-11-06-100000-"
+                + String(repeating: "Еженедельная-синхронизация-команды-разработки-", count: 4))
+            try offer(dir)
+            defer { SessionClaim.release(dir) }
+            let window = RecordingsWindow(root: root)
+            await window.showSpeakerReview(dir)
+            let view = try #require(window.view)
+            let panel = try #require(view.window)
+            panel.setContentSize(NSSize(width: 860, height: 560))
+            view.layoutSubtreeIfNeeded()
+
+            @MainActor func fits(_ state: String) {
+                #expect(view.fittingSize.width <= 860, "\(language) \(state): \(view.fittingSize.width)")
+                // Buttons inside a scroll view may sit below its fold on purpose.
+                for button in view.allDescendants.compactMap({ $0 as? NSButton })
+                where !button.isHidden && button.window != nil && button.enclosingScrollView == nil {
+                    let frame = button.convert(button.bounds, to: view)
+                    #expect(view.bounds.insetBy(dx: -1, dy: -1).contains(frame),
+                            "\(language) \(state): \(button.identifier?.rawValue ?? button.title) is outside the window")
+                }
+            }
+            fits("in review")
+            #expect(view.allDescendants.contains {
+                $0.identifier?.rawValue == "skip-speaker-review" && !$0.isHidden
+            })
+
+            window.completeSpeakerReview()
+            await window.waitForReviewWork()
+            await window.waitForPostReviewWork()
+            await window.settled()
+            view.layoutSubtreeIfNeeded()
+            fits("after review")
+            panel.orderOut(nil)
+        }
+    }
+
+    @Test("Re-transcribe offers the configured engine and each engine by name")
+    func retranscribeOffersEveryEngine() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try session(in: root)
+        let window = RecordingsWindow(root: root)
+        await window.settled()
+        let popup = try #require(window.view?.allDescendants.compactMap { $0 as? NSPopUpButton }.first {
+            $0.identifier?.rawValue == "retranscribe"
+        })
+        #expect(popup.pullsDown)
+        #expect(popup.isEnabled, "the session's audio is still there")
+        // The first item of a pull-down is its title, not a choice.
+        let choices = popup.itemArray.dropFirst().filter { !$0.isSeparatorItem }
+        let configured = try #require(choices.first)
+        #expect(configured.representedObject == nil, "the first choice keeps the engine in the settings")
+        #expect(configured.action != nil && configured.target != nil)
+        #expect(choices.dropFirst().compactMap { $0.representedObject as? String }
+                == RecordingsWindow.retranscriptionEngines.map(\.id))
+        window.view?.window?.orderOut(nil)
     }
 
     @Test("The first participant stays visible when the summary-update action appears")
@@ -363,7 +499,9 @@ struct SpeakerReviewWindowTests {
         let create = try #require(window.view?.allDescendants.compactMap { $0 as? NSButton }.first {
             $0.identifier?.rawValue == "confirm-speaker-review"
         })
-        create.performClick(nil)
+        // Preserve the active field editor while exercising the button's real
+        // action; performClick can terminate the headless SwiftPM runner.
+        #expect(create.sendAction(create.action, to: create.target))
         await window.waitForReviewWork()
         await window.waitForPostReviewWork()
         await window.settled()

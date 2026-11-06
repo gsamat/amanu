@@ -43,15 +43,14 @@ final class RecordingsWindow: NSObject {
     private var preReviewListHeight: CGFloat?
 
     private let detailTitle = NSTextField(labelWithString: "")
-    private let openingLabel = NSTextField(labelWithString: "")
+    private let participantsStatus = NSTextField(labelWithString: "")
     private let speakersStack = ParticipantsStack()
     private let participantsScroll = NSScrollView()
-    private let participantsHeading = NSTextField(labelWithString: "")
     private var updatingTable = false
     private var displayedTranscriptID: String?
     private var displayedNames: Data?
     private let finishButton = NSButton()
-    private let retranscribeButton = NSButton()
+    private let retranscribeButton = NSPopUpButton(frame: .zero, pullsDown: true)
     private let openTranscriptButton = NSButton()
     private let openFolderButton = NSButton()
     private let deleteButton = NSButton()
@@ -73,14 +72,13 @@ final class RecordingsWindow: NSObject {
     }
     private let summaryText = NSTextView()
     private let transcriptText = NSTextView()
-    private let busyLabel = NSTextField(labelWithString: "")
+    private let busyIndicator = NSProgressIndicator()
     private let importStatus = MediaImportStatusView()
     private let retranscriptionMenu = NSMenu()
-    private let reviewNotice = NSTextField(wrappingLabelWithString: "")
+    private let reviewNotice = NSTextField(labelWithString: "")
     private let confirmReviewButton = NSButton()
     private let skipReviewButton = NSButton()
     private let updateSummaryButton = NSButton()
-    private let reviewActions = NSStackView()
     private var reviewDirectories: [URL] = []
     private var activeReviewDirectory: URL?
     private var nameFields: [NSTextField] = []
@@ -92,13 +90,13 @@ final class RecordingsWindow: NSObject {
     private var postReviewWork: [UUID: Task<Void, Never>] = [:]
     var confirmLeavingReview: @MainActor (Int) -> Bool = { count in
         let alert = NSAlert()
-        alert.messageText = localised("Create the summary with these names?", "Создать сводку с текущими именами?")
+        alert.messageText = localised("Create the summary with these names?", "Создать саммари с этими именами?")
         alert.informativeText = count > 1
             ? localised("Saved names will be used for \(count) meetings waiting for review.",
                         "Сохранённые имена будут использованы для встреч в очереди: \(count).")
             : localised("Saved names will be kept. You can correct them again later.",
                         "Сохранённые имена останутся. Позже их можно исправить ещё раз.")
-        alert.addButton(withTitle: localised("Create summary", "Создать сводку"))
+        alert.addButton(withTitle: localised("Create summary", "Создать саммари"))
         alert.addButton(withTitle: localised("Continue naming", "Продолжить именование"))
         return alert.runModal() == .alertFirstButtonReturn
     }
@@ -234,13 +232,17 @@ final class RecordingsWindow: NSObject {
             column.width = width
             table.addTableColumn(column)
         }
-        table.usesAlternatingRowBackgroundColors = true
-        table.rowHeight = 22
+        // No stripes: the list is usually a few rows over a tall pane, and the
+        // stripes went on down the empty part as a pattern of nothing.
+        table.usesAlternatingRowBackgroundColors = false
+        table.rowHeight = 24
         table.dataSource = self
         table.delegate = self
         table.target = self
         table.doubleAction = #selector(openFolderClicked)
         retranscriptionMenu.delegate = self
+        // `menuWillOpen` decides what is enabled; validation would undo it.
+        retranscriptionMenu.autoenablesItems = false
         for engine in Self.retranscriptionEngines {
             let item = NSMenuItem(
                 title: localised("Re-transcribe with ", "Расшифровать через ") + engine.title,
@@ -258,24 +260,26 @@ final class RecordingsWindow: NSObject {
     }
 
     private func buildLayout() -> NSView {
+        // Text in the detail half may truncate at any width, and none of it may
+        // become the window's minimum width: NSTabView and the window both
+        // derive a minimum from the fitting size, which only holds views
+        // whose resistance is above `fittingSizeCompression`.
+        let truncatable = NSLayoutConstraint.Priority(
+            NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1)
         detailTitle.font = .systemFont(ofSize: 16, weight: .semibold)
-        openingLabel.font = .systemFont(ofSize: 12)
-        // What was said in the meeting, which is the one thing in any of
-        // amanu's windows that is not amanu's to translate. Named so that the
-        // suite looking for English left in a Russian window knows to walk
-        // past it rather than report a person's own words as untranslated.
-        openingLabel.identifier = NSUserInterfaceItemIdentifier("meeting-words")
-        openingLabel.textColor = .secondaryLabelColor
-        openingLabel.lineBreakMode = .byTruncatingTail
-        openingLabel.maximumNumberOfLines = 1
-        // NSTabView derives its minimum width from this pane's fitting size.
-        // The excerpt can truncate at any width; its full text must not become
-        // the window's minimum width, even during that fitting calculation.
-        openingLabel.setContentCompressionResistancePriority(
-            .init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1),
-            for: .horizontal)
-        busyLabel.font = .systemFont(ofSize: 11)
-        busyLabel.textColor = .secondaryLabelColor
+        detailTitle.lineBreakMode = .byTruncatingTail
+        detailTitle.maximumNumberOfLines = 1
+        detailTitle.setContentCompressionResistancePriority(truncatable, for: .horizontal)
+        participantsStatus.font = .systemFont(ofSize: 12)
+        participantsStatus.textColor = .secondaryLabelColor
+        participantsStatus.lineBreakMode = .byTruncatingTail
+        participantsStatus.maximumNumberOfLines = 1
+        participantsStatus.setContentCompressionResistancePriority(truncatable, for: .horizontal)
+        busyIndicator.style = .spinning
+        busyIndicator.controlSize = .small
+        busyIndicator.isDisplayedWhenStopped = false
+        busyIndicator.isHidden = true
+        busyIndicator.setAccessibilityLabel(localised("Working", "Идёт обработка"))
 
         speakersStack.orientation = .vertical
         speakersStack.alignment = .leading
@@ -285,40 +289,71 @@ final class RecordingsWindow: NSObject {
             (importButton, localised("Import…", "Импортировать…"), #selector(chooseImportClicked)),
             (openRootButton, localised("Open recordings folder", "Открыть папку записей"),
              #selector(openRootClicked)),
-            (finishButton, localised("Finish processing", "Доделать"), #selector(finishClicked)),
-            (retranscribeButton,
-             localised("Re-transcribe", "Расшифровать заново"), #selector(retranscribeClicked)),
-            (openTranscriptButton,
-             localised("Open transcript", "Открыть расшифровку"), #selector(openTranscriptClicked)),
-            (openFolderButton, localised("Open folder", "Открыть папку"), #selector(openFolderClicked)),
-            (deleteButton, localised("Delete", "Удалить"), #selector(deleteClicked)),
+            (finishButton, localised("Finish processing", "Завершить обработку"), #selector(finishClicked)),
         ] as [(NSButton, String, Selector)] {
             button.title = title
             button.bezelStyle = .rounded
             button.target = self
             button.action = action
         }
+        // Opening and deleting act on the files rather than on the meeting,
+        // and are reached for less often than the processing beside them, so
+        // they are icons with their names in the tooltip and for VoiceOver:
+        // three more Russian titles would leave the meeting's own name no
+        // room at the window's minimum width.
+        for (button, title, symbol, action) in [
+            (openTranscriptButton, localised("Open transcript", "Открыть расшифровку"),
+             "doc.text", #selector(openTranscriptClicked)),
+            (openFolderButton, localised("Show in Finder", "Показать в Finder"),
+             "folder", #selector(openFolderClicked)),
+            (deleteButton, localised("Move to Trash", "Переместить в корзину"),
+             "trash", #selector(deleteClicked)),
+        ] as [(NSButton, String, String, Selector)] {
+            button.title = title
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            button.imagePosition = .imageOnly
+            button.bezelStyle = .rounded
+            button.toolTip = title
+            button.setAccessibilityLabel(title)
+            button.target = self
+            button.action = action
+        }
+        // The choice of engine was only ever in the list's context menu, which
+        // nothing on screen points to. The first item of a pull-down is its
+        // title rather than a choice; the context menu stays as it was.
+        retranscribeButton.identifier = .init("retranscribe")
+        retranscribeButton.addItem(withTitle: localised("Re-transcribe", "Расшифровать заново"))
+        let configuredEngine = NSMenuItem(
+            title: localised("As in Settings", "Как в настройках"),
+            action: #selector(retranscribeClicked), keyEquivalent: "")
+        configuredEngine.target = self
+        retranscribeButton.menu?.addItem(configuredEngine)
+        retranscribeButton.menu?.addItem(.separator())
+        for engine in Self.retranscriptionEngines {
+            let item = NSMenuItem(
+                title: engine.title, action: #selector(retranscribeWithEngine(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = engine.id
+            retranscribeButton.menu?.addItem(item)
+        }
         importButton.identifier = NSUserInterfaceItemIdentifier("choose-media-import")
         openTranscriptButton.identifier = NSUserInterfaceItemIdentifier("open-transcript")
         openRootButton.identifier = NSUserInterfaceItemIdentifier("open-recordings-folder")
+        finishButton.identifier = NSUserInterfaceItemIdentifier("finish-processing")
         rootPath.stringValue = root.path
         rootPath.font = .systemFont(ofSize: 11)
         rootPath.textColor = .secondaryLabelColor
         rootPath.lineBreakMode = .byTruncatingMiddle
-        rootPath.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // Below the fitting priority, like the detail half's text: at
+        // `.defaultLow` the whole path, which is as long as wherever the
+        // folder happens to be, was the window's minimum width — beside the
+        // Russian buttons a temporary folder's path alone pushed it past 860.
+        rootPath.setContentCompressionResistancePriority(truncatable, for: .horizontal)
         rootPath.toolTip = root.path
         let toolbar = NSStackView(views: [importButton, openRootButton, NSView(), rootPath])
         toolbar.orientation = .horizontal
         toolbar.spacing = 8
         toolbar.heightAnchor.constraint(equalTo: importButton.heightAnchor).isActive = true
-
-        let processingButtons = NSStackView(views: [
-            finishButton, retranscribeButton, openTranscriptButton,
-            openFolderButton, deleteButton, updateSummaryButton,
-        ])
-        processingButtons.orientation = .horizontal
-        processingButtons.spacing = 8
-        processingButtons.heightAnchor.constraint(equalTo: finishButton.heightAnchor).isActive = true
 
         let detailScroll = participantsScroll
         detailScroll.identifier = .init("participants-scroll")
@@ -341,11 +376,18 @@ final class RecordingsWindow: NSObject {
         reviewNotice.font = .systemFont(ofSize: 12)
         reviewNotice.textColor = .secondaryLabelColor
         reviewNotice.identifier = .init("speaker-review-notice")
+        reviewNotice.lineBreakMode = .byTruncatingTail
+        reviewNotice.maximumNumberOfLines = 1
+        reviewNotice.setContentCompressionResistancePriority(truncatable, for: .horizontal)
+        // Skip and Create summary end a review the same way — both keep the
+        // names already entered and go on to the summary — and Skip is there
+        // so that leaving names unfilled is visibly allowed rather than
+        // something a person has to guess at.
         for (button, title, action, id) in [
-            (confirmReviewButton, localised("Create summary", "Создать сводку"),
-             #selector(confirmReviewClicked), "confirm-speaker-review"),
             (skipReviewButton, localised("Skip", "Пропустить"),
              #selector(skipReviewClicked), "skip-speaker-review"),
+            (confirmReviewButton, localised("Create summary", "Создать саммари"),
+             #selector(confirmReviewClicked), "confirm-speaker-review"),
             (updateSummaryButton, localised("Update summary", "Обновить саммари"),
              #selector(updateSummaryClicked), "update-summary"),
         ] {
@@ -355,25 +397,19 @@ final class RecordingsWindow: NSObject {
             button.action = action
             button.identifier = .init(id)
         }
-        participantsHeading.font = .systemFont(ofSize: 14, weight: .semibold)
-        participantsHeading.identifier = .init("participants-heading")
-        [skipReviewButton, confirmReviewButton].forEach { reviewActions.addArrangedSubview($0) }
-        reviewActions.orientation = .horizontal
-        reviewActions.spacing = 8
-        let participantsHeader = NSStackView(views: [participantsHeading, NSView(), reviewActions])
-        participantsHeader.orientation = .horizontal
-        participantsHeader.alignment = .centerY
-        participantsHeader.spacing = 8
-        let speakersContent = NSStackView(views: [participantsHeader, reviewNotice, openingLabel, detailScroll])
+        // Accent rather than the default button: none of these has a key
+        // equivalent, because Return in a name field has to commit that
+        // name, not end the review behind it.
+        for button in [confirmReviewButton, updateSummaryButton] {
+            button.bezelColor = .controlAccentColor
+        }
+        let speakersContent = NSStackView(views: [participantsStatus, detailScroll])
         speakersContent.orientation = .vertical
         speakersContent.distribution = .fill
         speakersContent.alignment = .leading
         speakersContent.spacing = 8
         speakersContent.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         NSLayoutConstraint.activate([
-            participantsHeader.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
-            reviewNotice.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
-            openingLabel.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
             detailScroll.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
         ])
         // NSTabView owns its content view's frame. A stack view calculates
@@ -391,7 +427,7 @@ final class RecordingsWindow: NSObject {
         for (id, label, view) in [
             ("summary", localised("Summary", "Саммари"), previewScroll(summaryText)),
             ("transcript", localised("Transcript", "Расшифровка"), previewScroll(transcriptText)),
-            ("speakers", localised("Speakers", "Участники"), speakersPane),
+            ("speakers", localised("Participants", "Участники"), speakersPane),
         ] as [(String, String, NSView)] {
             let tab = NSTabViewItem(identifier: id)
             tab.label = label
@@ -402,17 +438,54 @@ final class RecordingsWindow: NSObject {
         versionSelector.identifier = .init("transcript-versions")
         versionSelector.target = self
         versionSelector.action = #selector(versionSelected(_:))
-        versionSelector.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let detail = NSStackView(views: [detailTitle, versionSelector, detailTabs, processingButtons, busyLabel])
+        versionSelector.controlSize = .small
+        versionSelector.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        versionSelector.setContentCompressionResistancePriority(truncatable, for: .horizontal)
+
+        // The recording's name, and what can be done about it, in one line
+        // above the tabs. The actions used to sit in a row under the tabs,
+        // as far from the selection as the window allowed, and a review's
+        // decision lived inside the Participants tab, so it vanished the
+        // moment somebody looked at the transcript to check a voice.
+        let titleColumn = NSStackView(views: [detailTitle, reviewNotice, versionSelector])
+        titleColumn.orientation = .vertical
+        titleColumn.alignment = .leading
+        titleColumn.spacing = 4
+        titleColumn.detachesHiddenViews = true
+        let actions = NSStackView(views: [
+            busyIndicator, skipReviewButton, confirmReviewButton, updateSummaryButton, finishButton,
+            retranscribeButton, openTranscriptButton, openFolderButton, deleteButton,
+        ])
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 8
+        // The buttons that come and go must give their width back when they
+        // go, or the review's two would crowd the meeting's name off the row
+        // for every recording that is not in review.
+        actions.detachesHiddenViews = true
+        // The review's decision, processing, the files, and last the one that
+        // cannot be taken back.
+        actions.setCustomSpacing(16, after: confirmReviewButton)
+        actions.setCustomSpacing(16, after: retranscribeButton)
+        actions.setCustomSpacing(16, after: openFolderButton)
+        let header = NSStackView()
+        header.orientation = .horizontal
+        header.alignment = .top
+        header.spacing = 16
+        header.setViews([titleColumn], in: .leading)
+        header.setViews([actions], in: .trailing)
+
+        let detail = NSStackView(views: [header, detailTabs])
         detail.orientation = .vertical
         detail.distribution = .fill
         detail.alignment = .leading
-        detail.spacing = 10
-        detail.edgeInsets = NSEdgeInsets(top: 10, left: 0, bottom: 0, right: 0)
+        detail.spacing = 12
+        // The bottom margin lives here rather than on the window's content so
+        // the split itself still reaches the bottom edge.
+        detail.edgeInsets = NSEdgeInsets(top: 12, left: 0, bottom: 8, right: 0)
         NSLayoutConstraint.activate([
-            detailTitle.widthAnchor.constraint(equalTo: detail.widthAnchor),
+            header.widthAnchor.constraint(equalTo: detail.widthAnchor),
             detailTabs.widthAnchor.constraint(equalTo: detail.widthAnchor),
-            versionSelector.widthAnchor.constraint(lessThanOrEqualTo: detail.widthAnchor),
             detail.heightAnchor.constraint(greaterThanOrEqualToConstant: 260),
         ])
         detailTabs.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -608,14 +681,14 @@ final class RecordingsWindow: NSObject {
             $0.removeFromSuperview()
         }
         guard let item = selected else {
+            // The title already says it; the pane under it says nothing more.
             detailTitle.stringValue = items.isEmpty
                 ? localised("No recordings yet", "Записей пока нет")
                 : localised("Select a recording", "Выберите запись")
-            openingLabel.stringValue = localised("Select a recording to see participants.",
-                                                  "Выберите запись, чтобы увидеть участников.")
-            openingLabel.isHidden = false
+            detailTitle.toolTip = nil
+            participantsStatus.stringValue = ""
+            participantsStatus.isHidden = true
             participantsScroll.isHidden = true
-            participantsHeading.stringValue = localised("Participants", "Участники")
             summaryText.string = ""
             transcriptText.string = ""
             updateButtons()
@@ -623,13 +696,13 @@ final class RecordingsWindow: NSObject {
         }
 
         detailTitle.stringValue = item.title ?? item.name
+        detailTitle.toolTip = detailTitle.stringValue
         let dir = artifactDirectory ?? item.dir
         if let request = selectedVersion, request.isRequest {
             summaryText.string = ""
-            participantsHeading.stringValue = localised("Participants", "Участники")
-            openingLabel.stringValue = localised("Transcription is not ready yet.",
-                                                  "Расшифровка ещё не готова.")
-            openingLabel.isHidden = false
+            participantsStatus.stringValue = localised("Transcription is not ready yet.",
+                                                       "Расшифровка ещё не готова.")
+            participantsStatus.isHidden = false
             participantsScroll.isHidden = true
             transcriptText.string = request.title
             if case .failed(let reason) = request.state { transcriptText.string += "\n\n" + reason }
@@ -641,13 +714,10 @@ final class RecordingsWindow: NSObject {
         refreshPreviews(in: dir, item: item)
         let transcript = PostProcessor.readTranscript(dir)
         guard let transcript else {
-            participantsHeading.stringValue = localised("Participants", "Участники")
-            openingLabel.stringValue = item.transcript == .pending
+            participantsStatus.stringValue = item.transcript == .pending
                 ? localised("Not transcribed yet.", "Ещё не расшифровано.")
-                : localised(
-                    "No transcript — nothing to name.",
-                    "Расшифровки нет — некому давать имена.")
-            openingLabel.isHidden = false
+                : localised("No transcript.", "Расшифровки нет.")
+            participantsStatus.isHidden = false
             participantsScroll.isHidden = true
             updateButtons()
             return
@@ -657,11 +727,11 @@ final class RecordingsWindow: NSObject {
         displayedTranscriptID = SpeakerReview.transcriptID(dir)
         displayedNames = try? Data(contentsOf: dir.appendingPathComponent(SpeakerNames.file))
         let samples = SessionInventory.samples(transcript: transcript, names: names)
-        openingLabel.stringValue = localised("No participants found.", "Участники не найдены.")
-        openingLabel.isHidden = !samples.isEmpty
+        // No heading over the list: the tab above it already says
+        // Participants, and the list's own rows are the count.
+        participantsStatus.stringValue = localised("No participants found.", "Участники не найдены.")
+        participantsStatus.isHidden = !samples.isEmpty
         participantsScroll.isHidden = samples.isEmpty
-        participantsHeading.stringValue = localised(
-            "Participants · \(samples.count)", "Участники · \(samples.count)")
         for (index, sample) in samples.enumerated() {
             if index > 0 {
                 let separator = NSBox()
@@ -685,8 +755,10 @@ final class RecordingsWindow: NSObject {
         summaryText.identifier = summary == nil ? nil : .init("meeting-words")
         if summary != nil && !PostProcessor.hasCurrentSummary(dir) {
             summaryPreview = (PostProcessor.summaryNeedsManualUpdate(dir)
-                ? localised("Names changed. Update the summary when ready.\n\n",
-                            "Имена изменились. Обновите саммари, когда будете готовы.\n\n")
+                // A fact rather than an instruction: the Update summary
+                // button beside the title is the instruction.
+                ? localised("Names have changed since this summary was made.\n\n",
+                            "Имена изменились после создания этого саммари.\n\n")
                 : localised("This summary belongs to the previous transcript.\n\n",
                             "Это саммари предыдущей расшифровки.\n\n")) + summaryPreview
         }
@@ -712,19 +784,27 @@ final class RecordingsWindow: NSObject {
         label.font = .systemFont(ofSize: 13, weight: .semibold)
         label.widthAnchor.constraint(equalToConstant: 145).isActive = true
         label.lineBreakMode = .byTruncatingTail
+        label.toolTip = title
 
         let field = NSTextField(string: sample.name ?? "")
-        field.placeholderString = localised("Enter a name", "Укажите имя")
+        field.placeholderString = localised("Name", "Имя")
         field.setAccessibilityLabel(localised("Name for \(title)", "Имя: \(title)"))
-        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        // A name's width rather than the pane's: stretched across a wide
+        // window, the field read as a place for a paragraph and pushed where
+        // the name came from out to the far edge.
+        let nameWidth = field.widthAnchor.constraint(equalToConstant: 260)
+        nameWidth.priority = .init(700)
+        NSLayoutConstraint.activate([
+            nameWidth,
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: 160),
+        ])
         field.target = self
         field.action = #selector(nameEdited(_:))
         field.delegate = self
         field.identifier = .init("\(dir.path)\n\(sample.label)")
         nameFields.append(field)
 
-        let turns = localised("\(sample.turns) turns", "реплик: \(sample.turns)")
+        let turns = turnCountLabel(sample.turns)
         let provenance = NSTextField(labelWithString: sample.source.map {
             "\($0.described) · " + turns
         } ?? turns)
@@ -746,20 +826,21 @@ final class RecordingsWindow: NSObject {
         head.widthAnchor.constraint(equalTo: row.widthAnchor, constant: -12).isActive = true
 
         let audio = SpeakerReview.audioSamples(for: sample, in: audioSession)
+        // The captions are the titles `SpeakerReview.audioSamples` gives its
+        // clips, which is how a quote finds the clip that plays it.
         let examples = [
             (sample.first, localised("First turn", "Первая реплика"), sample.firstStartMs),
-            (sample.longest, localised("Longest turn", "Длинная реплика"), sample.longestStartMs),
+            (sample.longest, localised("Longest turn", "Самая длинная реплика"), sample.longestStartMs),
         ]
         for (index, example) in examples.enumerated() {
             let (text, caption, start) = example
             guard !text.isEmpty, index == 0 || text != sample.first else { continue }
-            let audioTitle = index == 0
-                ? localised("First turn", "Первая реплика")
-                : localised("Longest turn", "Самая длинная реплика")
+            let time = start.map { milliseconds -> String in
+                let seconds = max(0, milliseconds / 1000)
+                return String(format: "%d:%02d", seconds / 60, seconds % 60)
+            } ?? ""
             let control: NSView
-            if let clip = audio.first(where: { $0.title == audioTitle }) {
-                let seconds = max(0, (start ?? 0) / 1000)
-                let time = String(format: "%d:%02d", seconds / 60, seconds % 60)
+            if let clip = audio.first(where: { $0.title == caption }) {
                 let button = NSButton(title: time, target: self, action: #selector(playAudioSample(_:)))
                 let id = UUID().uuidString
                 audioSamples[id] = clip
@@ -772,12 +853,15 @@ final class RecordingsWindow: NSObject {
                 button.toolTip = caption
                 control = button
             } else {
-                let time = NSTextField(labelWithString: caption)
-                time.font = .systemFont(ofSize: 11)
-                time.textColor = .secondaryLabelColor
-                time.lineBreakMode = .byTruncatingTail
-                time.toolTip = caption
-                control = time
+                // The same moment the button would have played, so the
+                // quotes line up whether or not the audio is still there. The
+                // caption that used to stand here was cut off by the column.
+                let stamp = NSTextField(labelWithString: time)
+                stamp.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                stamp.textColor = .tertiaryLabelColor
+                stamp.alignment = .center
+                stamp.toolTip = caption
+                control = stamp
             }
             control.widthAnchor.constraint(equalToConstant: 86).isActive = true
             let quote = NSTextField(wrappingLabelWithString: text)
@@ -806,30 +890,45 @@ final class RecordingsWindow: NSObject {
 
     private func updateButtons() {
         let item = selected
+        let request = selectedVersion?.isRequest == true
         let review = artifactDirectory == item?.dir && item.map { SpeakerReview.isPending($0.dir) } == true
         reviewNotice.isHidden = !review
+        // Short enough to stand beside the review's buttons at the minimum
+        // width; the rest of what there is to say is in the tooltip.
         reviewNotice.stringValue = review ? localised(
-            "Listen to the short clips and correct names before the summary. Changes are saved as you edit.",
-            "Прослушайте короткие фрагменты и уточните имена перед саммари. Изменения сохраняются при редактировании.") : ""
+            "Check the names before the summary", "Проверьте имена перед саммари") : ""
+        reviewNotice.toolTip = review ? localised(
+            "Names are saved as you edit them. Skip keeps the names already entered.",
+            "Имена сохраняются при правке. «Пропустить» оставит уже введённые имена.") : nil
         confirmReviewButton.isHidden = !review
-        skipReviewButton.isHidden = !review
-        reviewActions.isHidden = !review
         confirmReviewButton.isEnabled = !working
+        skipReviewButton.isHidden = !review
         skipReviewButton.isEnabled = !working
-        updateSummaryButton.isHidden = artifactDirectory.map { !PostProcessor.summaryNeedsManualUpdate($0) } ?? true
-        updateSummaryButton.isEnabled = !working && !review && selectedVersion?.isRequest != true
-        finishButton.isEnabled = !working && (selectedVersion?.isRequest == true
+        // The contextual actions appear when there is something for them to
+        // do, rather than sitting greyed out beside every finished meeting.
+        // While a review is open its own buttons are the way forward, and
+        // these two would only race it for the same session.
+        updateSummaryButton.isHidden = review || request
+            || (artifactDirectory.map { !PostProcessor.summaryNeedsManualUpdate($0) } ?? true)
+        updateSummaryButton.isEnabled = !working
+        let owed = request
             ? item?.transcript.isOutstanding ?? false
-            : artifactDirectory.map { !PostProcessor.outstanding($0).isEmpty } ?? item?.isOutstanding ?? false)
+            : artifactDirectory.map { !PostProcessor.outstanding($0).isEmpty } ?? item?.isOutstanding ?? false
+        finishButton.isHidden = review || !owed
+        finishButton.isEnabled = !working
         retranscribeButton.isEnabled = !working && (item?.hasAudio ?? false)
-        openTranscriptButton.isEnabled = selectedVersion?.isRequest != true && (artifactDirectory.map {
+        retranscribeButton.toolTip = item.map { $0.hasAudio } == false
+            ? localised("This recording's audio is no longer available.",
+                        "Звука этой записи больше нет.")
+            : nil
+        openTranscriptButton.isEnabled = !request && (artifactDirectory.map {
             PostProcessor.readTranscript($0) != nil || FileManager.default.fileExists(
                 atPath: $0.appendingPathComponent("transcript.md").path)
         } ?? false)
         openFolderButton.isEnabled = item != nil
         deleteButton.isEnabled = !working && item != nil
-        busyLabel.isHidden = !working
-        busyLabel.stringValue = working ? localised("working…", "работаю…") : ""
+        busyIndicator.isHidden = !working
+        if working { busyIndicator.startAnimation(nil) } else { busyIndicator.stopAnimation(nil) }
     }
 
     @objc private func playAudioSample(_ sender: NSButton) {
@@ -1025,9 +1124,13 @@ final class RecordingsWindow: NSObject {
         displayedNames = try? Data(contentsOf: directory.appendingPathComponent(SpeakerNames.file))
         if let (provenance, turns) = nameProvenance[ObjectIdentifier(sender)] {
             provenance.stringValue = SpeakerNames.Source.manual.described + " · "
-                + localised("\(turns) turns", "реплик: \(turns)")
+                + turnCountLabel(turns)
         }
         return true
+    }
+
+    private func turnCountLabel(_ count: Int) -> String {
+        localised(count == 1 ? "1 turn" : "\(count) turns", "реплик: \(count)")
     }
 
     /// What Finish processing does about one recording.
@@ -1390,7 +1493,22 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
         return false
     }
     func menuWillOpen(_ menu: NSMenu) {
-        let enabled = selected?.hasAudio == true && !working
+        // A right-click lands on the row under the pointer, which need not be
+        // the selected one, and the menu's actions read the selection: they
+        // used to re-transcribe the selected meeting rather than the one
+        // clicked. The selection follows the click, unless leaving the current
+        // row needs a review decision, which a menu opening is no place for.
+        var target = selected
+        let clicked = table.clickedRow
+        if items.indices.contains(clicked), clicked != table.selectedRow {
+            if let current = selected, SpeakerReview.isPending(current.dir) {
+                target = nil
+            } else {
+                table.selectRowIndexes([clicked], byExtendingSelection: false)
+                target = selected
+            }
+        }
+        let enabled = target?.hasAudio == true && !working
         for item in menu.items { item.isEnabled = enabled }
     }
 
@@ -1414,24 +1532,61 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
         let item = items[row]
         let label = NSTextField(labelWithString: Self.cell(item, column: column) ?? "")
         label.lineBreakMode = .byTruncatingTail
-
-        guard column == "transcript", let title = Self.inlineRetranscribeTitle(for: item) else {
-            return label
-        }
-
-        let retry = NSButton(
-            title: title, target: self, action: #selector(inlineRetranscribeClicked(_:)))
-        retry.bezelStyle = .rounded
-        retry.controlSize = .mini
-        retry.tag = row
-
-        let cell = NSStackView(views: [label, retry])
-        cell.orientation = .horizontal
-        cell.alignment = .centerY
-        cell.spacing = 6
+        label.textColor = Self.recedes(item, column: column) ? .secondaryLabelColor : .labelColor
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        retry.setContentCompressionResistancePriority(.required, for: .horizontal)
+        if column == "transcript", case .failed(let reason) = item.transcript { label.toolTip = reason }
+
+        var views: [NSView] = [label]
+        // An icon rather than a titled mini button: the title took the whole
+        // column and cut the state beside it down to its first letter, which
+        // was the one thing the row had to say.
+        if column == "transcript", let title = Self.inlineRetranscribeTitle(for: item) {
+            let retry = NSButton(
+                title: title, target: self, action: #selector(inlineRetranscribeClicked(_:)))
+            retry.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
+            retry.imagePosition = .imageOnly
+            retry.isBordered = false
+            retry.toolTip = title
+            retry.setAccessibilityLabel(title)
+            retry.tag = row
+            retry.setContentCompressionResistancePriority(.required, for: .horizontal)
+            views.append(retry)
+        }
+        let line = NSStackView(views: views)
+        line.orientation = .horizontal
+        line.alignment = .centerY
+        line.spacing = 4
+        line.translatesAutoresizingMaskIntoConstraints = false
+
+        // A cell view with its text field named, so that the label takes the
+        // selection's colours instead of staying dark on an accent row.
+        let cell = NSTableCellView()
+        cell.textField = label
+        cell.addSubview(line)
+        NSLayoutConstraint.activate([
+            line.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+            line.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -2),
+            line.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+        ])
         return cell
+    }
+
+    /// Whether a cell is background rather than news. The date, and a step
+    /// that is finished or switched off, recede like the secondary columns
+    /// in the Finder, so that in a long list what still needs something —
+    /// a queued step, a failure, a meeting with nameless speakers — is what
+    /// the eye lands on.
+    static func recedes(_ item: SessionInventory.Item, column: String) -> Bool {
+        func settled(_ step: SessionInventory.Step) -> Bool { step == .done || step == .off }
+        switch column {
+        case "when": return true
+        case "transcript": return settled(item.transcript)
+        case "summary": return settled(item.summary)
+        case "names":
+            guard let counts = item.namedSpeakers, counts.total > 0 else { return settled(item.speakers) }
+            return counts.named == counts.total
+        default: return false
+        }
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {

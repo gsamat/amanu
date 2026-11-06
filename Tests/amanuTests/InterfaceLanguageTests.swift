@@ -547,7 +547,8 @@ struct InterfaceLanguageTests {
         var found: [String] = []
         for view in root.allDescendants {
             // A view that shows what somebody said in a meeting says it in
-            // the language they said it in. See `openingLabel`.
+            // the language they said it in: a participant's quotes, and the
+            // summary and transcript previews in the recordings window.
             if view.identifier?.rawValue == "meeting-words" { continue }
             // Editable configuration values are data, not interface copy:
             // model ids and server URLs stay byte-for-byte the same in every
@@ -592,7 +593,7 @@ struct InterfaceLanguageTests {
             "sk-ant-…", "sk-…", "amanu",
             // The models, named the way their release notes name them.
             "parakeet v3", "parakeet v2", "NVIDIA nemotron",
-            "Parakeet", "Parakeet v3", "Whisper large-v3-turbo", "GigaAM v3",
+            "Parakeet", "Parakeet v3", "Whisper", "GigaAM", "Whisper large-v3-turbo", "GigaAM v3",
             "MLX Audio", "DeepInfra", "OpenRouter",
             "http://127.0.0.1:8000/v1", "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4",
         ]
