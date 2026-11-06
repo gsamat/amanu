@@ -110,6 +110,237 @@ struct SpeakerReviewWindowTests {
         panel.orderOut(nil)
     }
 
+    @Test("A long participant list scrolls to the last person and keeps edits across resizing")
+    func longParticipantListRemainsUsable() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        let segments = (0..<12).map { index in
+            Transcript.Segment(
+                speaker: "c001:s\(index)", start_ms: index * 1000,
+                end_ms: index * 1000 + 700, text: "Реплика участника \(index + 1).")
+        }
+        try Transcript(engine: "compatible", model: "test", created_at: "2026-11-06T10:20:00Z",
+                       segments: segments).write(to: dir)
+        try offer(dir)
+        defer { SessionClaim.release(dir) }
+
+        let window = RecordingsWindow(root: root)
+        await window.showSpeakerReview(dir)
+        let panel = try #require(window.view?.window)
+        panel.setContentSize(NSSize(width: 860, height: 560))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let scroll = try #require(window.view?.allDescendants.compactMap { $0 as? NSScrollView }.first {
+            $0.identifier?.rawValue == "participants-scroll"
+        })
+        let document = try #require(scroll.documentView)
+        document.layoutSubtreeIfNeeded()
+        #expect(document.bounds.height > scroll.contentView.bounds.height,
+                "the list needs an actual scrollable document")
+
+        func nameField(_ speaker: Int) throws -> NSTextField {
+            try #require(window.view?.allDescendants.compactMap { $0 as? NSTextField }.first {
+                $0.identifier?.rawValue.hasSuffix("\nc001:s\(speaker)") == true
+            })
+        }
+
+        let last = try nameField(11)
+        _ = last.scrollToVisible(last.bounds)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(document.visibleRect.intersects(last.convert(last.bounds, to: document)),
+                "the final participant must be reachable at the minimum window size")
+        let position = scroll.contentView.bounds.origin.y
+        last.stringValue = "Мария Иванова"
+        _ = last.sendAction(try #require(last.action), to: last.target)
+        await window.settled()
+        #expect(SpeakerNames.read(from: dir)?.speakers["c001:s11"]?.name == "Мария Иванова")
+        #expect(try nameField(11).stringValue == "Мария Иванова")
+        #expect(abs(scroll.contentView.bounds.origin.y - position) < 2,
+                "saving a name should not send the reader back to the top")
+
+        panel.setContentSize(NSSize(width: 1100, height: 760))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let afterResize = try nameField(11)
+        _ = afterResize.scrollToVisible(afterResize.bounds)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(document.visibleRect.intersects(afterResize.convert(afterResize.bounds, to: document)))
+        #expect(afterResize.stringValue == "Мария Иванова")
+        panel.orderOut(nil)
+    }
+
+    @Test("A background update to another meeting preserves an unfinished name and scroll position")
+    func anotherMeetingUpdateKeepsInProgressEdit() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let current = try session(in: root)
+        let other = try session(in: root, name: "2026-11-06-090000-review")
+        let segments = (0..<12).map { index in
+            Transcript.Segment(
+                speaker: "c001:s\(index)", start_ms: index * 1000,
+                end_ms: index * 1000 + 700, text: "Реплика участника \(index + 1).")
+        }
+        try Transcript(engine: "compatible", model: "test", created_at: "2026-11-06T10:20:00Z",
+                       segments: segments).write(to: current)
+        try offer(current)
+        defer { SessionClaim.release(current) }
+
+        let window = RecordingsWindow(root: root)
+        await window.showSpeakerReview(current)
+        let panel = try #require(window.view?.window)
+        panel.setContentSize(NSSize(width: 860, height: 560))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let scroll = try #require(window.view?.allDescendants.compactMap { $0 as? NSScrollView }.first {
+            $0.identifier?.rawValue == "participants-scroll"
+        })
+        let field = try #require(window.view?.allDescendants.compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue.hasSuffix("\nc001:s11") == true
+        })
+        let initialPosition = scroll.contentView.bounds.origin.y
+        _ = field.scrollToVisible(field.bounds)
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let position = scroll.contentView.bounds.origin.y
+        #expect(abs(position - initialPosition) > 2, "the test must exercise an actual scrolled position")
+        field.stringValue = "Несохранённое имя"
+        #expect(SpeakerNames.read(from: current)?.speakers["c001:s11"]?.name == nil)
+
+        try SessionState.amend(other, with: ["title": "Another meeting changed"])
+        window.sessionsChanged()
+        await window.settled()
+
+        let sameField = try #require(window.view?.allDescendants.compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue.hasSuffix("\nc001:s11") == true
+        })
+        #expect(sameField === field, "the edit and its field editor must survive unrelated updates")
+        #expect(sameField.stringValue == "Несохранённое имя")
+        #expect(abs(scroll.contentView.bounds.origin.y - position) < 2)
+        #expect(SpeakerNames.read(from: current)?.speakers["c001:s11"]?.name == nil,
+                "the background update must not commit a pending edit")
+        panel.orderOut(nil)
+    }
+
+    @Test("A changed transcript rebuilds the current participant list")
+    func updatedTranscriptRebuildsParticipants() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        let window = RecordingsWindow(root: root)
+        let panel = try #require(window.view?.window)
+        panel.orderFront(nil)
+        await window.settled()
+        let tabs = try #require(window.view?.allDescendants.compactMap { $0 as? NSTabView }.first)
+        tabs.selectTabViewItem(withIdentifier: "speakers")
+        let before = try #require(PostProcessor.readTranscript(dir))
+        var segments = before.segments
+        segments.append(.init(speaker: "c001:s2", start_ms: 11000, end_ms: 11500,
+                              text: "Ещё один участник."))
+        try Transcript(engine: before.engine, model: before.model,
+                       created_at: before.created_at, segments: segments).write(to: dir)
+        window.sessionsChanged()
+        await window.settled()
+        let fields = try #require(window.view).allDescendants.compactMap { $0 as? NSTextField }
+        #expect(fields.contains { $0.identifier?.rawValue.hasSuffix("\nc001:s2") == true },
+                "a new speaker must appear after an external transcript update")
+        #expect(fields.contains { $0.stringValue == localised("Participants · 3", "Участники · 3") })
+        panel.orderOut(nil)
+    }
+
+    @Test("The first participant stays visible when the summary-update action appears")
+    func summaryUpdateKeepsFirstParticipantVisible() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        try Data("An earlier summary".utf8).write(to: dir.appendingPathComponent("summary.md"))
+        PostProcessor.rename("c001:s0", to: "Мария", in: dir)
+        let window = RecordingsWindow(root: root)
+        let panel = try #require(window.view?.window)
+        panel.setContentSize(NSSize(width: 860, height: 560))
+        panel.orderFront(nil)
+        await window.settled()
+        let tabs = try #require(window.view?.allDescendants.compactMap { $0 as? NSTabView }.first)
+        tabs.selectTabViewItem(withIdentifier: "speakers")
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let views = try #require(window.view).allDescendants
+        let update = try #require(views.compactMap { $0 as? NSButton }.first {
+            $0.identifier?.rawValue == "update-summary"
+        })
+        #expect(!update.isHidden)
+        let scroll = try #require(views.compactMap { $0 as? NSScrollView }.first {
+            $0.identifier?.rawValue == "participants-scroll"
+        })
+        let field = try #require(views.compactMap { $0 as? NSTextField }.first {
+            $0.identifier?.rawValue.hasSuffix("\nc001:s0") == true
+        })
+        let visible = scroll.contentView.bounds.insetBy(dx: -1, dy: -1)
+        #expect(visible.contains(field.convert(field.bounds, to: scroll.contentView)),
+                "the summary action must not push the first name field out of view")
+        #expect(field.stringValue == "Мария")
+        panel.orderOut(nil)
+    }
+
+    @Test("Review temporarily gives the participants more space and restores the list split")
+    func reviewTemporarilyResizesTheSplit() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        try offer(dir)
+        defer { SessionClaim.release(dir) }
+        let window = RecordingsWindow(root: root)
+        let panel = try #require(window.view?.window)
+        panel.setContentSize(NSSize(width: 980, height: 700))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let split = try #require(window.view?.allDescendants.compactMap { $0 as? NSSplitView }.first)
+        split.setPosition(250, ofDividerAt: 0)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let original = try #require(split.arrangedSubviews.first).frame.height
+        #expect(original > 165, "the fixture starts with room to reclaim")
+        let autosave = split.autosaveName
+
+        await window.showSpeakerReview(dir)
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let duringReview = try #require(split.arrangedSubviews.first).frame.height
+        #expect(duringReview < original)
+        #expect(split.autosaveName == nil, "a temporary review layout must not overwrite the saved split")
+
+        window.completeSpeakerReview()
+        await window.waitForReviewWork()
+        await window.waitForPostReviewWork()
+        await window.settled()
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let restored = try #require(split.arrangedSubviews.first).frame.height
+        #expect(abs(restored - original) < 2)
+        #expect(split.autosaveName == autosave)
+        panel.orderOut(nil)
+    }
+
+    @Test("VoiceOver distinguishes each participant's name field and audio examples")
+    func participantControlsHaveDistinctAccessibilityLabels() async throws {
+        let root = try root()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = try session(in: root)
+        try offer(dir)
+        defer { SessionClaim.release(dir) }
+        let window = RecordingsWindow(root: root)
+        await window.showSpeakerReview(dir)
+        let views = try #require(window.view).allDescendants
+        let fields = views.compactMap { $0 as? NSTextField }
+        let buttons = views.compactMap { $0 as? NSButton }.filter {
+            $0.identifier?.rawValue.hasPrefix("speaker-audio-") == true
+        }
+        for index in 0..<2 {
+            let label = localised("Participant \(index + 1)", "Участник \(index + 1)")
+            let field = try #require(fields.first {
+                $0.identifier?.rawValue.hasSuffix("\nc001:s\(index)") == true
+            })
+            #expect(field.accessibilityLabel()?.localizedCaseInsensitiveContains(label) == true,
+                    "the name field should identify its participant")
+            #expect(buttons.contains { $0.accessibilityLabel()?.localizedCaseInsensitiveContains(label) == true },
+                    "the audio example should identify its participant")
+        }
+        #expect(Set(buttons.compactMap { $0.accessibilityLabel() }).count == buttons.count,
+                "first and longest samples must be distinguishable as well")
+        window.view?.window?.orderOut(nil)
+    }
+
     // This exercises the shared AppKit field editor and key window. Other
     // suites also drive NSApplication, so run it in its own test process.
     @Test("Clicking Create summary saves an active name edit without pressing Return",

@@ -1,6 +1,12 @@
 import AppKit
 import AVFoundation
 
+/// A top-origin document keeps the first participant at the top as the
+/// surrounding split view or window changes size.
+private final class ParticipantsStack: NSStackView {
+    override var isFlipped: Bool { true }
+}
+
 /// The list of recordings, and what is still owed on each of them.
 ///
 /// The program's other windows are about the present — am I recording, what
@@ -33,10 +39,17 @@ final class RecordingsWindow: NSObject {
     private let panel: NSWindow
     private let table = NSTableView()
     private let scroll = NSScrollView()
+    private let recordingsSplit = NSSplitView()
+    private var preReviewListHeight: CGFloat?
 
     private let detailTitle = NSTextField(labelWithString: "")
     private let openingLabel = NSTextField(labelWithString: "")
-    private let speakersStack = NSStackView()
+    private let speakersStack = ParticipantsStack()
+    private let participantsScroll = NSScrollView()
+    private let participantsHeading = NSTextField(labelWithString: "")
+    private var updatingTable = false
+    private var displayedTranscriptID: String?
+    private var displayedNames: Data?
     private let finishButton = NSButton()
     private let retranscribeButton = NSButton()
     private let openTranscriptButton = NSButton()
@@ -67,9 +80,11 @@ final class RecordingsWindow: NSObject {
     private let confirmReviewButton = NSButton()
     private let skipReviewButton = NSButton()
     private let updateSummaryButton = NSButton()
+    private let reviewActions = NSStackView()
     private var reviewDirectories: [URL] = []
     private var activeReviewDirectory: URL?
     private var nameFields: [NSTextField] = []
+    private var nameProvenance: [ObjectIdentifier: (NSTextField, Int)] = [:]
     private var flushingSpeakerNames = false
     private var suppressReviewPresentation = false
     private var quitting = false
@@ -163,8 +178,27 @@ final class RecordingsWindow: NSObject {
             versionKey = nil
             showDetail()
             detailTabs.selectTabViewItem(withIdentifier: "speakers")
+            expandParticipantsForReview()
             panel.orderFront(nil)
         }
+    }
+
+    /// Give the review more room without overwriting the person's saved split.
+    private func expandParticipantsForReview() {
+        guard preReviewListHeight == nil else { return }
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let height = scroll.frame.height
+        guard height > 0 else { return }
+        preReviewListHeight = height
+        recordingsSplit.autosaveName = nil
+        if height > 165 { recordingsSplit.setPosition(160, ofDividerAt: 0) }
+    }
+
+    private func restoreRecordingsSplit() {
+        guard let height = preReviewListHeight else { return }
+        recordingsSplit.setPosition(height, ofDividerAt: 0)
+        recordingsSplit.autosaveName = "amanu.recordings.split"
+        preReviewListHeight = nil
     }
 
     var isVisible: Bool { panel.isVisible }
@@ -225,7 +259,7 @@ final class RecordingsWindow: NSObject {
 
     private func buildLayout() -> NSView {
         detailTitle.font = .systemFont(ofSize: 16, weight: .semibold)
-        openingLabel.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        openingLabel.font = .systemFont(ofSize: 12)
         // What was said in the meeting, which is the one thing in any of
         // amanu's windows that is not amanu's to translate. Named so that the
         // suite looking for English left in a Russian window knows to walk
@@ -286,9 +320,12 @@ final class RecordingsWindow: NSObject {
         processingButtons.spacing = 8
         processingButtons.heightAnchor.constraint(equalTo: finishButton.heightAnchor).isActive = true
 
-        let detailScroll = NSScrollView()
+        let detailScroll = participantsScroll
+        detailScroll.identifier = .init("participants-scroll")
         detailScroll.documentView = speakersStack
         detailScroll.hasVerticalScroller = true
+        detailScroll.autohidesScrollers = true
+        detailScroll.hasHorizontalScroller = false
         detailScroll.drawsBackground = false
         speakersStack.translatesAutoresizingMaskIntoConstraints = false
         detailScroll.translatesAutoresizingMaskIntoConstraints = false
@@ -318,18 +355,25 @@ final class RecordingsWindow: NSObject {
             button.action = action
             button.identifier = .init(id)
         }
-        let reviewActions = NSStackView(views: [confirmReviewButton, skipReviewButton])
+        participantsHeading.font = .systemFont(ofSize: 14, weight: .semibold)
+        participantsHeading.identifier = .init("participants-heading")
+        [skipReviewButton, confirmReviewButton].forEach { reviewActions.addArrangedSubview($0) }
         reviewActions.orientation = .horizontal
         reviewActions.spacing = 8
-        let speakersContent = NSStackView(views: [reviewNotice, reviewActions, openingLabel, detailScroll])
+        let participantsHeader = NSStackView(views: [participantsHeading, NSView(), reviewActions])
+        participantsHeader.orientation = .horizontal
+        participantsHeader.alignment = .centerY
+        participantsHeader.spacing = 8
+        let speakersContent = NSStackView(views: [participantsHeader, reviewNotice, openingLabel, detailScroll])
         speakersContent.orientation = .vertical
         speakersContent.distribution = .fill
         speakersContent.alignment = .leading
         speakersContent.spacing = 8
         speakersContent.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         NSLayoutConstraint.activate([
-            openingLabel.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
+            participantsHeader.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
             reviewNotice.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
+            openingLabel.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
             detailScroll.widthAnchor.constraint(equalTo: speakersContent.widthAnchor, constant: -20),
         ])
         // NSTabView owns its content view's frame. A stack view calculates
@@ -373,7 +417,7 @@ final class RecordingsWindow: NSObject {
         ])
         detailTabs.setContentHuggingPriority(.defaultLow, for: .vertical)
         scroll.setContentHuggingPriority(.defaultLow, for: .vertical)
-        let split = NSSplitView()
+        let split = recordingsSplit
         split.isVertical = false
         split.dividerStyle = .thin
         split.autosaveName = "amanu.recordings.split"
@@ -461,10 +505,12 @@ final class RecordingsWindow: NSObject {
     /// transcript, and on the main thread that was a window that stopped
     /// answering for as long as the archive took to read — on every opening,
     /// every rename and every delete, and growing with every meeting kept.
-    private func reload() {
+    private func reload(preservingParticipants: Bool = false) {
         scans += 1
         let generation = scans
         let root = self.root
+        let selectedDirectory = selected?.dir
+        let selectedVersionKey = versionKey
         // Carried across by hand: a detached task does not inherit the home
         // a test scoped, and the scan reads the config for what is owed.
         let home = Home.current
@@ -473,7 +519,9 @@ final class RecordingsWindow: NSObject {
                 Home.$scoped.withValue(home) { SessionInventory.scan(root: root) }
             }.value
             guard let self, generation == self.scans else { return }
-            self.show(found)
+            let preserve = preservingParticipants && self.selected?.dir == selectedDirectory
+                && self.versionKey == selectedVersionKey
+            self.show(found, preservingParticipants: preserve)
             self.scan = nil
         }
     }
@@ -489,19 +537,29 @@ final class RecordingsWindow: NSObject {
     /// is looking; a closed window reads when it opens.
     func sessionsChanged() {
         guard panel.isVisible else { return }
-        reload()
+        reload(preservingParticipants: true)
     }
 
-    private func show(_ found: [SessionInventory.Item]) {
+    private func show(_ found: [SessionInventory.Item], preservingParticipants: Bool = false) {
         let previous = selected?.dir
         items = found
+        updatingTable = true
         table.reloadData()
         if let previous, let row = items.firstIndex(where: { $0.dir == previous }) {
             table.selectRowIndexes([row], byExtendingSelection: false)
         } else if !items.isEmpty {
             table.selectRowIndexes([0], byExtendingSelection: false)
         }
-        showDetail()
+        updatingTable = false
+        if preservingParticipants, let item = selected, previous == item.dir,
+           let dir = artifactDirectory, displayedTranscriptID != nil,
+           SpeakerReview.transcriptID(dir) == displayedTranscriptID,
+           (try? Data(contentsOf: dir.appendingPathComponent(SpeakerNames.file))) == displayedNames {
+            refreshPreviews(in: dir, item: item)
+            updateButtons()
+        } else {
+            showDetail()
+        }
     }
 
     @objc private func versionSelected(_ sender: NSPopUpButton) {
@@ -523,6 +581,9 @@ final class RecordingsWindow: NSObject {
         stopAudioSample()
         audioSamples.removeAll()
         nameFields.removeAll()
+        nameProvenance.removeAll()
+        displayedTranscriptID = nil
+        displayedNames = nil
         if versionSession != selected?.dir {
             versionSession = selected?.dir
             versionKey = nil
@@ -550,7 +611,11 @@ final class RecordingsWindow: NSObject {
             detailTitle.stringValue = items.isEmpty
                 ? localised("No recordings yet", "Записей пока нет")
                 : localised("Select a recording", "Выберите запись")
-            openingLabel.stringValue = ""
+            openingLabel.stringValue = localised("Select a recording to see participants.",
+                                                  "Выберите запись, чтобы увидеть участников.")
+            openingLabel.isHidden = false
+            participantsScroll.isHidden = true
+            participantsHeading.stringValue = localised("Participants", "Участники")
             summaryText.string = ""
             transcriptText.string = ""
             updateButtons()
@@ -561,7 +626,11 @@ final class RecordingsWindow: NSObject {
         let dir = artifactDirectory ?? item.dir
         if let request = selectedVersion, request.isRequest {
             summaryText.string = ""
-            openingLabel.stringValue = ""
+            participantsHeading.stringValue = localised("Participants", "Участники")
+            openingLabel.stringValue = localised("Transcription is not ready yet.",
+                                                  "Расшифровка ещё не готова.")
+            openingLabel.isHidden = false
+            participantsScroll.isHidden = true
             transcriptText.string = request.title
             if case .failed(let reason) = request.state { transcriptText.string += "\n\n" + reason }
             summaryText.identifier = nil
@@ -569,6 +638,46 @@ final class RecordingsWindow: NSObject {
             updateButtons()
             return
         }
+        refreshPreviews(in: dir, item: item)
+        let transcript = PostProcessor.readTranscript(dir)
+        guard let transcript else {
+            participantsHeading.stringValue = localised("Participants", "Участники")
+            openingLabel.stringValue = item.transcript == .pending
+                ? localised("Not transcribed yet.", "Ещё не расшифровано.")
+                : localised(
+                    "No transcript — nothing to name.",
+                    "Расшифровки нет — некому давать имена.")
+            openingLabel.isHidden = false
+            participantsScroll.isHidden = true
+            updateButtons()
+            return
+        }
+
+        let names = SpeakerNames.read(from: dir)
+        displayedTranscriptID = SpeakerReview.transcriptID(dir)
+        displayedNames = try? Data(contentsOf: dir.appendingPathComponent(SpeakerNames.file))
+        let samples = SessionInventory.samples(transcript: transcript, names: names)
+        openingLabel.stringValue = localised("No participants found.", "Участники не найдены.")
+        openingLabel.isHidden = !samples.isEmpty
+        participantsScroll.isHidden = samples.isEmpty
+        participantsHeading.stringValue = localised(
+            "Participants · \(samples.count)", "Участники · \(samples.count)")
+        for (index, sample) in samples.enumerated() {
+            if index > 0 {
+                let separator = NSBox()
+                separator.boxType = .separator
+                speakersStack.addArrangedSubview(separator)
+                separator.widthAnchor.constraint(equalTo: speakersStack.widthAnchor).isActive = true
+            }
+            let row = speakerRow(sample, in: dir, audioSession: item.dir,
+                                 title: transcript.displaySpeaker(label: sample.label, names: nil))
+            speakersStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: speakersStack.widthAnchor).isActive = true
+        }
+        updateButtons()
+    }
+
+    private func refreshPreviews(in dir: URL, item: SessionInventory.Item) {
         let summary = try? String(contentsOf: dir.appendingPathComponent("summary.md"), encoding: .utf8)
         var summaryPreview = summary ?? (item.summary == .off
             ? localised("Summaries are off.", "Саммари выключены.")
@@ -590,24 +699,6 @@ final class RecordingsWindow: NSObject {
         transcriptText.textStorage?.setAttributedString(MarkdownPreview.render(transcriptPreview))
         transcriptText.identifier = markdown != nil || transcript != nil ? .init("meeting-words") : nil
         for text in [summaryText, transcriptText] { text.scrollToBeginningOfDocument(nil) }
-        guard let transcript else {
-            openingLabel.stringValue = item.transcript == .pending
-                ? localised("Not transcribed yet.", "Ещё не расшифровано.")
-                : localised(
-                    "No transcript — nothing to name.",
-                    "Расшифровки нет — некому давать имена.")
-            updateButtons()
-            return
-        }
-
-        let names = SpeakerNames.read(from: dir)
-        openingLabel.stringValue = SessionInventory.opening(of: transcript, names: names)
-            .replacingOccurrences(of: "\n", with: " · ")
-        for sample in SessionInventory.samples(transcript: transcript, names: names) {
-            speakersStack.addArrangedSubview(speakerRow(sample, in: dir, audioSession: item.dir,
-                title: transcript.displaySpeaker(label: sample.label, names: nil)))
-        }
-        updateButtons()
     }
 
     /// One speaker: what they said, and a field for who they are.
@@ -618,12 +709,15 @@ final class RecordingsWindow: NSObject {
     /// said any names at all.
     private func speakerRow(_ sample: SessionInventory.Sample, in dir: URL, audioSession: URL, title: String) -> NSView {
         let label = NSTextField(labelWithString: title)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
-        label.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        label.widthAnchor.constraint(equalToConstant: 145).isActive = true
+        label.lineBreakMode = .byTruncatingTail
 
         let field = NSTextField(string: sample.name ?? "")
-        field.placeholderString = localised("name", "имя")
-        field.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        field.placeholderString = localised("Enter a name", "Укажите имя")
+        field.setAccessibilityLabel(localised("Name for \(title)", "Имя: \(title)"))
+        field.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.target = self
         field.action = #selector(nameEdited(_:))
         field.delegate = self
@@ -634,48 +728,78 @@ final class RecordingsWindow: NSObject {
         let provenance = NSTextField(labelWithString: sample.source.map {
             "\($0.described) · " + turns
         } ?? turns)
-        provenance.font = .systemFont(ofSize: 10)
-        provenance.textColor = .tertiaryLabelColor
+        provenance.font = .systemFont(ofSize: 11)
+        provenance.textColor = .secondaryLabelColor
+        provenance.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        nameProvenance[ObjectIdentifier(field)] = (provenance, sample.turns)
 
         let head = NSStackView(views: [label, field, provenance])
         head.orientation = .horizontal
+        head.alignment = .centerY
         head.spacing = 8
-
-        let quotes = NSTextField(wrappingLabelWithString: [
-            sample.first.isEmpty
-                ? nil : localised("first: ", "первая: ") + sample.first,
-            sample.longest == sample.first || sample.longest.isEmpty
-                ? nil : localised("longest: ", "самая длинная: ") + sample.longest,
-        ].compactMap { $0 }.joined(separator: "\n"))
-        quotes.font = .systemFont(ofSize: 11)
-        quotes.textColor = .secondaryLabelColor
-        quotes.lineBreakMode = .byTruncatingTail
-        quotes.maximumNumberOfLines = 4
-        quotes.preferredMaxLayoutWidth = 640
-
-        let row = NSStackView(views: [head, quotes])
+        let row = NSStackView(views: [head])
         row.orientation = .vertical
         row.alignment = .leading
-        row.spacing = 2
-        let samples = SpeakerReview.audioSamples(for: sample, in: audioSession)
-        if !samples.isEmpty {
-            let buttons = samples.map { audio -> NSButton in
-                let button = NSButton(title: audio.title, target: self, action: #selector(playAudioSample(_:)))
+        row.identifier = .init("participant-row")
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 4, bottom: 12, right: 8)
+        head.widthAnchor.constraint(equalTo: row.widthAnchor, constant: -12).isActive = true
+
+        let audio = SpeakerReview.audioSamples(for: sample, in: audioSession)
+        let examples = [
+            (sample.first, localised("First turn", "Первая реплика"), sample.firstStartMs),
+            (sample.longest, localised("Longest turn", "Длинная реплика"), sample.longestStartMs),
+        ]
+        for (index, example) in examples.enumerated() {
+            let (text, caption, start) = example
+            guard !text.isEmpty, index == 0 || text != sample.first else { continue }
+            let audioTitle = index == 0
+                ? localised("First turn", "Первая реплика")
+                : localised("Longest turn", "Самая длинная реплика")
+            let control: NSView
+            if let clip = audio.first(where: { $0.title == audioTitle }) {
+                let seconds = max(0, (start ?? 0) / 1000)
+                let time = String(format: "%d:%02d", seconds / 60, seconds % 60)
+                let button = NSButton(title: time, target: self, action: #selector(playAudioSample(_:)))
                 let id = UUID().uuidString
-                audioSamples[id] = audio
+                audioSamples[id] = clip
                 button.identifier = .init("speaker-audio-\(id)")
                 button.bezelStyle = .rounded
                 button.controlSize = .small
                 button.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: nil)
                 button.imagePosition = .imageLeading
-                button.setAccessibilityLabel(localised("Play ", "Воспроизвести: ") + audio.title)
-                button.toolTip = localised("Play up to eight seconds", "Воспроизвести до восьми секунд")
-                return button
+                button.setAccessibilityLabel(localised("\(title): play \(caption)", "\(title): воспроизвести — \(caption)"))
+                button.toolTip = caption
+                control = button
+            } else {
+                let time = NSTextField(labelWithString: caption)
+                time.font = .systemFont(ofSize: 11)
+                time.textColor = .secondaryLabelColor
+                time.lineBreakMode = .byTruncatingTail
+                time.toolTip = caption
+                control = time
             }
-            let audioRow = NSStackView(views: buttons)
-            audioRow.orientation = .horizontal
-            audioRow.spacing = 8
-            row.addArrangedSubview(audioRow)
+            control.widthAnchor.constraint(equalToConstant: 86).isActive = true
+            let quote = NSTextField(wrappingLabelWithString: text)
+            quote.identifier = .init("meeting-words")
+            quote.font = .systemFont(ofSize: 12)
+            quote.textColor = .secondaryLabelColor
+            quote.lineBreakMode = .byTruncatingTail
+            quote.maximumNumberOfLines = 3
+            quote.toolTip = text
+            quote.setContentCompressionResistancePriority(.init(NSLayoutConstraint.Priority.fittingSizeCompression.rawValue - 1), for: .horizontal)
+            let exampleRow = NSStackView(views: [control, quote])
+            exampleRow.orientation = .horizontal
+            exampleRow.alignment = .top
+            exampleRow.spacing = 10
+            row.addArrangedSubview(exampleRow)
+            exampleRow.widthAnchor.constraint(equalTo: row.widthAnchor, constant: -12).isActive = true
+        }
+        if audio.isEmpty {
+            let unavailable = NSTextField(labelWithString: localised("Audio unavailable", "Аудио недоступно"))
+            unavailable.font = .systemFont(ofSize: 11)
+            unavailable.textColor = .secondaryLabelColor
+            row.addArrangedSubview(unavailable)
         }
         return row
     }
@@ -689,6 +813,7 @@ final class RecordingsWindow: NSObject {
             "Прослушайте короткие фрагменты и уточните имена перед саммари. Изменения сохраняются при редактировании.") : ""
         confirmReviewButton.isHidden = !review
         skipReviewButton.isHidden = !review
+        reviewActions.isHidden = !review
         confirmReviewButton.isEnabled = !working
         skipReviewButton.isEnabled = !working
         updateSummaryButton.isHidden = artifactDirectory.map { !PostProcessor.summaryNeedsManualUpdate($0) } ?? true
@@ -756,6 +881,7 @@ final class RecordingsWindow: NSObject {
             do {
                 try await Self.finishReview(item.dir)
                 reviewDirectories.removeAll { $0.standardizedFileURL == item.dir.standardizedFileURL }
+                if reviewDirectories.isEmpty { restoreRecordingsSplit() }
                 if activeReviewDirectory == item.dir.standardizedFileURL { activeReviewDirectory = nil }
                 working = false
                 reload()
@@ -828,6 +954,7 @@ final class RecordingsWindow: NSObject {
                 if activeReviewDirectory == directory { activeReviewDirectory = nil }
                 continueAfterReview(directory)
             }
+            restoreRecordingsSplit()
             return true
         } catch {
             quitting = false
@@ -875,7 +1002,7 @@ final class RecordingsWindow: NSObject {
     // MARK: - actions
 
     @objc private func nameEdited(_ sender: NSTextField) {
-        if persistName(sender), !flushingSpeakerNames { reload() }
+        if persistName(sender), !flushingSpeakerNames { reload(preservingParticipants: true) }
     }
 
     private func flushSpeakerNames() {
@@ -895,6 +1022,11 @@ final class RecordingsWindow: NSObject {
         let entered = sender.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard entered != (SpeakerNames.read(from: directory)?.speakers[parts[1]]?.name ?? "") else { return false }
         PostProcessor.rename(parts[1], to: entered, in: directory)
+        displayedNames = try? Data(contentsOf: directory.appendingPathComponent(SpeakerNames.file))
+        if let (provenance, turns) = nameProvenance[ObjectIdentifier(sender)] {
+            provenance.stringValue = SpeakerNames.Source.manual.described + " · "
+                + localised("\(turns) turns", "реплик: \(turns)")
+        }
         return true
     }
 
@@ -1250,6 +1382,7 @@ extension RecordingsWindow: NSTextFieldDelegate {
 
 extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        if updatingTable { return true }
         guard items.indices.contains(row), row != tableView.selectedRow,
               let item = selected, SpeakerReview.isPending(item.dir) else { return true }
         guard !working, confirmLeavingReview(1) else { return false }
@@ -1302,7 +1435,7 @@ extension RecordingsWindow: NSTableViewDataSource, NSTableViewDelegate, NSMenuDe
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        showDetail()
+        if !updatingTable { showDetail() }
     }
 
     /// One cell, as words. Apart from the data source this is what
