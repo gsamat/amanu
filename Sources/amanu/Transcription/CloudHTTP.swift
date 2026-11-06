@@ -285,7 +285,8 @@ struct CloudHTTP: Sendable {
     /// from there: the request is as large as the meeting, and the daemon has
     /// no business holding that on the heap while it uploads.
     static func writeMultipart(
-        fields: [(String, String)], file: URL, boundary: String, to destination: URL
+        fields: [(String, String)], file: URL, boundary: String, to destination: URL,
+        fileField: String = "file"
     ) throws {
         FileManager.default.createFile(atPath: destination.path, contents: nil)
         let output = try FileHandle(forWritingTo: destination)
@@ -297,7 +298,7 @@ struct CloudHTTP: Sendable {
             try output.write(contentsOf: Data(field.utf8))
         }
         let header = "--\(boundary)\r\n"
-            + "Content-Disposition: form-data; name=\"file\";"
+            + "Content-Disposition: form-data; name=\"\(fileField)\";"
             + " filename=\"\(file.lastPathComponent)\"\r\n"
             + "Content-Type: \(contentType(for: file))\r\n\r\n"
         try output.write(contentsOf: Data(header.utf8))
@@ -358,15 +359,21 @@ struct CloudHTTP: Sendable {
 /// it before starting, because a cache is the whole meeting's text and must
 /// not outlive the transcript somebody deleted.
 enum ProviderCache {
-    static let providers = CloudService.allCases.map(\.rawValue)
+    static let providers = CloudService.allCases.map(\.rawValue) + ["compatible"]
 
     /// `transcript.<provider>.<key>[.<suffix>].json`, where the key is a short
     /// digest of `parts`.
     static func url(
         in dir: URL, provider: CloudService, parts: [String], suffix: String? = nil
     ) -> URL {
+        url(in: dir, provider: provider.rawValue, parts: parts, suffix: suffix)
+    }
+
+    static func url(
+        in dir: URL, provider: String, parts: [String], suffix: String? = nil
+    ) -> URL {
         let key = digest(parts)
-        let name = ["transcript", provider.rawValue, key, suffix].compactMap { $0 }
+        let name = ["transcript", provider, key, suffix].compactMap { $0 }
             .joined(separator: ".") + ".json"
         return dir.appendingPathComponent(name)
     }

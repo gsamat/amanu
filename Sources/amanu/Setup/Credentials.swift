@@ -10,6 +10,7 @@ enum Credentials {
     /// Whether the cloud transcription provider has a key to work with.
     static func hasTranscriptionKey(for provider: String) -> Bool {
         switch provider {
+        case "compatible": return Config.compatibleTranscriptionKey() != nil
         case "openai": return Config.openAIKey() != nil
         case "elevenlabs": return Config.elevenLabsKey() != nil
         default: return Config.assemblyAIKey() != nil
@@ -59,6 +60,11 @@ enum Credentials {
     /// The file a cloud transcription key is read from.
     static func transcriptionSlot(for provider: String, in config: [String: Any]?) -> Slot {
         switch provider {
+        case "compatible":
+            if let named = pathSetting(.transcriptionCompatibleKeyPath, in: config) {
+                return Slot(path: named, isNamedInConfig: true)
+            }
+            return Slot(path: Config.compatibleTranscriptionKeyPath, isNamedInConfig: false)
         case "openai":
             if let named = Config.openAIKeyFile(in: config) {
                 return Slot(path: named, isNamedInConfig: true)

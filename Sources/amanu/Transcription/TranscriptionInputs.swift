@@ -224,7 +224,7 @@ struct TranscriptionInputs {
         }
 
         log("transcribing \(Self.mixedFile) (\(engine.name))")
-        let segments = try await engine.transcribe(mixed)
+        let segments = try await engine.transcribe(mixed, cacheDirectory: session)
 
         let names = meta.track(for: "me").flatMap { mic in
             meta.track(for: "them").flatMap { system in
@@ -249,8 +249,10 @@ struct TranscriptionInputs {
         return segments.enumerated().map { index, segment in
             Transcript.Segment(
                 speaker: names?[index] ?? segment.speaker ?? "speaker",
-                start_ms: Int(segment.start * 1000),
-                end_ms: Int(segment.end * 1000),
+                start_ms: Int((segment.start * 1000).rounded(.down)),
+                end_ms: engine.name == "compatible"
+                    ? Int((segment.end * 1000).rounded(.up))
+                    : Int(segment.end * 1000),
                 text: segment.text
             )
         }
