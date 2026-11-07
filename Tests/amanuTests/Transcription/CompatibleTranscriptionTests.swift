@@ -401,6 +401,38 @@ struct CompatibleTranscriptionTests {
         #expect(ProviderCache.files(in: dir).isEmpty)
     }
 
+    @Test("OpenRouter identifies unsupported diarization without exposing server content")
+    func compatibleOpenRouterDiarizationRefusal() async throws {
+        let dir = try folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = dir.appendingPathComponent("audio.caf")
+        try TestAudio.writeTone(to: audio, seconds: 1, frequency: 440)
+        let unsupported = #"{"error":{"message":"The selected model does not support diarize. Remove the field or choose a model whose provider supports it.","code":400},"private":"do-not-report"}"#
+        let unrelated = #"{"error":{"message":"do-not-report","code":400}}"#
+        for (profile, body, expected) in [
+            (CompatibleTranscriptionProtocol.openRouter, unsupported, Engine.Failure.diarizationUnsupported),
+            (.openRouter, unrelated, .rejected(400)),
+            (.deepInfra, unsupported, .rejected(400)),
+        ] {
+            let stub = StubHTTP { _, _ in .json(400, body) }
+            let base = profile == .openRouter ? "https://openrouter.ai/api/v1" : "https://api.deepinfra.com/v1"
+            let engine = try Engine(baseURL: base, model: "nvidia/model", apiKey: "secret",
+                                    apiProtocol: profile, session: stub.session, retry: .once)
+            do {
+                _ = try await engine.transcribe(audio)
+                Issue.record("A rejected request must not become a transcript")
+            } catch let failure as Engine.Failure {
+                #expect(failure == expected)
+                #expect(failure.isEnvironmental && !failure.isPermanent)
+                #expect(!failure.description.contains("do-not-report"))
+                #expect(!failure.description.contains("secret"))
+            }
+            #expect(stub.requests.count == 1)
+            #expect(FileManager.default.fileExists(atPath: audio.path))
+            #expect(ProviderCache.files(in: dir).isEmpty)
+        }
+    }
+
     @Test func compatibleRetriesServerFailuresAndRejectsMalformedSuccessWithoutCaching() async throws {
         let dir = try folder()
         defer { try? FileManager.default.removeItem(at: dir) }

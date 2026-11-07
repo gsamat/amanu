@@ -17,6 +17,7 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
         case unauthorized(Int)
         case insufficientCredits
         case rejected(Int)
+        case diarizationUnsupported
         case unavailable(Int)
         case malformed
         case incomplete
@@ -29,7 +30,7 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
         var isEnvironmental: Bool {
             switch self {
             case .configuration, .noAPIKey, .unauthorized, .insufficientCredits,
-                 .rejected, .malformed, .incomplete, .uploadTooLarge: return true
+                 .rejected, .diarizationUnsupported, .malformed, .incomplete, .uploadTooLarge: return true
             case .unavailable, .invalidAudio: return false
             }
         }
@@ -40,6 +41,7 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
             case .unauthorized(let status): return "compatible transcription token or access refused (HTTP \(status))"
             case .insufficientCredits: return "compatible transcription account has insufficient credits (HTTP 402)"
             case .rejected(let status): return "compatible transcription request rejected (HTTP \(status)); audio retained"
+            case .diarizationUnsupported: return "OpenRouter reports that the selected model does not support speaker diarization; choose another model or provider (HTTP 400)"
             case .unavailable(let status): return "compatible transcription service unavailable (HTTP \(status))"
             case .malformed: return "compatible transcription requires word timestamps and speaker labels; response incompatible"
             case .incomplete: return "compatible transcription response incomplete or generation limit reached; audio retained"
@@ -175,13 +177,29 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
             switch CloudHTTP.classify(status: http.statusCode) {
             case .success: return data
             case .unauthorized: throw Failure.unauthorized(http.statusCode)
-            case .rejected: throw Failure.rejected(http.statusCode)
+            case .rejected:
+                if apiProtocol == .openRouter, http.statusCode == 400,
+                   Self.isOpenRouterDiarizationUnsupported(data) {
+                    throw Failure.diarizationUnsupported
+                }
+                throw Failure.rejected(http.statusCode)
             case .retryable:
                 guard attempt < retry.attempts else { throw Failure.unavailable(http.statusCode) }
                 try await sleep(min(CloudHTTP.retryAfter(http)
                     ?? CloudHTTP.backoff(attempt: attempt, policy: retry), retry.maxDelay))
             }
         }
+    }
+
+    /// Match a known provider error without exposing its arbitrary response
+    /// body, which could contain audio transcripts or other sensitive data.
+    private static func isOpenRouterDiarizationUnsupported(_ data: Data) -> Bool {
+        struct ErrorResponse: Decodable {
+            struct Detail: Decodable { let message: String }
+            let error: Detail
+        }
+        let response = try? JSONDecoder().decode(ErrorResponse.self, from: data)
+        return response?.error.message == "The selected model does not support diarize. Remove the field or choose a model whose provider supports it."
     }
 
     struct Resolved: Sendable {
