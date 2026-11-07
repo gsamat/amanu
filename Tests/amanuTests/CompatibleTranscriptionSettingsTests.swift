@@ -12,6 +12,73 @@ struct CompatibleTranscriptionSettingsTests {
         try #require(form.view.allDescendants.first { $0.identifier?.rawValue == id } as? T)
     }
 
+    @Test("Selecting a compatible server explicitly uses MLX Audio for custom domains")
+    func compatibleServerUsesMLXForCustomDomain() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "parakeet", "compatible": [
+            "base_url": "https://speech.example/prefix/v1", "model": "speech-model",
+        ]]])
+        let form = SetupForm()
+        defer { form.stop() }
+        #expect(Config.compatibleTranscriptionProtocol() == "auto", "opening settings must not migrate config")
+        let compatible: NSButton = try field("transcription.compatible", in: form)
+        compatible.performClick(nil)
+        #expect(Config.transcriptionEngine() == "compatible")
+        #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
+        let label: NSTextField = try field("transcription.compatible.format", in: form)
+        #expect(label.stringValue.contains("MLX Audio"))
+        let resolved = try CompatibleTranscriptionEngine.resolve(
+            baseURL: Config.compatibleTranscriptionBaseURL(), protocol: .mlxAudio,
+            model: Config.compatibleTranscriptionModel())
+        #expect(resolved.endpoint.absoluteString == "https://speech.example/prefix/v1/audio/transcriptions")
+    }
+
+    @Test("Legacy server profiles remain unchanged until explicitly switched",
+          arguments: [("deepinfra", "https://example.com/v1", "DeepInfra"),
+                      ("openrouter", "https://example.com/v1", "OpenRouter"),
+                      ("auto", "https://api.deepinfra.com/v1", "DeepInfra"),
+                      ("auto", "https://openrouter.ai/api/v1", "OpenRouter")])
+    func legacyCompatibleProfilesStayVisible(profile: String, baseURL: String, display: String) throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible", "compatible": [
+            "base_url": baseURL, "model": "speech-model", "protocol": profile,
+        ]]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let label: NSTextField = try field("transcription.compatible.format", in: form)
+        let change: NSButton = try field("transcription.compatible.use-mlx", in: form)
+        #expect(label.stringValue.contains(display))
+        #expect(!change.isHiddenOrHasHiddenAncestor)
+        #expect(Config.compatibleTranscriptionProtocol() == profile)
+        form.reload()
+        #expect(Config.compatibleTranscriptionProtocol() == profile)
+        let model: NSTextField = try field("transcription.compatible.model", in: form)
+        model.stringValue = "updated-model"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: model))
+        #expect(Config.compatibleTranscriptionProtocol() == profile, "editing a legacy model must not silently switch APIs")
+        #expect(label.stringValue.contains(display))
+        change.performClick(nil)
+        #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
+        #expect(label.stringValue.contains("MLX Audio"))
+        #expect(change.isHiddenOrHasHiddenAncestor)
+    }
+
+    @Test("Editing a server address fixes the MLX profile regardless of the new host",
+          arguments: ["http://127.0.0.1:8001/v1", "https://old.example/v1"])
+    func editedServerAddressUsesMLX(previousAddress: String) throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible", "compatible": [
+            "base_url": previousAddress, "protocol": "auto",
+        ]]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let label: NSTextField = try field("transcription.compatible.format", in: form)
+        #expect(Config.compatibleTranscriptionProtocol() == "auto", "opening does not change the profile")
+        let address: NSTextField = try field("transcription.compatible.base-url", in: form)
+        address.stringValue = "https://api.deepinfra.com/custom/v1"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: address))
+        #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
+        #expect(Config.compatibleTranscriptionBaseURL() == "https://api.deepinfra.com/custom/v1")
+        #expect(label.stringValue.contains("MLX Audio"))
+    }
+
     @Test("Compatible server settings round-trip without becoming auto or borrowing credentials")
     func configurationAndTokenIsolation() throws {
         try Home.current.writeConfig(["transcription": ["engine": "compatible", "compatible": [

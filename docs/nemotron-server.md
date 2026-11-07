@@ -24,22 +24,9 @@ MTP acceleration. Keep the server running while Amanu transcribes.
 The `umask` protects temporary WAV files created by this version of the
 server while it processes a recording.
 
-For DeepInfra use `https://api.deepinfra.com/v1` and the model ID
-`nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B`. The service requires its
-own API token.
-
-OpenRouter's `nvidia/nemotron-3.5-transcribe` currently does not work with
-Amanu's speaker-aware profile. On November 7, 2026, OpenRouter rejected its
-`diarize=true` request with HTTP 400. Without that field it returned Russian
-text and word timestamps, but no speaker IDs, which Amanu requires. Support
-may differ for other models or providers and can change over time. For a
-supported OpenRouter model, use `https://openrouter.ai/api/v1` and an
-OpenRouter API token.
-
-The service format is inferred for the two known hosts and localhost. For a
-custom host or reverse proxy, select the matching API format explicitly.
-Amanu sends audio to the configured server; when it is a remote service,
-the recording leaves your computer.
+New server settings use the MLX Audio API format. Amanu sends audio to the
+configured server; when it is remote, the recording leaves your computer.
+The server check sends a short synthetic test phrase, not a meeting recording.
 
 Long recordings are split into parts of at most 40 minutes. A speaker label
 in one part is independent of the same label in another part. On the

@@ -1241,6 +1241,7 @@ private final class TranscriptionStore {
     var engine: String?
     var cloud = "assemblyai"
     var localEngine = "parakeet"
+    var compatibleProtocol = "auto"
     var enabled = true
     /// Every write, in order, for comparing one click against another.
     var log: [String] = []
@@ -1268,6 +1269,8 @@ private final class TranscriptionStore {
         case ["transcription", "cloud"]: cloud = value as? String ?? "assemblyai"
         case ["transcription", "local_engine"]:
             localEngine = value as? String ?? "parakeet"
+        case ["transcription", "compatible", "protocol"]:
+            compatibleProtocol = value as? String ?? "auto"
         default: Issue.record("the form wrote \(path.joined(separator: ".")), which is not ours")
         }
     }

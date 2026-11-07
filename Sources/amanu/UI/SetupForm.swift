@@ -197,7 +197,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private let additionalTranscriptionModes = NSPopUpButton()
     private let compatibleURL = NSTextField()
     private let compatibleModel = NSTextField()
-    private let compatibleProtocol = NSPopUpButton()
+    private let compatibleFormat = NSTextField(labelWithString: "")
+    private let compatibleUseMLX = NSButton()
+    private let compatibleFormatAction = NSStackView()
     private let compatibleToken = NSSecureTextField()
     private let compatibleStatus = NSTextField(labelWithString: "")
     private let compatibleTokenStatus = NSTextField(labelWithString: "")
@@ -574,17 +576,17 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleURL.placeholderString = "http://127.0.0.1:8000/v1"
         compatibleModel.placeholderString = "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4"
         compatibleToken.placeholderString = localised("optional token", "токен, если нужен")
-        compatibleProtocol.identifier = .init("transcription.compatible.protocol")
-        for (title, value) in [
-            (localised("Automatic", "Автоматически"), "auto"),
-            ("MLX Audio", "mlx-audio"), ("DeepInfra", "deepinfra"), ("OpenRouter", "openrouter"),
-        ] {
-            compatibleProtocol.addItem(withTitle: title)
-            compatibleProtocol.lastItem?.representedObject = value
-        }
-        compatibleProtocol.target = self
-        compatibleProtocol.action = #selector(compatibleProtocolChanged)
-        compatibleProtocol.setAccessibilityLabel(localised("Server protocol", "Протокол сервера"))
+        compatibleFormat.identifier = .init("transcription.compatible.format")
+        compatibleFormat.lineBreakMode = .byWordWrapping
+        compatibleFormat.maximumNumberOfLines = 0
+        compatibleUseMLX.title = localised("Use MLX Audio", "Использовать MLX Audio")
+        compatibleUseMLX.bezelStyle = .rounded
+        compatibleUseMLX.target = self
+        compatibleUseMLX.action = #selector(useMLXAudioClicked)
+        compatibleUseMLX.identifier = .init("transcription.compatible.use-mlx")
+        compatibleUseMLX.setContentHuggingPriority(.required, for: .horizontal)
+        compatibleFormatAction.setViews([compatibleUseMLX, NSView()], in: .leading)
+        compatibleFormatAction.orientation = .horizontal
         compatibleStatus.font = SetupLayout.statusFont
         compatibleStatus.textColor = .secondaryLabelColor
         compatibleStatus.maximumNumberOfLines = 3
@@ -624,7 +626,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         for option in [
             summaryFieldRow(localised("Server URL", "URL сервера"), compatibleURL),
             summaryFieldRow(localised("Model", "Модель"), compatibleModel),
-            summaryFieldRow(localised("Protocol", "Протокол"), compatibleProtocol),
+            compatibleFormat, compatibleFormatAction,
             summaryFieldRow(localised("Token", "Токен"), compatibleToken),
             tokenActions, checkRow, testNote, compatibleStatus,
         ] {
@@ -1231,6 +1233,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     @objc private func compatibleToggled() {
         beginTranscriptionSelection()
+        useMLXForNewCompatibleChoice()
         compatibleSwitch.state = .on
         cloudSwitch.state = .off
         localSwitch.state = .off
@@ -1255,9 +1258,49 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         if mode == "auto" { downloadLocalIfNeeded() }
     }
 
-    @objc private func compatibleProtocolChanged() {
-        let value = compatibleProtocol.selectedItem?.representedObject as? String ?? "auto"
-        write(["transcription", "compatible", "protocol"], value == "auto" ? nil : value)
+    /// Preserve earlier cloud profiles until the person explicitly changes
+    /// them. Automatic settings for a new server become MLX Audio when the
+    /// person selects the engine or edits its address/model.
+    private func useMLXForNewCompatibleChoice() {
+        guard legacyCompatibleProfile() == nil,
+              Config.compatibleTranscriptionProtocol() != "mlx-audio" else { return }
+        write(["transcription", "compatible", "protocol"], "mlx-audio")
+    }
+
+    private func legacyCompatibleProfile() -> String? {
+        let profile = Config.compatibleTranscriptionProtocol()
+        if profile == "deepinfra" || profile == "openrouter" { return profile }
+        guard profile == "auto" else { return nil }
+        switch URLComponents(string: Config.compatibleTranscriptionBaseURL())?.host?.lowercased() {
+        case "api.deepinfra.com": return "deepinfra"
+        case "openrouter.ai": return "openrouter"
+        default: return nil
+        }
+    }
+
+    private func updateCompatibleFormat() {
+        if let legacy = legacyCompatibleProfile() {
+            let name = legacy == "deepinfra" ? "DeepInfra" : "OpenRouter"
+            compatibleFormat.stringValue = localised(
+                "API format: \(name) (previous setting)",
+                "Формат API: \(name) (прежняя настройка)")
+            compatibleFormatAction.isHidden = false
+            return
+        }
+        let profile = Config.compatibleTranscriptionProtocol()
+        let host = URLComponents(string: Config.compatibleTranscriptionBaseURL())?.host?.lowercased()
+        let local = host.map { ["localhost", "127.0.0.1", "::1", "[::1]"].contains($0) } ?? false
+        let isMLX = profile == "mlx-audio" || (profile == "auto" && local)
+        compatibleFormat.stringValue = isMLX
+            ? localised("API format: MLX Audio", "Формат API: MLX Audio")
+            : localised("API format is not determined. Choose MLX Audio.",
+                        "Формат API не определён. Выберите MLX Audio.")
+        compatibleFormatAction.isHidden = isMLX
+    }
+
+    @objc private func useMLXAudioClicked() {
+        write(["transcription", "compatible", "protocol"], "mlx-audio")
+        refresh()
     }
 
     @objc private func checkCompatibleRecognitionClicked() { checkCompatibleServer(recognition: true) }
@@ -1777,6 +1820,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
                     return
                 }
             }
+            useMLXForNewCompatibleChoice()
             write(["transcription", "compatible", field === compatibleURL ? "base_url" : "model"],
                   value.isEmpty ? nil : value)
             compatibleStatus.stringValue = ""
@@ -2231,10 +2275,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         cloudPendingNote.isHidden = !cloudPending
         compatibleURL.stringValue = Config.compatibleTranscriptionBaseURL()
         compatibleModel.stringValue = Config.compatibleTranscriptionModel()
-        let serverProtocol = Config.compatibleTranscriptionProtocol()
-        if let index = compatibleProtocol.itemArray.firstIndex(where: {
-            $0.representedObject as? String == serverProtocol
-        }) { compatibleProtocol.selectItem(at: index) }
+        updateCompatibleFormat()
         updateCompatibleTokenState()
         // The card under the key field is the one being answered, so a
         // provider waiting for a key is the one shown chosen.

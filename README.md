@@ -19,7 +19,7 @@ on your computer.
 | Signing | Apple Developer ID, notarized | Microsoft Artifact Signing, Fands Software LLC |
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
-| User-managed STT server | MLX Audio, DeepInfra, OpenRouter (model-dependent) | — |
+| User-managed STT server | MLX Audio (Nemotron 3.5 Transcribe) | — |
 | Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
 | Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
@@ -459,15 +459,14 @@ only values that differ from the defaults. A compact example:
 - `transcription.engine: "compatible"` uses a configured speech server.
   `transcription.compatible.base_url` defaults to `http://127.0.0.1:8000/v1`;
   `transcription.compatible.model` names the served model.
-  `transcription.compatible.protocol` is `auto`, `mlx-audio`, `deepinfra`, or
-  `openrouter`. The optional token is read from
+  New server configurations use the MLX Audio API format. The existing
+  `transcription.compatible.protocol` setting remains readable for earlier
+  configurations. The optional token is read from
   `transcription.compatible.api_key_path`, or from Amanu's separate
   `~/.config/amanu/keys/transcription-compatible` file;
   `AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY` takes precedence. OpenAI and summary
-  keys are never reused for this server. Settings provides separate connection
-  and recognition checks; recognition sends a locally synthesized public test
-  phrase, never a meeting recording. OpenRouter's Nemotron 3.5 endpoint does
-  not currently provide the speaker labels this engine requires; see the
+  keys are never reused for this server. The server check sends a locally
+  synthesized test phrase, never a meeting recording. See the
   [server guide](docs/nemotron-server.md).
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
