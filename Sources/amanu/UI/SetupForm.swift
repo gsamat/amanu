@@ -604,9 +604,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleStatus.textColor = .secondaryLabelColor
         compatibleStatus.maximumNumberOfLines = 0
         compatibleStatus.lineBreakMode = .byWordWrapping
-        // The status shares a row with the button: limiting its preferred
-        // width keeps a long server error from widening the settings window.
-        compatibleStatus.preferredMaxLayoutWidth = 220
         compatibleStatus.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         compatibleStatus.setContentCompressionResistancePriority(.required, for: .vertical)
         compatibleStatus.identifier = .init("transcription.compatible.status")
@@ -634,6 +631,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         checkRow.orientation = .horizontal
         checkRow.alignment = .firstBaseline
         checkRow.spacing = 8
+        // Give the result the remaining width; the default gravity-area
+        // distribution leaves a long, unused gap after its intrinsic size.
+        checkRow.distribution = .fill
+        // AppKit's label frame extends slightly past its alignment rect.
+        checkRow.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 2)
         let testNote = SetupLayout.detail(localised(
             "A short test phrase is sent to the server. Cloud providers may charge for it.",
             "На сервер отправится короткая тестовая фраза. Облачный сервис может взять плату."),

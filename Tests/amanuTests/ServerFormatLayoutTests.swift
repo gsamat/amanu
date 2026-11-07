@@ -88,6 +88,17 @@ struct ServerFormatLayoutTests {
             attributes: [.font: try #require(status.font)])
         #expect(statusFrame.height + 2 >= textBounds.height, "long server output is vertically clipped")
 
+        let longResult = status.stringValue
+        narrow.setContentSize(NSSize(width: 600, height: 300))
+        status.stringValue = "Проверяю сгенерированную тестовую фразу…"
+        host.layoutSubtreeIfNeeded()
+        #expect(status.frame.width > 400, "the status should use available space")
+        #expect(status.frame.height < 20, "a short status should fit on one line")
+
+        narrow.setContentSize(NSSize(width: 400, height: 300))
+        status.stringValue = longResult
+        host.layoutSubtreeIfNeeded()
+
         if let path = ProcessInfo.processInfo.environment["AMANU_STATUS_SHOT"] {
             let ground = StatusShotBackground(frame: host.bounds)
             ground.autoresizingMask = [.width, .height]
