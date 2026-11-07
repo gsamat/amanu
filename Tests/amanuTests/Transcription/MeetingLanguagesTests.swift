@@ -22,7 +22,8 @@ struct MeetingLanguagesTests {
 
         let tail = MeetingLanguages.menu.dropFirst(MeetingLanguages.pinned.count).map(\.name)
         #expect(tail == tail.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
-        #expect(tail.first == "Bosanski")
+        // The first name depends on the Mac's collation locale.
+        #expect(tail.contains("Bosanski"))
     }
 
     /// The menu is built from FluidAudio's own list, so a language it learns

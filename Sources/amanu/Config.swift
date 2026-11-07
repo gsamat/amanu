@@ -108,6 +108,26 @@ enum Config {
         string(.transcriptionOpenAIModel, in: load())
     }
 
+    static func compatibleTranscriptionBaseURL() -> String {
+        string(.transcriptionCompatibleBaseURL, in: load()).trimmed
+    }
+
+    static func compatibleTranscriptionModel() -> String {
+        string(.transcriptionCompatibleModel, in: load()).trimmed
+    }
+
+    static func compatibleTranscriptionProtocol() -> String {
+        string(.transcriptionCompatibleProtocol, in: load())
+    }
+
+    /// A server token has its own slot. Never borrow an OpenAI or summary key
+    /// merely because the request uses an OpenAI-shaped protocol.
+    static func compatibleTranscriptionKey() -> String? {
+        if let key = Home.current.variable("AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY")?.trimmed,
+           !key.isEmpty { return key }
+        return secret(at: Credentials.transcriptionSlot(for: "compatible", in: load()).path)
+    }
+
     /// Parakeet model version: "v3" (multilingual, default) or "v2"
     /// (English-only, marginally higher recall on English).
     static func transcriptionModel() -> String {
@@ -154,6 +174,9 @@ enum Config {
 
     static var assemblyAIKeyPath: URL { keysDir.appendingPathComponent("assemblyai") }
     static var openAIKeyPath: URL { keysDir.appendingPathComponent("openai") }
+    static var compatibleTranscriptionKeyPath: URL {
+        keysDir.appendingPathComponent("transcription-compatible")
+    }
     static var elevenLabsKeyPath: URL { keysDir.appendingPathComponent("elevenlabs") }
     static var anthropicKeyPath: URL { keysDir.appendingPathComponent("anthropic") }
 

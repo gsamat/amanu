@@ -11,7 +11,10 @@ import Foundation
 /// run and was never deleted by anything — so deleting a transcript, or
 /// keeping no audio, left the meeting sitting in a hidden folder beside it.
 /// So it goes when the transcript is written, when a session is retired, and
-/// before a session is transcribed again.
+/// before a session is transcribed again — apart from the completed pieces of
+/// an unfinished compatible run and the mix they were cut from, which a
+/// retirement and a retry keep so the retry pays only for what failed. Those
+/// go with the next transcript that is published, or with the folder.
 enum TranscriptionScratch {
     static let echoFolderPrefix = ".transcription-aec-"
     static let sliceFolder = "openai-slices"
@@ -20,15 +23,43 @@ enum TranscriptionScratch {
         TranscriptionInputs.multichannelFile, TranscriptionInputs.multichannelTemporary,
     ]
 
+    /// Providers whose caches hold completed pieces of an unfinished
+    /// transcription rather than one answer for the whole meeting. Each piece
+    /// is keyed by the endpoint, profile, model, request fields, preparation
+    /// and a digest of the exact audio it was cut from, so a piece made from
+    /// anything else simply misses.
+    static let resumableProviders = ["compatible"]
+
+    static func resumableCaches(in dir: URL) -> [URL] {
+        ProviderCache.files(in: dir).filter { url in
+            resumableProviders.contains { url.lastPathComponent.hasPrefix("transcript.\($0).") }
+        }
+    }
+
     /// What `remove` would take from `dir`, by name.
-    static func items(in dir: URL, includingDerivedAudio: Bool = false) -> [URL] {
+    ///
+    /// `keepingResumable` is for a retry or a retirement, which are the same
+    /// transcription continued rather than a new one: the pieces already paid
+    /// for stay, and so does the mix they were cut from — regenerating it
+    /// re-encodes AAC, and a mix that is not byte for byte the same would miss
+    /// every piece. A success still clears all of it.
+    static func items(
+        in dir: URL, includingDerivedAudio: Bool = false, keepingResumable: Bool = false
+    ) -> [URL] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-        var found = ProviderCache.files(in: dir)
+        let kept: Set<String> = keepingResumable
+            ? Set(resumableCaches(in: dir).map(\.lastPathComponent)) : []
+        var found = ProviderCache.files(in: dir).filter { !kept.contains($0.lastPathComponent) }
+        if kept.isEmpty, names.contains(TranscriptionInputs.mixedIdentityFile) {
+            found.append(dir.appendingPathComponent(TranscriptionInputs.mixedIdentityFile))
+        }
         found += names
             .filter { $0.hasPrefix(echoFolderPrefix) || $0 == sliceFolder }
             .map { dir.appendingPathComponent($0) }
         if includingDerivedAudio {
-            found += names.filter(derivedAudio.contains).map { dir.appendingPathComponent($0) }
+            found += names.filter(derivedAudio.contains)
+                .filter { kept.isEmpty || $0 != TranscriptionInputs.mixedFile }
+                .map { dir.appendingPathComponent($0) }
         }
         return found.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
@@ -37,9 +68,12 @@ enum TranscriptionScratch {
     /// for a session about to be transcribed again, whose mixes may have been
     /// made from tracks as they were rather than as they are.
     @discardableResult
-    static func remove(in dir: URL, includingDerivedAudio: Bool = false) -> [String] {
+    static func remove(
+        in dir: URL, includingDerivedAudio: Bool = false, keepingResumable: Bool = false
+    ) -> [String] {
         var removed: [String] = []
-        for url in items(in: dir, includingDerivedAudio: includingDerivedAudio) {
+        for url in items(in: dir, includingDerivedAudio: includingDerivedAudio,
+                         keepingResumable: keepingResumable) {
             if (try? FileManager.default.removeItem(at: url)) != nil {
                 removed.append(url.lastPathComponent)
             }

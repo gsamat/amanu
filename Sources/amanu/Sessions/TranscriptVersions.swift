@@ -107,13 +107,37 @@ enum TranscriptVersions {
 
     /// Called only after recognition succeeds, while holding the session claim.
     /// An I/O failure restores the previous root artifacts and keeps the request.
-    static func commit(_ transcript: Transcript, to dir: URL) throws {
-        guard isRequested(dir) else { try transcript.write(to: dir); return }
+    ///
+    /// The speaker review owed for the new transcript is written in the same
+    /// meta.json update. A review recorded afterwards could fail after the
+    /// previous transcript had already been replaced and the request removed,
+    /// leaving a published result that skipped its review.
+    static func commit(_ transcript: Transcript, to dir: URL, supportsDiarization: Bool = false) throws {
         let fm = FileManager.default
+        guard isRequested(dir) else {
+            // A first transcript: there is nothing earlier to restore, and
+            // transcript.json is the completion marker, so it must not stay
+            // behind without the review that belongs to it.
+            do {
+                try transcript.write(to: dir)
+                try SessionState.amend(dir, with: [
+                    SessionState.Key.speakerReview: try SpeakerReview.pendingRecord(
+                        dir, supportsDiarization: supportsDiarization),
+                ])
+            } catch {
+                for file in ["transcript.json", "transcript.md"] {
+                    try? fm.removeItem(at: dir.appendingPathComponent(file))
+                }
+                throw error
+            }
+            return
+        }
         let archive = try archiveCurrent(dir)
         let files = ["transcript.md", "transcript.json", SpeakerNames.file, "meta.json"]
         let previous = Dictionary(uniqueKeysWithValues: files.map { ($0, try? Data(contentsOf: dir.appendingPathComponent($0))) })
-        let manual = SpeakerNames.read(from: dir)?.manual ?? [:]
+        // Only the microphone owner's side has meaning independent of the ASR.
+        // A/B and chunk-qualified numbers may identify different voices next time.
+        let manual = (SpeakerNames.read(from: dir)?.manual ?? [:]).filter { $0.key == "me" }
         let names = manual.isEmpty ? nil : SpeakerNames(speakers: manual)
         do {
             if let names { try names.write(to: dir) }
@@ -123,6 +147,9 @@ enum TranscriptVersions {
             try transcript.write(to: dir)
             try SessionState.amend(dir, with: [
                 SessionState.Key.summaryStale: archive != nil && fm.fileExists(atPath: dir.appendingPathComponent("summary.md").path) ? true : nil,
+                SessionState.Key.summaryManualUpdate: nil, SessionState.Key.summaryUpdateRequested: nil,
+                SessionState.Key.speakerReview: try SpeakerReview.pendingRecord(
+                    dir, supportsDiarization: supportsDiarization),
                 SessionState.Key.speakersStatus: nil, SessionState.Key.summaryStatus: nil,
                 SessionState.Key.speakersFailedFor: nil, SessionState.Key.summaryFailedFor: nil,
                 SessionState.Key.speakersDeferrals: nil, SessionState.Key.summaryDeferrals: nil,
@@ -150,6 +177,7 @@ private enum RecordingsEngineName {
         case "assemblyai": return "AssemblyAI"
         case "openai": return "OpenAI"
         case "elevenlabs": return "ElevenLabs"
+        case "compatible": return localised("STT server", "Сервер STT")
         case "auto": return localised("Automatic", "Автоматически")
         default: return id
         }

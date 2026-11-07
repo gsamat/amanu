@@ -123,7 +123,7 @@ enum SettingsSchema {
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
                           "На маке с Intel есть только облачный движок: parakeet нужен Apple Silicon."),
-                      .choice(["auto", "assemblyai", "openai", "elevenlabs"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "compatible"]), default: "auto", askedInSetup: true),
                 Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                       localised(
                           "Which service auto uploads to when a key is available.",
@@ -158,7 +158,7 @@ enum SettingsSchema {
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
                       "auto — облачный движок, когда есть ключ и отвечает сеть, иначе parakeet."),
-                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "parakeet", "whisper", "gigaam"]), default: "auto", askedInSetup: true),
+                      .choice(["auto", "assemblyai", "openai", "elevenlabs", "parakeet", "whisper", "gigaam", "compatible"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "cloud"], localised("Cloud engine", "Облачный движок"),
                   localised(
                       "Which service auto uploads to when a key is available.",
@@ -314,6 +314,24 @@ enum SettingsSchema {
                       "Выключено — только запись; хук on_stop всё равно срабатывает."),
                   .toggle, default: true, askedInSetup: true),
         ] + localModelEntries + [
+            Entry(["transcription", "compatible", "base_url"],
+                  localised("Transcription server URL", "URL сервера расшифровки"),
+                  localised("API root for the compatible transcription server. HTTP is only accepted on this Mac.",
+                            "Корень API совместимого сервера. HTTP разрешён только на этом маке."),
+                  .text, default: "http://127.0.0.1:8000/v1", askedInSetup: true),
+            Entry(["transcription", "compatible", "model"],
+                  localised("Server model", "Модель на сервере"),
+                  localised("The model name served by the endpoint.", "Имя модели, которую обслуживает сервер."),
+                  .text, default: "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4", askedInSetup: true),
+            Entry(["transcription", "compatible", "protocol"],
+                  localised("Server protocol", "Протокол сервера"),
+                  localised("Auto selects the protocol from the server URL.", "Автоматически — выбор по URL сервера."),
+                  .choice(["auto", "mlx-audio", "deepinfra", "openrouter"]), default: "auto", askedInSetup: true),
+            Entry(["transcription", "compatible", "api_key_path"],
+                  localised("Transcription server token file", "Файл токена сервера расшифровки"),
+                  localised("A separate token for this server. AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY wins over it.",
+                            "Отдельный токен этого сервера. AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY важнее."),
+                  .text, describedAs: "~/.config/amanu/keys/transcription-compatible"),
             Entry(["transcript_echo_filter"],
                   localised("Drop echoed speech", "Убирать отражённую речь"),
                   localised(

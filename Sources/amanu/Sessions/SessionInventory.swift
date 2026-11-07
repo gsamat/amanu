@@ -235,19 +235,35 @@ enum SessionInventory {
         /// the greeting doesn't.
         let longest: String
         let turns: Int
+        let audioStartMs: Int?
+        let audioEndMs: Int?
+        let audioText: String?
+        let firstStartMs: Int?
+        let firstEndMs: Int?
+        let longestStartMs: Int?
+        let longestEndMs: Int?
     }
 
     static func samples(transcript: Transcript, names: SpeakerNames?) -> [Sample] {
         SpeakerNamer.orderedLabels(of: transcript).map { label in
             let mine = transcript.segments.filter { $0.speaker == label }
             let entry = names?.speakers[label]
+            let audible = mine.filter { $0.end_ms - $0.start_ms >= 500 && !$0.text.isEmpty }
+            let clip = audible.first { $0.text.count >= 12 } ?? audible.first
+            let first = mine.first
+            let longest = mine.max { $0.text.count < $1.text.count }
             return Sample(
                 label: label,
                 name: entry?.name,
                 source: entry?.source,
                 first: mine.first?.text ?? "",
                 longest: mine.max { $0.text.count < $1.text.count }?.text ?? "",
-                turns: mine.count
+                turns: mine.count,
+                audioStartMs: clip?.start_ms,
+                audioEndMs: clip.map { min($0.end_ms, $0.start_ms + 8_000) },
+                audioText: clip?.text,
+                firstStartMs: first?.start_ms, firstEndMs: first?.end_ms,
+                longestStartMs: longest?.start_ms, longestEndMs: longest?.end_ms
             )
         }
     }
@@ -256,8 +272,7 @@ enum SessionInventory {
     /// hearing how it started is often what settles who was in it.
     static func opening(of transcript: Transcript, names: SpeakerNames?, lines: Int = 8) -> String {
         transcript.segments.prefix(lines).map { segment in
-            let who = names?.speakers[segment.speaker]?.name
-                ?? SpeakerNames.described(label: segment.speaker)
+            let who = transcript.displaySpeaker(label: segment.speaker, names: names)
             return "\(who): \(segment.text)"
         }.joined(separator: "\n")
     }

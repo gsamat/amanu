@@ -19,6 +19,7 @@ on your computer.
 | Signing | Apple Developer ID, notarized | Microsoft Artifact Signing, Fands Software LLC |
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
+| User-managed STT server | MLX Audio (Nemotron 3.5 Transcribe) | — |
 | Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
 | Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
@@ -69,6 +70,8 @@ summarize a meeting without sending its contents anywhere:
   transcription requires Apple Silicon; the Windows app bundles its x64
   runtime and downloads the selected model from Settings.
 - The optional live transcript runs locally.
+- On macOS, a [user-managed STT server](docs/nemotron-server.md) can run
+  Nemotron 3.5 Transcribe through MLX Audio on this Mac.
 - Ollama can write summaries locally when its Base URL is localhost/loopback.
 
 Cloud models are available when quality or convenience matters more than
@@ -436,6 +439,10 @@ only values that differ from the defaults. A compact example:
   launch. With transcription off it runs once the recording is archived; a
   recording that could not be transcribed does not run it.
 - `transcription.*` covers `enabled`, `engine`, `cloud`, `local_engine`, `model`, and `language`.
+  In Settings, transcription can be switched off to keep new recordings as
+  audio without starting transcription or summaries for them. After it is
+  switched back on, pending recordings may be transcribed. A cloud engine can
+  also use a local model as a fallback when the service or network is unavailable.
   `local_engine` is `parakeet` by default, `whisper`, or `gigaam`; Whisper
   downloads about 550 MB once. GigaAM v3 downloads about 260 MB and runs
   locally through Handy's `transcribe.cpp` Metal/CPU runtime. It is Russian-only;
@@ -453,6 +460,18 @@ only values that differ from the defaults. A compact example:
   each; a mono import uses the same diarization. Set `ELEVENLABS_API_KEY` or
   save a key in `~/.config/amanu/keys/elevenlabs`. `live_transcription.enabled`
   controls the on-device preview.
+- `transcription.engine: "compatible"` uses a configured speech server.
+  `transcription.compatible.base_url` defaults to `http://127.0.0.1:8000/v1`;
+  `transcription.compatible.model` names the served model.
+  New server configurations use the MLX Audio API format. The existing
+  `transcription.compatible.protocol` setting remains readable for earlier
+  configurations. The optional token is read from
+  `transcription.compatible.api_key_path`, or from Amanu's separate
+  `~/.config/amanu/keys/transcription-compatible` file;
+  `AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY` takes precedence. OpenAI and summary
+  keys are never reused for this server. The server check sends a locally
+  synthesized test phrase, never a meeting recording. See the
+  [server guide](docs/nemotron-server.md).
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.

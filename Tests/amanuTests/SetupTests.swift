@@ -424,13 +424,8 @@ struct SetupTests {
         #expect(label.textColor == .systemGreen)
     }
 
-    /// The transcription section is two switches, and a switch nobody wired
-    /// is the defect this file exists because of — the Summaries one shipped
-    /// that way and silently summarised meetings that had been switched off.
-    /// A target that is set is not evidence of anything being written, so
-    /// the switches are thrown and the writes read back.
     @Test(
-        "Both transcription switches write what they say",
+        "Transcription modes are exclusive and retain record-only and fallback",
         .enabled(if: Platform.supportsLocalModels))
     @MainActor
     func transcriptionSwitchesWrite() throws {
@@ -438,19 +433,32 @@ struct SetupTests {
         let form = SetupForm()
         defer { form.stop() }
         form.storedTranscription = { store.choice }
+        form.storedTranscriptionEnabled = { store.enabled }
         form.write = { store.write($0, $1) }
+        form.parakeetIsHere = { true }
         form.refresh()
 
-        let cloud = try Self.control(NSSwitch.self, "transcription.cloud", in: form.view)
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
-        #expect(cloud.state == .on && local.state == .on)
-
-        cloud.performClick(nil)
-        #expect(store.engine == "parakeet", "the cloud went off and \(store.engine ?? "nothing") was written")
-        #expect(store.enabled)
-
+        let cloud = try Self.control(NSButton.self, "transcription.cloud", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
+        let compatible = try Self.control(NSButton.self, "transcription.compatible", in: form.view)
+        let enabled = try Self.control(NSSwitch.self, "transcription.enabled", in: form.view)
+        let fallback = try Self.control(NSSwitch.self, "transcription.cloud-fallback", in: form.view)
+        #expect(cloud.state == .on && local.state == .off && compatible.state == .off)
+        #expect(fallback.state == .on)
+        #expect(store.log.isEmpty, "redrawing auto must not rewrite the existing fallback")
         local.performClick(nil)
-        #expect(!store.enabled, "both off is record-only, and that was not written")
+        #expect(store.engine == "parakeet")
+        #expect(store.enabled)
+        #expect(local.state == .on && cloud.state == .off && compatible.state == .off)
+        compatible.performClick(nil)
+        #expect(store.engine == "compatible" && store.enabled)
+        #expect(compatible.state == .on && local.state == .off && cloud.state == .off)
+        enabled.performClick(nil)
+        #expect(!store.enabled)
+        #expect(store.engine == "compatible", "record-only must keep the selected engine")
+        enabled.performClick(nil)
+        #expect(store.enabled && store.engine == "compatible")
+        #expect(compatible.state == .on && cloud.state == .off && local.state == .off)
     }
 
     /// Cloud providers are on screen whether or not the cloud is switched on,
@@ -501,9 +509,10 @@ struct SetupTests {
         let panel = try #require(NSApp.windows.last { $0.title == "amanu setup" })
         let keyFields = panel.contentView?.allDescendants
             .compactMap { $0 as? NSSecureTextField } ?? []
-        // Both of them: the cloud key and the summary key sit under the same
-        // default button and had the same problem.
-        #expect(keyFields.count == 2)
+        // All credential fields sit under the same default button, including
+        // the separately stored compatible-server token.
+        #expect(Set(keyFields.compactMap { $0.identifier?.rawValue })
+            == ["transcription.key", "summary.key", "transcription.compatible.token"])
 
         let editor = NSTextView()
         for field in keyFields {
@@ -919,13 +928,13 @@ struct SetupTests {
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         #expect(local.state == .off, "the form did not start from the cloud-only config")
 
         local.performClick(nil)
 
         #expect(local.state == .on, "the switch was put back by the redraw its own click caused")
-        #expect(store.engine == nil, "the click wrote \(store.engine ?? "nothing")")
+        #expect(store.engine == "parakeet", "the click wrote \(store.engine ?? "nothing")")
         #expect(store.enabled)
         #expect(form.isDownloading, "the model was chosen but never fetched")
     }
@@ -948,13 +957,11 @@ struct SetupTests {
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         local.performClick(nil)
         let first = store.log
         #expect(form.isDownloading)
 
-        local.performClick(nil)
-        #expect(local.state == .off)
         store.log = []
         local.performClick(nil)
 
@@ -978,19 +985,16 @@ struct SetupTests {
         let form = SetupForm()
         defer { form.stop() }
         form.storedTranscription = { store.choice }
+        form.storedTranscriptionEnabled = { store.enabled }
         form.write = { store.write($0, $1) }
         form.parakeetIsHere = { false }
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
-        #expect(local.state == .off)
-
-        local.performClick(nil)
-
-        #expect(local.state == .on)
-        #expect(store.enabled, "the click rewrote the record-only setting it was leaving")
-        #expect(store.engine == "parakeet")
+        let enabled = try Self.control(NSSwitch.self, "transcription.enabled", in: form.view)
+        #expect(enabled.state == .off)
+        enabled.performClick(nil)
+        #expect(store.enabled)
     }
 
     /// A control by the name the form gives it, rather than by walking up
@@ -1234,6 +1238,7 @@ private final class TranscriptionStore {
     var engine: String?
     var cloud = "assemblyai"
     var localEngine = "parakeet"
+    var compatibleProtocol = "auto"
     var enabled = true
     /// Every write, in order, for comparing one click against another.
     var log: [String] = []
@@ -1261,6 +1266,8 @@ private final class TranscriptionStore {
         case ["transcription", "cloud"]: cloud = value as? String ?? "assemblyai"
         case ["transcription", "local_engine"]:
             localEngine = value as? String ?? "parakeet"
+        case ["transcription", "compatible", "protocol"]:
+            compatibleProtocol = value as? String ?? "auto"
         default: Issue.record("the form wrote \(path.joined(separator: ".")), which is not ours")
         }
     }
