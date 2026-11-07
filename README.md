@@ -19,7 +19,7 @@ on your computer.
 | Signing | Apple Developer ID, notarized | Microsoft Artifact Signing, Fands Software LLC |
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
-| User-managed STT server | MLX Audio, DeepInfra, OpenRouter | — |
+| User-managed STT server | MLX Audio, DeepInfra, OpenRouter (model-dependent) | — |
 | Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
 | Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
@@ -466,7 +466,9 @@ only values that differ from the defaults. A compact example:
   `AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY` takes precedence. OpenAI and summary
   keys are never reused for this server. Settings provides separate connection
   and recognition checks; recognition sends a locally synthesized public test
-  phrase, never a meeting recording.
+  phrase, never a meeting recording. OpenRouter's Nemotron 3.5 endpoint does
+  not currently provide the speaker labels this engine requires; see the
+  [server guide](docs/nemotron-server.md).
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.
