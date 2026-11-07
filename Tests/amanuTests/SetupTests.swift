@@ -433,6 +433,7 @@ struct SetupTests {
         let form = SetupForm()
         defer { form.stop() }
         form.storedTranscription = { store.choice }
+        form.storedTranscriptionEnabled = { store.enabled }
         form.write = { store.write($0, $1) }
         form.parakeetIsHere = { true }
         form.refresh()
@@ -440,9 +441,10 @@ struct SetupTests {
         let cloud = try Self.control(NSButton.self, "transcription.cloud", in: form.view)
         let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         let compatible = try Self.control(NSButton.self, "transcription.compatible", in: form.view)
-        let additional = try Self.control(NSPopUpButton.self, "transcription.additional-modes", in: form.view)
-        #expect(cloud.state == .off && local.state == .off && compatible.state == .off)
-        #expect(additional.selectedItem?.representedObject as? String == "auto")
+        let enabled = try Self.control(NSSwitch.self, "transcription.enabled", in: form.view)
+        let fallback = try Self.control(NSSwitch.self, "transcription.cloud-fallback", in: form.view)
+        #expect(cloud.state == .on && local.state == .off && compatible.state == .off)
+        #expect(fallback.state == .on)
         #expect(store.log.isEmpty, "redrawing auto must not rewrite the existing fallback")
         local.performClick(nil)
         #expect(store.engine == "parakeet")
@@ -451,14 +453,12 @@ struct SetupTests {
         compatible.performClick(nil)
         #expect(store.engine == "compatible" && store.enabled)
         #expect(compatible.state == .on && local.state == .off && cloud.state == .off)
-        additional.selectItem(at: 2)
-        additional.sendAction(additional.action, to: additional.target)
+        enabled.performClick(nil)
         #expect(!store.enabled)
-        additional.selectItem(at: 1)
-        additional.sendAction(additional.action, to: additional.target)
-        #expect(store.enabled && store.engine == nil)
-        #expect(additional.selectedItem?.representedObject as? String == "auto")
-        #expect(cloud.state == .off && local.state == .off && compatible.state == .off)
+        #expect(store.engine == "compatible", "record-only must keep the selected engine")
+        enabled.performClick(nil)
+        #expect(store.enabled && store.engine == "compatible")
+        #expect(compatible.state == .on && cloud.state == .off && local.state == .off)
     }
 
     /// Cloud providers are on screen whether or not the cloud is switched on,
@@ -985,19 +985,16 @@ struct SetupTests {
         let form = SetupForm()
         defer { form.stop() }
         form.storedTranscription = { store.choice }
+        form.storedTranscriptionEnabled = { store.enabled }
         form.write = { store.write($0, $1) }
         form.parakeetIsHere = { false }
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
-        #expect(local.state == .off)
-
-        local.performClick(nil)
-
-        #expect(local.state == .on)
-        #expect(store.enabled, "the click rewrote the record-only setting it was leaving")
-        #expect(store.engine == "parakeet")
+        let enabled = try Self.control(NSSwitch.self, "transcription.enabled", in: form.view)
+        #expect(enabled.state == .off)
+        enabled.performClick(nil)
+        #expect(store.enabled)
     }
 
     /// A control by the name the form gives it, rather than by walking up

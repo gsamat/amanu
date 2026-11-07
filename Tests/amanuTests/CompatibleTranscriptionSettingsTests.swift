@@ -12,6 +12,107 @@ struct CompatibleTranscriptionSettingsTests {
         try #require(form.view.allDescendants.first { $0.identifier?.rawValue == id } as? T)
     }
 
+    @Test("Turning transcription off and on preserves the chosen engine and fallback model",
+          arguments: ["compatible", "parakeet", "auto", "openai"])
+    func enabledSwitchPreservesEngine(engine: String) throws {
+        try Home.current.writeConfig(["transcription": ["engine": engine, "local_engine": "gigaam"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let toggle: NSSwitch = try field("transcription.enabled", in: form)
+        let choices: NSView = try field("transcription.choices", in: form)
+        #expect(toggle.state == .on && !choices.isHidden)
+        toggle.performClick(nil)
+        #expect(!Config.transcriptionEnabled())
+        #expect(Config.transcriptionEngine() == engine)
+        #expect(Config.transcriptionLocalEngine() == "gigaam")
+        #expect(choices.isHidden)
+        form.reload()
+        #expect(!Config.transcriptionEnabled() && Config.transcriptionEngine() == engine)
+        toggle.performClick(nil)
+        #expect(Config.transcriptionEnabled() && Config.transcriptionEngine() == engine)
+        #expect(Config.transcriptionLocalEngine() == "gigaam")
+        #expect(!choices.isHidden)
+    }
+
+    @Test("A pending cloud choice keeps its fallback until a key is accepted",
+          .enabled(if: Platform.supportsLocalModels))
+    func pendingCloudFallbackSurvivesKeyCheck() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible", "local_engine": "gigaam"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        form.checkKey = { _ in .works }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let fallback: NSSwitch = try field("transcription.cloud-fallback", in: form)
+        let model: NSPopUpButton = try field("transcription.cloud-fallback-model", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        fallback.performClick(nil)
+        #expect(Config.transcriptionEngine() == "compatible", "the old engine remains active until the key is checked")
+        #expect(fallback.state == .on && !model.isHiddenOrHasHiddenAncestor)
+        model.selectItem(at: 0)
+        model.sendAction(model.action, to: model.target)
+        #expect(Config.transcriptionLocalEngine() == "gigaam", "pending choices must not change the active configuration")
+        key.stringValue = "fixture-key"
+        await form.saveCloudKey()
+        #expect(Config.transcriptionEngine() == "auto")
+        #expect(Config.transcriptionLocalEngine() == "parakeet")
+        #expect(fallback.state == .on && cloud.state == .on)
+    }
+
+    @Test("Confirming a pending cloud fallback downloads its model and exposes errors",
+          .enabled(if: Platform.supportsLocalModels), arguments: [false, true])
+    func confirmingPendingFallbackDownloadsModel(alreadySaved: Bool) async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        if alreadySaved {
+            let slot = Credentials.transcriptionSlot(for: "openai", in: Config.raw())
+            try Credentials.writeSecret("fixture-key", to: slot.path)
+        }
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { false }
+        form.checkKey = { _ in .works }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        var finishDownload: CheckedContinuation<Void, Error>?
+        form.fetchParakeet = {
+            try await withCheckedThrowingContinuation { continuation in
+                finishDownload = continuation
+                signal.yield()
+            }
+        }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let fallback: NSSwitch = try field("transcription.cloud-fallback", in: form)
+        let status: NSTextField = try field("transcription.cloud-fallback-status", in: form)
+        let retry: NSButton = try field("transcription.cloud-fallback-download", in: form)
+        cloud.performClick(nil)
+        fallback.performClick(nil)
+        #expect(Config.transcriptionEngine() == "compatible")
+        if alreadySaved {
+            let card = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+                .first { $0.id == "openai" })
+            let event = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+                timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            card.mouseDown(with: event)
+        } else {
+            let key: NSSecureTextField = try field("transcription.key", in: form)
+            key.stringValue = "fixture-key"
+            await form.saveCloudKey()
+        }
+        #expect(Config.transcriptionEngine() == "auto")
+        for await _ in started { break }
+        #expect(form.isDownloading)
+        #expect(!status.isHiddenOrHasHiddenAncestor && !status.stringValue.isEmpty)
+        #expect(retry.isHidden, "the retry button must not start a second download")
+        struct FixtureFailure: Error {}
+        try #require(finishDownload).resume(throwing: FixtureFailure())
+        for _ in 0..<1_000 where form.isDownloading { await Task.yield() }
+        #expect(!form.isDownloading)
+        #expect(status.textColor == .systemOrange, "the failure must be visible next to the fallback")
+        #expect(!retry.isHiddenOrHasHiddenAncestor, "a failed download must be retryable")
+        signal.finish()
+    }
+
     @Test("Selecting a compatible server explicitly uses MLX Audio for custom domains")
     func compatibleServerUsesMLXForCustomDomain() throws {
         try Home.current.writeConfig(["transcription": ["engine": "parakeet", "compatible": [
@@ -142,6 +243,7 @@ struct CompatibleTranscriptionSettingsTests {
         try Credentials.writeSecret("fixture-key", to: slot.path)
         let form = SetupForm()
         defer { form.stop() }
+        form.parakeetIsHere = { true }
         let card = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
             .first { $0.id == "openai" })
         let event = try #require(NSEvent.mouseEvent(
@@ -150,14 +252,15 @@ struct CompatibleTranscriptionSettingsTests {
         card.mouseDown(with: event)
         #expect(Config.transcriptionEngine() == "auto")
         #expect(Config.transcriptionCloudProvider() == "openai")
-        let modes: NSPopUpButton = try field("transcription.additional-modes", in: form)
-        #expect(modes.selectedItem?.representedObject as? String == "auto")
-        let gigaam = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
-            .first { $0.id == "gigaam" })
-        gigaam.mouseDown(with: event)
+        let fallback: NSSwitch = try field("transcription.cloud-fallback", in: form)
+        #expect(fallback.state == .on)
+        #expect(Config.transcriptionLocalEngine() == "parakeet")
+        let model: NSPopUpButton = try field("transcription.cloud-fallback-model", in: form)
+        model.selectItem(at: 0)
+        model.sendAction(model.action, to: model.target)
         #expect(Config.transcriptionEngine() == "auto")
-        #expect(Config.transcriptionLocalEngine() == "gigaam")
-        #expect(modes.selectedItem?.representedObject as? String == "auto")
+        #expect(Config.transcriptionLocalEngine() == "parakeet")
+        #expect(fallback.state == .on)
     }
 
     @Test("Changing a provider while selecting cloud-only never restores the old fallback",
@@ -172,7 +275,8 @@ struct CompatibleTranscriptionSettingsTests {
         defer { form.stop() }
         form.checkKey = { _ in .works }
         let cloud: NSButton = try field("transcription.cloud", in: form)
-        cloud.performClick(nil) // AssemblyAI needs a key; auto stays in force.
+        let fallback: NSSwitch = try field("transcription.cloud-fallback", in: form)
+        fallback.performClick(nil) // AssemblyAI needs a key; auto stays in force.
         #expect(Config.transcriptionEngine() == "auto")
         let card = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
             .first { $0.id == "openai" })
@@ -217,10 +321,11 @@ struct CompatibleTranscriptionSettingsTests {
         #expect(!local.isHidden && cloud.isHidden)
         #expect(serverURL.isHiddenOrHasHiddenAncestor)
 
-        let modes: NSPopUpButton = try field("transcription.additional-modes", in: form)
-        modes.selectItem(at: 1)
-        modes.sendAction(modes.action, to: modes.target)
-        #expect(!local.isHidden && !cloud.isHidden, "automatic mode must show both fallback options")
+        try Home.current.writeConfig(["transcription": ["engine": "auto"]])
+        form.reload()
+        let fallback: NSSwitch = try field("transcription.cloud-fallback", in: form)
+        #expect(local.isHidden && !cloud.isHidden, "fallback appears inside cloud, not as a second mode")
+        #expect(fallback.state == .on)
         #expect(serverURL.isHiddenOrHasHiddenAncestor)
     }
 

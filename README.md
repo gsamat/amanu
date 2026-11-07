@@ -439,6 +439,10 @@ only values that differ from the defaults. A compact example:
   launch. With transcription off it runs once the recording is archived; a
   recording that could not be transcribed does not run it.
 - `transcription.*` covers `enabled`, `engine`, `cloud`, `local_engine`, `model`, and `language`.
+  In Settings, transcription can be switched off to keep new recordings as
+  audio without starting transcription or summaries for them. After it is
+  switched back on, pending recordings may be transcribed. A cloud engine can
+  also use a local model as a fallback when the service or network is unavailable.
   `local_engine` is `parakeet` by default, `whisper`, or `gigaam`; Whisper
   downloads about 550 MB once. GigaAM v3 downloads about 260 MB and runs
   locally through Handy's `transcribe.cpp` Metal/CPU runtime. It is Russian-only;
