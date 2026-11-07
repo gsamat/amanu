@@ -173,6 +173,22 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private var pendingProvider: String?
     /// Whether a missing key was requested by choosing cloud-only mode.
     private var pendingCloudOnly = false
+    /// The working configuration must not be replaced by a stale key check.
+    private var pendingTranscriptionBaseline: TranscriptionChoice?
+    private var cloudSelectionRevision: UInt = 0
+    private var cloudKeyEditingProvider: String?
+    private let cloudPendingNote = NSTextField(labelWithString: "")
+
+    private struct CloudKeyAttempt {
+        let target: String
+        let key: String
+        let slot: Credentials.Slot
+        let originalSecret: String?
+        let revision: UInt
+        let choice: TranscriptionChoice
+        let pendingProvider: String?
+        let pendingCloudOnly: Bool
+    }
     /// The provider in force, read back from the config on every refresh.
     private var provider = "assemblyai"
     private let localSwitch = TranscriptionModeButton()
@@ -364,13 +380,21 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleSwitch.identifier = .init("transcription.compatible")
         wireActions()
         refresh()
-        configWatch = ConfigWatch.observe { [weak self] in self?.refresh() }
+        // Notifications may be posted by another task. Keep each form bound
+        // to the home it was created for, rather than the posting task's
+        // task-local home (notably when isolated tests run in parallel).
+        let observationHome = Home.current
+        configWatch = ConfigWatch.observe { [weak self] in
+            Home.$scoped.withValue(observationHome) { self?.refresh() }
+        }
         // A token of the same kind as the config watch's: it ends the
         // observation when the form goes.
         activation = ConfigWatch.Token(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cameBack() }
+            MainActor.assumeIsolated {
+                Home.$scoped.withValue(observationHome) { self?.cameBack() }
+            }
         })
     }
 
@@ -666,8 +690,17 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keyLine.spacing = 10
         keyLine.setViews([cloudKey, cloudKeyStatus, NSView()], in: .leading)
 
+        cloudPendingNote.stringValue = localised(
+            "A key is needed. Until it is verified, the previous transcription engine remains in use.",
+            "Нужен ключ. До его проверки используется прежний движок расшифровки.")
+        cloudPendingNote.font = SetupLayout.statusFont
+        cloudPendingNote.textColor = .secondaryLabelColor
+        cloudPendingNote.lineBreakMode = .byWordWrapping
+        cloudPendingNote.maximumNumberOfLines = 2
+        cloudPendingNote.identifier = .init("transcription.cloud-pending-note")
+
         let stack = cloudOptions
-        stack.setViews([SetupLayout.cards(providerCards.cards), keyLine], in: .leading)
+        stack.setViews([SetupLayout.cards(providerCards.cards), keyLine, cloudPendingNote], in: .leading)
         stack.identifier = .init("transcription.cloud-options")
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -1066,18 +1099,28 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         Config.update(path: ["keep_audio"], value: keepAudio.state == .on ? true : nil)
     }
 
+    /// Finish any token edit before hiding its controls. Invalidate a cloud
+    /// key check so a late response cannot undo the person's newer choice.
+    private func beginTranscriptionSelection() {
+        view.window?.makeFirstResponder(nil)
+        cloudSelectionRevision &+= 1
+    }
+
     /// A cloud service with no key opens the key field and keeps the current
     /// mode in force until the key is accepted.
     @objc private func cloudToggled() {
+        beginTranscriptionSelection()
         if !Credentials.hasTranscriptionKey(for: provider) {
             pendingProvider = provider
             pendingCloudOnly = true
+            pendingTranscriptionBaseline = transcriptionChoice
             refresh()
             focusKeyField()
             return
         }
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         cloudSwitch.state = .on
         localSwitch.state = .off
         compatibleSwitch.state = .off
@@ -1088,17 +1131,22 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// key also switches the cloud on. A card without one only opens the key
     /// field: what is in force stays in force until the new key is accepted.
     private func providerPicked(_ id: String) {
+        let previousProvider = pendingProvider ?? provider
+        beginTranscriptionSelection()
+        if previousProvider != id { cloudKey.stringValue = "" }
         // Changing providers while choosing cloud-only must not discard the
         // pending mode choice, even if the previous configuration had fallback.
         let preserveFallback = !pendingCloudOnly && transcriptionChoice.cloud && transcriptionChoice.local
         guard Credentials.hasTranscriptionKey(for: id) else {
             pendingProvider = id
+            pendingTranscriptionBaseline = transcriptionChoice
             refresh()
             focusKeyField()
             return
         }
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         provider = id
         cloudSwitch.state = .on
         localSwitch.state = preserveFallback ? .on : .off
@@ -1124,8 +1172,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// asks whether the local model is wanted and missing, and a choice that
     /// was never written is not wanted.
     @objc private func localToggled() {
+        beginTranscriptionSelection()
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         localSwitch.state = .on
         cloudSwitch.state = .off
         compatibleSwitch.state = .off
@@ -1134,6 +1184,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private func localEnginePicked(_ id: String) {
+        beginTranscriptionSelection()
         localEngineCards.select(id)
         if localSwitch.state == .on {
             commitTranscription()
@@ -1151,8 +1202,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         else { return }
         let id = String(raw.dropFirst(prefix.count))
         guard Config.localEngines.contains(id) else { return }
+        beginTranscriptionSelection()
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         localEngineCards.select(id)
         localSwitch.state = .on
         cloudSwitch.state = .off
@@ -1177,19 +1230,23 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func compatibleToggled() {
+        beginTranscriptionSelection()
         compatibleSwitch.state = .on
         cloudSwitch.state = .off
         localSwitch.state = .off
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         commitTranscription()
     }
 
     @objc private func additionalTranscriptionModeChanged() {
         let mode = additionalTranscriptionModes.selectedItem?.representedObject as? String ?? ""
         guard mode == "auto" || mode == "disabled" else { refresh(); return }
+        beginTranscriptionSelection()
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         let selected = TranscriptionChoice(
             cloud: mode == "auto", local: mode == "auto" && Platform.supportsLocalModels,
             provider: provider, localEngine: localEngineCards.selected ?? transcriptionChoice.localEngine)
@@ -1690,9 +1747,20 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     // MARK: - text fields
 
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        guard let field = notification.object as? NSTextField, field === cloudKey else { return }
+        cloudKeyEditingProvider = pendingProvider ?? provider
+    }
+
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
-        if field === cloudKey { Task { await saveCloudKey() } }
+        if field === cloudKey {
+            // Capture the provider and key synchronously, before a click on a
+            // different mode or card can change which provider is selected.
+            let attempt = prepareCloudKeyAttempt()
+            cloudKeyEditingProvider = nil
+            if let attempt { Task { await finishCloudKeyAttempt(attempt) } }
+        }
         if field === summaryKey { Task { await saveSummaryKey() } }
         if field === compatibleToken { saveCompatibleToken() }
         if field === compatibleURL || field === compatibleModel {
@@ -1794,32 +1862,58 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// only sign was every later meeting failing to transcribe with HTTP 401.
     /// A key that isn't accepted never reaches the file.
     func saveCloudKey() async {
-        let target = pendingProvider ?? provider
+        guard let attempt = prepareCloudKeyAttempt() else { return }
+        await finishCloudKeyAttempt(attempt)
+    }
+
+    private func prepareCloudKeyAttempt() -> CloudKeyAttempt? {
+        let target = cloudKeyEditingProvider ?? pendingProvider ?? provider
         let key = cloudKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
+        guard !key.isEmpty else { return nil }
         let slot = Credentials.transcriptionSlot(for: target, in: Config.raw())
         guard slot.isAmanus else {
             cloudKeyStatus.stringValue = Credentials.notOursToWrite(slot)
-            return
+            return nil
         }
+        cloudSelectionRevision &+= 1
         cloudKeyStatus.stringValue = Self.checkingKey
+        return CloudKeyAttempt(
+            target: target, key: key, slot: slot, originalSecret: Config.secret(at: slot.path),
+            revision: cloudSelectionRevision, choice: transcriptionChoice,
+            pendingProvider: pendingProvider, pendingCloudOnly: pendingCloudOnly)
+    }
 
+    private func cloudKeyAttemptIsCurrent(_ attempt: CloudKeyAttempt) -> Bool {
+        cloudSelectionRevision == attempt.revision
+            && transcriptionChoice == attempt.choice
+            && pendingProvider == attempt.pendingProvider
+            && pendingCloudOnly == attempt.pendingCloudOnly
+            && cloudKey.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == attempt.key
+            && Credentials.transcriptionSlot(for: attempt.target, in: Config.raw()) == attempt.slot
+            && Config.secret(at: attempt.slot.path) == attempt.originalSecret
+    }
+
+    private func finishCloudKeyAttempt(_ attempt: CloudKeyAttempt) async {
+        guard cloudKeyAttemptIsCurrent(attempt) else { return }
         let service: Credentials.Check.Service
-        switch target {
+        switch attempt.target {
         // Transcription only ever talks to OpenAI itself, whatever endpoint
         // the summaries are pointed at.
         case "openai": service = .openAI(baseURL: "https://api.openai.com/v1")
         case "elevenlabs": service = .elevenLabs
         default: service = .assemblyAI
         }
-        let verdict = await checkKey(Credentials.Check(service: service, key: key))
+        let verdict = await checkKey(Credentials.Check(service: service, key: attempt.key))
+        // A mode, provider, key, or config change while the request was in
+        // flight takes precedence over its now obsolete response.
+        guard cloudKeyAttemptIsCurrent(attempt) else { return }
         guard verdict == .works else {
             cloudKeyStatus.stringValue = verdict.sentence(
-                keepingSaved: Credentials.hasTranscriptionKey(for: target))
+                keepingSaved: Credentials.hasTranscriptionKey(for: attempt.target))
             return
         }
         do {
-            try Credentials.writeSecret(key, to: slot.path)
+            try Credentials.writeSecret(attempt.key, to: attempt.slot.path)
         } catch {
             cloudKeyStatus.stringValue =
                 localised("couldn't save the key: ", "не удалось сохранить ключ: ") + "\(error)"
@@ -1829,10 +1923,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         cloudKeyStatus.stringValue = verdict.sentence(keepingSaved: true)
         // A key that works is the answer to the question the switch asked, so
         // it turns the cloud on rather than making the person click twice.
-        provider = target
+        provider = attempt.target
         let preserveFallback = !pendingCloudOnly && transcriptionChoice.cloud && transcriptionChoice.local
         pendingProvider = nil
         pendingCloudOnly = false
+        pendingTranscriptionBaseline = nil
         cloudSwitch.state = .on
         localSwitch.state = preserveFallback ? .on : .off
         compatibleSwitch.state = .off
@@ -2103,20 +2198,37 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private func refreshTranscription() {
         let choice = transcriptionChoice
         provider = choice.provider
+        if let baseline = pendingTranscriptionBaseline, baseline != choice {
+            // Another window or the config file changed the active engine.
+            // A pending selection and any key check for the old choice no
+            // longer have authority to replace that newer configuration.
+            pendingProvider = nil
+            pendingCloudOnly = false
+            pendingTranscriptionBaseline = nil
+            cloudSelectionRevision &+= 1
+        }
+        let previousPendingProvider = pendingProvider
         pendingProvider = TranscriptionChoice.stillPending(pendingProvider) {
             Credentials.hasTranscriptionKey(for: $0)
         }
+        if previousPendingProvider != nil && pendingProvider == nil {
+            pendingCloudOnly = false
+            pendingTranscriptionBaseline = nil
+            cloudSelectionRevision &+= 1
+        }
 
-        cloudSwitch.state = choice.cloud && !choice.local ? .on : .off
-        compatibleSwitch.state = choice.compatible ? .on : .off
-        let additionalMode = choice.cloud && choice.local ? "auto"
-            : (!choice.cloud && !choice.local && !choice.compatible ? "disabled" : "")
+        let cloudPending = pendingCloudOnly && pendingProvider != nil
+        cloudSwitch.state = cloudPending || (choice.cloud && !choice.local) ? .on : .off
+        compatibleSwitch.state = !cloudPending && choice.compatible ? .on : .off
+        let additionalMode = cloudPending ? "" : (choice.cloud && choice.local ? "auto"
+            : (!choice.cloud && !choice.local && !choice.compatible ? "disabled" : ""))
         if let index = additionalTranscriptionModes.itemArray.firstIndex(where: {
             $0.representedObject as? String == additionalMode
         }) { additionalTranscriptionModes.selectItem(at: index) }
-        compatibleOptions.isHidden = !choice.compatible
-        localOptions.isHidden = !choice.local
+        compatibleOptions.isHidden = cloudPending || !choice.compatible
+        localOptions.isHidden = cloudPending || !choice.local
         cloudOptions.isHidden = !choice.cloud && pendingProvider == nil
+        cloudPendingNote.isHidden = !cloudPending
         compatibleURL.stringValue = Config.compatibleTranscriptionBaseURL()
         compatibleModel.stringValue = Config.compatibleTranscriptionModel()
         let serverProtocol = Config.compatibleTranscriptionProtocol()
@@ -2155,7 +2267,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keyLine.isHidden = pendingProvider == nil && Credentials.hasTranscriptionKey(for: provider)
 
         localSwitch.isEnabled = Platform.supportsLocalModels
-        localSwitch.state = choice.local && !choice.cloud ? .on : .off
+        localSwitch.state = !cloudPending && choice.local && !choice.cloud ? .on : .off
         localEngineCards.select(choice.localEngine)
         for card in localEngineCards.cards {
             card.isEnabled = Platform.supportsLocalModels

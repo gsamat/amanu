@@ -143,7 +143,7 @@ struct CompatibleTranscriptionSettingsTests {
         cloudMode.performClick(nil)
         #expect(Config.transcriptionEngine() == "compatible", "missing cloud key must keep the previous mode")
         #expect(!cloud.isHidden && !cloudKey.isHiddenOrHasHiddenAncestor)
-        #expect(local.isHidden && !serverURL.isHiddenOrHasHiddenAncestor)
+        #expect(local.isHidden && serverURL.isHiddenOrHasHiddenAncestor)
 
         let localMode: NSButton = try field("transcription.local", in: form)
         localMode.performClick(nil)
@@ -155,6 +155,242 @@ struct CompatibleTranscriptionSettingsTests {
         modes.sendAction(modes.action, to: modes.target)
         #expect(!local.isHidden && !cloud.isHidden, "automatic mode must show both fallback options")
         #expect(serverURL.isHiddenOrHasHiddenAncestor)
+    }
+
+    @Test("Choosing cloud without a key shows only the requested mode without changing the working engine",
+          .enabled(if: Platform.supportsLocalModels), arguments: ["parakeet", "compatible"])
+    func pendingCloudShowsTheSelectedMode(startingEngine: String) async throws {
+        try Home.current.writeConfig(["transcription": ["engine": startingEngine]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        form.checkKey = { _ in .refused }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let local: NSButton = try field("transcription.local", in: form)
+        let server: NSButton = try field("transcription.compatible", in: form)
+        let localOptions: NSView = try field("transcription.local-options", in: form)
+        let cloudOptions: NSView = try field("transcription.cloud-options", in: form)
+        let serverURL: NSTextField = try field("transcription.compatible.base-url", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+
+        cloud.performClick(nil)
+        #expect(Config.transcriptionEngine() == startingEngine, "a missing key must not replace the working engine")
+        #expect(cloud.state == .on && local.state == .off && server.state == .off,
+                "the radio buttons must show the mode being configured")
+        #expect(localOptions.isHidden && !cloudOptions.isHidden && serverURL.isHiddenOrHasHiddenAncestor,
+                "only cloud settings should be visible")
+
+        form.reload()
+        #expect(cloud.state == .on && local.state == .off && server.state == .off,
+                "refresh must preserve the pending selection")
+        #expect(localOptions.isHidden && !cloudOptions.isHidden && serverURL.isHiddenOrHasHiddenAncestor)
+
+        key.stringValue = "rejected-fixture-key"
+        await form.saveCloudKey()
+        #expect(Config.transcriptionEngine() == startingEngine, "a refused key must not replace the working engine")
+        #expect(cloud.state == .on && local.state == .off && server.state == .off)
+        #expect(localOptions.isHidden && !cloudOptions.isHidden && serverURL.isHiddenOrHasHiddenAncestor)
+
+        (startingEngine == "parakeet" ? local : server).performClick(nil)
+        #expect(Config.transcriptionEngine() == startingEngine)
+        #expect(cloud.state == .off && cloudOptions.isHidden)
+        #expect(startingEngine == "parakeet" ? local.state == .on : server.state == .on)
+    }
+
+    @Test("A config change from another isolated home cannot cancel this form's pending choice",
+          .enabled(if: Platform.supportsLocalModels))
+    func unrelatedHomeNotificationPreservesPendingChoice() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let otherHome = Home.sandbox()
+        defer { try? FileManager.default.removeItem(at: otherHome.url) }
+        try otherHome.writeConfig(["transcription": ["engine": "parakeet"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let local: NSButton = try field("transcription.local", in: form)
+        let server: NSButton = try field("transcription.compatible", in: form)
+        let cloudOptions: NSView = try field("transcription.cloud-options", in: form)
+        let serverURL: NSTextField = try field("transcription.compatible.base-url", in: form)
+        cloud.performClick(nil)
+        #expect(Config.transcriptionEngine() == "compatible")
+        #expect(cloud.state == .on && local.state == .off && server.state == .off)
+
+        Home.$scoped.withValue(otherHome) {
+            NotificationCenter.default.post(name: Config.didChange, object: nil)
+        }
+        #expect(Config.transcriptionEngine() == "compatible")
+        #expect(cloud.state == .on && local.state == .off && server.state == .off,
+                "a notification must redraw using the form's own home")
+        #expect(!cloudOptions.isHidden && serverURL.isHiddenOrHasHiddenAncestor)
+
+        Config.update(path: ["transcription", "engine"], value: "parakeet")
+        #expect(local.state == .on && cloud.state == .off && server.state == .off,
+                "a genuine change in the form's own home must still redraw it")
+    }
+
+    @Test("A late cloud key check cannot replace a mode selected while it was in flight",
+          .enabled(if: Platform.supportsLocalModels))
+    func cloudKeyCheckDoesNotOverrideLaterModeSelection() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        var finishCheck: CheckedContinuation<Credentials.Verdict, Never>?
+        form.checkKey = { _ in
+            await withCheckedContinuation { continuation in
+                finishCheck = continuation
+                signal.yield()
+            }
+        }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let local: NSButton = try field("transcription.local", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        key.stringValue = "fixture-key"
+        let check = Task { await form.saveCloudKey() }
+        for await _ in started { break }
+        local.performClick(nil)
+        #expect(Config.transcriptionEngine() == "parakeet")
+        try #require(finishCheck).resume(returning: .works)
+        await check.value
+        #expect(Config.transcriptionEngine() == "parakeet", "a stale check must not switch the engine")
+        #expect(local.state == .on && cloud.state == .off)
+    }
+
+    @Test("An older key verification cannot overwrite a newer accepted key")
+    func olderCloudKeyCheckCannotOverwriteNewerKey() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        var finishFirst: CheckedContinuation<Credentials.Verdict, Never>?
+        form.checkKey = { check in
+            if check.key == "old-fixture-key" {
+                return await withCheckedContinuation { continuation in
+                    finishFirst = continuation
+                    signal.yield()
+                }
+            }
+            return .works
+        }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        key.stringValue = "old-fixture-key"
+        let first = Task { await form.saveCloudKey() }
+        for await _ in started { break }
+        key.stringValue = "new-fixture-key"
+        await form.saveCloudKey()
+        try #require(finishFirst).resume(returning: .works)
+        await first.value
+        let slot = Credentials.transcriptionSlot(for: "assemblyai", in: Config.raw())
+        #expect(Config.secret(at: slot.path) == "new-fixture-key", "older validation must not overwrite the new key")
+        #expect(Config.transcriptionEngine() == "assemblyai")
+    }
+
+    @Test("A key edited while verification runs is not cleared or replaced by the earlier result")
+    func keyEditDuringCloudKeyCheckRemainsUnchanged() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        var finishCheck: CheckedContinuation<Credentials.Verdict, Never>?
+        form.checkKey = { _ in
+            await withCheckedContinuation { continuation in
+                finishCheck = continuation
+                signal.yield()
+            }
+        }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        key.stringValue = "old-fixture-key"
+        let check = Task { await form.saveCloudKey() }
+        for await _ in started { break }
+        key.stringValue = "new-unsubmitted-fixture-key"
+        try #require(finishCheck).resume(returning: .works)
+        await check.value
+        let slot = Credentials.transcriptionSlot(for: "assemblyai", in: Config.raw())
+        #expect(key.stringValue == "new-unsubmitted-fixture-key", "a stale response must not clear a newer edit")
+        #expect(Config.secret(at: slot.path) == nil, "a stale response must not save the earlier key")
+        #expect(Config.transcriptionEngine() == "compatible", "a stale response must not switch engines")
+    }
+
+    @Test("A provider changed during key verification stays selected")
+    func providerChangeDuringCloudKeyCheck() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        var finishFirst: CheckedContinuation<Credentials.Verdict, Never>?
+        form.checkKey = { _ in
+            await withCheckedContinuation { continuation in
+                finishFirst = continuation
+                signal.yield()
+            }
+        }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        key.stringValue = "assembly-fixture-key"
+        let first = Task { await form.saveCloudKey() }
+        for await _ in started { break }
+        let openAI = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "openai" })
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        openAI.mouseDown(with: event)
+        try #require(finishFirst).resume(returning: .works)
+        await first.value
+        #expect(Config.transcriptionEngine() == "compatible", "an earlier provider must not override the new choice")
+        #expect(cloud.state == .on, "keep the new provider's pending cloud setup visible")
+        #expect(key.placeholderString == "sk-…", "OpenAI must remain the selected provider")
+    }
+
+    @Test("A deferred cloud key check never sends a key to the previous provider",
+          .enabled(if: Platform.supportsLocalModels))
+    func deferredCloudBlurRetainsItsProviderOrIsCancelled() async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        var checkedServices: [Credentials.Check.Service] = []
+        form.checkKey = { check in checkedServices.append(check.service); return .works }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        let local: NSButton = try field("transcription.local", in: form)
+        let key: NSSecureTextField = try field("transcription.key", in: form)
+        cloud.performClick(nil)
+        let openAI = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "openai" })
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        openAI.mouseDown(with: event)
+        key.stringValue = "openai-fixture-key"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: key))
+        local.performClick(nil)
+        await Task { @MainActor in }.value
+        #expect(checkedServices.allSatisfy { $0 == .openAI(baseURL: "https://api.openai.com/v1") },
+                "a key must never be validated with a different provider")
+        #expect(Config.transcriptionEngine() == "parakeet", "a deferred check must not undo the new choice")
+    }
+
+    @Test("A compatible token is saved when leaving the server mode",
+          .enabled(if: Platform.supportsLocalModels))
+    func compatibleTokenSurvivesModeSwitch() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        let token: NSSecureTextField = try field("transcription.compatible.token", in: form)
+        let local: NSButton = try field("transcription.local", in: form)
+        token.stringValue = "compatible-fixture-token"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: token))
+        local.performClick(nil)
+        #expect(Config.compatibleTranscriptionKey() == "compatible-fixture-token")
+        #expect(Config.transcriptionEngine() == "parakeet")
     }
 
     @Test("The server check runs recognition and exposes its real result")
