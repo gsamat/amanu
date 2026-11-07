@@ -21,18 +21,28 @@ struct CompatibleTranscriptionSettingsTests {
         try Credentials.writeSecret("summary-secret", to: Credentials.openAICompatibleKeyPath)
         #expect(Config.compatibleTranscriptionKey() == nil)
         let form = SetupForm()
-        let toggle: NSSwitch = try field("transcription.compatible", in: form)
+        let toggle: NSButton = try field("transcription.compatible", in: form)
         #expect(toggle.state == .on)
         #expect(Config.compatibleTranscriptionBaseURL() == "https://speech.example/v1")
         #expect(Config.compatibleTranscriptionModel() == "private-speech")
         #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
         let token: NSSecureTextField = try field("transcription.compatible.token", in: form)
         token.stringValue = "speech-secret"
-        form.saveCompatibleToken()
+        form.reload()
+        #expect(token.stringValue == "speech-secret", "refresh must not discard a token being edited")
+        #expect(Config.compatibleTranscriptionKey() == nil, "refresh must not save an unfinished token")
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: token))
         #expect(Config.compatibleTranscriptionKey() == "speech-secret")
+        let tokenStatus: NSTextField = try field("transcription.compatible.token-status", in: form)
+        let remove: NSButton = try field("transcription.compatible.remove-token", in: form)
+        #expect(!tokenStatus.stringValue.isEmpty && !remove.isHidden)
         #expect(Config.openAIKey() == "openai-secret")
         #expect(Config.secret(at: Credentials.openAICompatibleKeyPath) == "summary-secret")
         #expect(!(Home.current.configText ?? "").contains("speech-secret"))
+        remove.performClick(nil)
+        #expect(Config.compatibleTranscriptionKey() == nil)
+        #expect(remove.isHidden)
+        #expect(Config.openAIKey() == "openai-secret")
         form.reload()
         #expect(Config.transcriptionEngine() == "compatible")
         #expect(toggle.state == .on)
@@ -48,6 +58,8 @@ struct CompatibleTranscriptionSettingsTests {
         ]]])
         let form = SetupForm()
         let token: NSSecureTextField = try field("transcription.compatible.token", in: form)
+        let remove: NSButton = try field("transcription.compatible.remove-token", in: form)
+        #expect(remove.isHidden, "a token owned by another application must not be removed")
         token.stringValue = "replacement"
         form.saveCompatibleToken()
         #expect(Config.compatibleTranscriptionKey() == "original")
@@ -55,21 +67,108 @@ struct CompatibleTranscriptionSettingsTests {
         form.stop()
     }
 
-    @Test("Connection and recognition checks are independent and expose their real result")
-    func separateChecks() async throws {
+    @Test("Changing the cloud provider in automatic mode preserves its local fallback",
+          .enabled(if: Platform.supportsLocalModels))
+    func changingProviderKeepsFallback() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "auto"]])
+        let slot = Credentials.transcriptionSlot(for: "openai", in: Config.raw())
+        try Credentials.writeSecret("fixture-key", to: slot.path)
+        let form = SetupForm()
+        defer { form.stop() }
+        let card = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "openai" })
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        card.mouseDown(with: event)
+        #expect(Config.transcriptionEngine() == "auto")
+        #expect(Config.transcriptionCloudProvider() == "openai")
+        let modes: NSPopUpButton = try field("transcription.additional-modes", in: form)
+        #expect(modes.selectedItem?.representedObject as? String == "auto")
+        let gigaam = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "gigaam" })
+        gigaam.mouseDown(with: event)
+        #expect(Config.transcriptionEngine() == "auto")
+        #expect(Config.transcriptionLocalEngine() == "gigaam")
+        #expect(modes.selectedItem?.representedObject as? String == "auto")
+    }
+
+    @Test("Changing a provider while selecting cloud-only never restores the old fallback",
+          .enabled(if: Platform.supportsLocalModels), arguments: [false, true])
+    func pendingCloudOnlySurvivesProviderChange(alreadySaved: Bool) async throws {
+        try Home.current.writeConfig(["transcription": ["engine": "auto"]])
+        if alreadySaved {
+            let slot = Credentials.transcriptionSlot(for: "openai", in: Config.raw())
+            try Credentials.writeSecret("fixture-key", to: slot.path)
+        }
+        let form = SetupForm()
+        defer { form.stop() }
+        form.checkKey = { _ in .works }
+        let cloud: NSButton = try field("transcription.cloud", in: form)
+        cloud.performClick(nil) // AssemblyAI needs a key; auto stays in force.
+        #expect(Config.transcriptionEngine() == "auto")
+        let card = try #require(form.view.allDescendants.compactMap { $0 as? ChoiceCard }
+            .first { $0.id == "openai" })
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 120, y: 40), modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        card.mouseDown(with: event)
+        if !alreadySaved {
+            #expect(Config.transcriptionEngine() == "auto", "keep the old engine until the key works")
+            let key: NSSecureTextField = try field("transcription.key", in: form)
+            key.stringValue = "fixture-key"
+            await form.saveCloudKey()
+        }
+        #expect(Config.transcriptionEngine() == "openai")
+        #expect(cloud.state == .on)
+        let local: NSView = try field("transcription.local-options", in: form)
+        #expect(local.isHidden, "an explicit cloud choice must not keep a local fallback")
+    }
+
+    @Test("Only the selected transcription mode shows its options, including a pending cloud key",
+          .enabled(if: Platform.supportsLocalModels))
+    func optionsFollowSelection() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible"]])
+        let form = SetupForm()
+        defer { form.stop() }
+        form.parakeetIsHere = { true }
+        let local: NSView = try field("transcription.local-options", in: form)
+        let cloud: NSView = try field("transcription.cloud-options", in: form)
+        let serverURL: NSTextField = try field("transcription.compatible.base-url", in: form)
+        let cloudKey: NSTextField = try field("transcription.key", in: form)
+        #expect(local.isHidden && cloud.isHidden)
+        #expect(!serverURL.isHiddenOrHasHiddenAncestor)
+
+        let cloudMode: NSButton = try field("transcription.cloud", in: form)
+        cloudMode.performClick(nil)
+        #expect(Config.transcriptionEngine() == "compatible", "missing cloud key must keep the previous mode")
+        #expect(!cloud.isHidden && !cloudKey.isHiddenOrHasHiddenAncestor)
+        #expect(local.isHidden && !serverURL.isHiddenOrHasHiddenAncestor)
+
+        let localMode: NSButton = try field("transcription.local", in: form)
+        localMode.performClick(nil)
+        #expect(!local.isHidden && cloud.isHidden)
+        #expect(serverURL.isHiddenOrHasHiddenAncestor)
+
+        let modes: NSPopUpButton = try field("transcription.additional-modes", in: form)
+        modes.selectItem(at: 1)
+        modes.sendAction(modes.action, to: modes.target)
+        #expect(!local.isHidden && !cloud.isHidden, "automatic mode must show both fallback options")
+        #expect(serverURL.isHiddenOrHasHiddenAncestor)
+    }
+
+    @Test("The server check runs recognition and exposes its real result")
+    func serverCheck() async throws {
         let form = SetupForm()
         var connection = 0
         var recognition = 0
         form.checkCompatibleConnection = { connection += 1; return "server answered" }
         form.checkCompatibleRecognition = { recognition += 1; return "public phrase recognized" }
-        form.checkCompatibleServer(recognition: false)
-        await form.waitForCompatibleCheck()
-        #expect(connection == 1 && recognition == 0)
         let status: NSTextField = try field("transcription.compatible.status", in: form)
-        #expect(status.stringValue == "server answered")
-        form.checkCompatibleServer(recognition: true)
+        let button: NSButton = try field("transcription.compatible.check-recognition", in: form)
+        button.performClick(nil)
         await form.waitForCompatibleCheck()
-        #expect(connection == 1 && recognition == 1)
+        #expect(connection == 0 && recognition == 1)
         #expect(status.stringValue == "public phrase recognized")
         form.stop()
     }

@@ -2,6 +2,29 @@ import AppKit
 import FluidAudio
 import Foundation
 
+/// Radio controls live in separate layout rows, so expose the selected state
+/// explicitly instead of relying on AppKit's implicit sibling radio group.
+@MainActor
+private final class TranscriptionModeButton: NSButton {
+    init() {
+        super.init(frame: .zero)
+        setButtonType(.radio)
+        title = ""
+        setAccessibilityElement(true)
+        setAccessibilityRole(.radioButton)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func accessibilityValue() -> Any? { NSNumber(value: state == .on ? 1 : 0) }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        performClick(nil)
+        return true
+    }
+}
+
 /// Everything a new installation is asked: the permissions macOS will
 /// otherwise demand at the worst possible moment, and the choices amanu can't
 /// sensibly make for you — what writes the transcript, what writes the
@@ -134,8 +157,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         grantedNote: localised("allowed", "разрешено"),
         optional: true)
 
-    private let cloudSwitch = NSSwitch()
+    private let cloudSwitch = TranscriptionModeButton()
     private let cloudStatus = NSTextField(labelWithString: "")
+    private let cloudOptions = NSStackView()
     private let providerCards = ChoiceGroup()
     private let cloudKey = NSSecureTextField()
     private let cloudKeyStatus = NSTextField(labelWithString: "")
@@ -147,17 +171,22 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// provider actually in force is unchanged, so a curious click cannot cost
     /// the next meeting its transcript.
     private var pendingProvider: String?
+    /// Whether a missing key was requested by choosing cloud-only mode.
+    private var pendingCloudOnly = false
     /// The provider in force, read back from the config on every refresh.
     private var provider = "assemblyai"
-    private let localSwitch = NSSwitch()
-    private let compatibleSwitch = NSSwitch()
+    private let localSwitch = TranscriptionModeButton()
+    private let localOptions = NSStackView()
+    private let compatibleSwitch = TranscriptionModeButton()
+    private let additionalTranscriptionModes = NSPopUpButton()
     private let compatibleURL = NSTextField()
     private let compatibleModel = NSTextField()
     private let compatibleProtocol = NSPopUpButton()
     private let compatibleToken = NSSecureTextField()
     private let compatibleStatus = NSTextField(labelWithString: "")
+    private let compatibleTokenStatus = NSTextField(labelWithString: "")
+    private let compatibleRemoveToken = NSButton()
     private let compatibleOptions = NSStackView()
-    private let compatibleConnectionButton = NSButton()
     private let compatibleRecognitionButton = NSButton()
     private var compatibleProbeTask: Task<Void, Never>?
     private let localEngineCards = ChoiceGroup()
@@ -324,14 +353,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // them, so a test can find a switch without walking up from its
         // label through however many stacks the layout has this week.
         for (toggle, name) in [
-            (cloudSwitch, "transcription.cloud"), (localSwitch, "transcription.local"),
-            (compatibleSwitch, "transcription.compatible"),
             (liveTranscription, "transcription.live"), (keepAudio, "files.keep-audio"),
             (summariesOn, "summary.enabled"), (menuBarIcon, "icons.menu-bar"),
             (dockIcon, "icons.dock"), (autoRecord, "auto-record"), (analytics, "analytics"),
         ] {
             toggle.identifier = NSUserInterfaceItemIdentifier(name)
         }
+        cloudSwitch.identifier = .init("transcription.cloud")
+        localSwitch.identifier = .init("transcription.local")
+        compatibleSwitch.identifier = .init("transcription.compatible")
         wireActions()
         refresh()
         configWatch = ConfigWatch.observe { [weak self] in self?.refresh() }
@@ -384,15 +414,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
     // MARK: - building
 
-    /// The two questions this section actually asks: may audio leave this
-    /// Mac, and should the local model be kept ready. Both are switches, and
-    /// neither is a fallback setting — "the cloud when it answers, this Mac
-    /// when it doesn't" is what having both on *means*, not a third option to
-    /// pick.
-    ///
-    /// The provider cards sit under the cloud switch and stay on screen while
-    /// it is off, because they are what the switch costs: the price per hour
-    /// belongs where the decision is made, not in a document.
+    /// The three common modes are mutually exclusive. Existing automatic
+    /// fallback and record-only configurations remain available in the
+    /// additional modes menu and are never changed just by opening the form.
     private func transcriptionRows() -> NSView {
         cloudSwitch.target = self
         cloudSwitch.action = #selector(cloudToggled)
@@ -402,7 +426,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let cloudRow = SetupLayout.row(
             leading: cloudSwitch,
-            title: SetupLayout.title(localised("In the cloud", "В облаке")),
+            title: SetupLayout.title(localised("Cloud service", "Облачный сервис")),
             detail: SetupLayout.detail(
                 localised(
                     "Audio is uploaded to the provider's servers. Better on Russian, "
@@ -453,7 +477,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let localRow = SetupLayout.row(
             leading: localSwitch,
-            title: SetupLayout.title(localised("On this Mac", "На этом маке")),
+            title: SetupLayout.title(localised("On this Mac", "На этом Mac")),
             detail: SetupLayout.detail(
                 localised(
                     "Nothing leaves the machine; local transcripts label speakers as me / them.",
@@ -466,7 +490,8 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         progress.alignment = .centerY
         progress.spacing = 8
 
-        let localOptions = NSStackView(views: [SetupLayout.cards(localEngineCards.cards), progress])
+        localOptions.setViews([SetupLayout.cards(localEngineCards.cards), progress], in: .leading)
+        localOptions.identifier = .init("transcription.local-options")
         localOptions.orientation = .vertical
         localOptions.alignment = .leading
         localOptions.spacing = 9
@@ -484,9 +509,29 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             row.widthAnchor.constraint(equalTo: localBlock.widthAnchor).isActive = true
         }
 
-        // One row, not two, on an Intel Mac: there is no local model to offer,
-        // and the row explains itself rather than vanishing.
-        return SetupLayout.box([cloudRow, providerRow(), localBlock, compatibleServerRow()])
+        // Keep existing automatic and record-only configurations selectable.
+        additionalTranscriptionModes.identifier = .init("transcription.additional-modes")
+        for (title, value) in [
+            (localised("Other modes…", "Другие режимы…"), ""),
+            (localised("Automatic: cloud with local fallback", "Автоматически: облако и запасная модель на Mac"), "auto"),
+            (localised("Record without transcribing", "Запись без расшифровки"), "disabled"),
+        ] {
+            additionalTranscriptionModes.addItem(withTitle: title)
+            additionalTranscriptionModes.lastItem?.representedObject = value
+        }
+        additionalTranscriptionModes.item(at: 1)?.isEnabled = Platform.supportsLocalModels
+        additionalTranscriptionModes.target = self
+        additionalTranscriptionModes.action = #selector(additionalTranscriptionModeChanged)
+        additionalTranscriptionModes.setAccessibilityLabel(localised("Other transcription modes", "Другие режимы расшифровки"))
+        let otherModes = SetupLayout.row(title: additionalTranscriptionModes)
+        let cloudBlock = NSStackView(views: [cloudRow, providerRow()])
+        cloudBlock.orientation = .vertical
+        cloudBlock.alignment = .leading
+        cloudBlock.spacing = 0
+        for row in cloudBlock.arrangedSubviews {
+            row.widthAnchor.constraint(equalTo: cloudBlock.widthAnchor).isActive = true
+        }
+        return SetupLayout.box([localBlock, cloudBlock, compatibleServerRow(), otherModes])
     }
 
     private func compatibleServerRow() -> NSView {
@@ -494,10 +539,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleSwitch.action = #selector(compatibleToggled)
         let row = SetupLayout.row(
             leading: compatibleSwitch,
-            title: SetupLayout.title(localised("Through a compatible server", "Через совместимый сервер")),
+            title: SetupLayout.title(localised("Your own server", "Свой сервер")),
             detail: SetupLayout.detail(localised(
-                "Use MLX Audio on this Mac, DeepInfra, or OpenRouter. The server receives the audio.",
-                "MLX Audio на этом маке, DeepInfra или OpenRouter. Звук получает выбранный сервер."),
+                "Supports Nemotron 3.5 Transcribe. Speaker labels depend on the server. Audio is sent to it.",
+                "Подходит для Nemotron 3.5 Transcribe. Разделение говорящих зависит от сервера. Звук отправляется на него."),
                 lines: 2, width: 440), trailing: [])
         configureSummaryField(compatibleURL, id: "transcription.compatible.base-url")
         configureSummaryField(compatibleModel, id: "transcription.compatible.model")
@@ -521,32 +566,33 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleStatus.maximumNumberOfLines = 3
         compatibleStatus.lineBreakMode = .byWordWrapping
         compatibleStatus.identifier = .init("transcription.compatible.status")
-        let save = SetupLayout.actionButton(localised("Save token", "Сохранить токен"),
-                                            target: self, action: #selector(saveCompatibleTokenClicked))
-        let remove = SetupLayout.actionButton(localised("Remove token", "Удалить токен"),
-                                              target: self, action: #selector(removeCompatibleTokenClicked))
-        remove.identifier = .init("transcription.compatible.remove-token")
-        let tokenActions = NSStackView(views: [save, remove, NSView()])
+        compatibleTokenStatus.font = SetupLayout.statusFont
+        compatibleTokenStatus.textColor = .secondaryLabelColor
+        compatibleTokenStatus.identifier = .init("transcription.compatible.token-status")
+        compatibleRemoveToken.title = localised("Remove token", "Удалить токен")
+        compatibleRemoveToken.bezelStyle = .rounded
+        compatibleRemoveToken.target = self
+        compatibleRemoveToken.action = #selector(removeCompatibleTokenClicked)
+        compatibleRemoveToken.identifier = .init("transcription.compatible.remove-token")
+        let tokenActions = NSStackView(views: [compatibleTokenStatus, compatibleRemoveToken, NSView()])
         tokenActions.orientation = .horizontal
         tokenActions.spacing = 8
-        for (button, title, action, id) in [
-            (compatibleConnectionButton, localised("Check connection", "Проверить подключение"),
-             #selector(checkCompatibleConnectionClicked), "connection"),
-            (compatibleRecognitionButton, localised("Test recognition", "Проверить распознавание"),
-             #selector(checkCompatibleRecognitionClicked), "recognition"),
-        ] {
-            button.title = title
-            button.bezelStyle = .rounded
-            button.target = self
-            button.action = action
-            button.identifier = .init("transcription.compatible.check-\(id)")
-        }
+        compatibleRecognitionButton.title = localised("Test server", "Проверить сервер")
+        compatibleRecognitionButton.bezelStyle = .rounded
+        compatibleRecognitionButton.target = self
+        compatibleRecognitionButton.action = #selector(checkCompatibleRecognitionClicked)
+        compatibleRecognitionButton.identifier = .init("transcription.compatible.check-recognition")
+        compatibleRecognitionButton.setContentHuggingPriority(.required, for: .horizontal)
         compatibleRecognitionButton.toolTip = localised(
             "Creates a short public test phrase on this Mac. Meeting recordings are not used.",
             "Создаёт короткую тестовую фразу на этом маке. Записи встреч не используются.")
-        let checks = NSStackView(views: [compatibleConnectionButton, compatibleRecognitionButton, NSView()])
-        checks.orientation = .horizontal
-        checks.spacing = 8
+        let checkRow = NSStackView(views: [compatibleRecognitionButton, NSView()])
+        checkRow.orientation = .horizontal
+        checkRow.alignment = .centerY
+        let testNote = SetupLayout.detail(localised(
+            "A short test phrase is sent to the server. Cloud providers may charge for it.",
+            "На сервер отправится короткая тестовая фраза. Облачный сервис может взять плату."),
+            lines: 2, width: 440)
         compatibleOptions.orientation = .vertical
         compatibleOptions.alignment = .leading
         compatibleOptions.spacing = 8
@@ -556,7 +602,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             summaryFieldRow(localised("Model", "Модель"), compatibleModel),
             summaryFieldRow(localised("Protocol", "Протокол"), compatibleProtocol),
             summaryFieldRow(localised("Token", "Токен"), compatibleToken),
-            tokenActions, checks, compatibleStatus,
+            tokenActions, checkRow, testNote, compatibleStatus,
         ] {
             compatibleOptions.addArrangedSubview(option)
             option.widthAnchor.constraint(equalTo: compatibleOptions.widthAnchor, constant: -72).isActive = true
@@ -620,7 +666,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keyLine.spacing = 10
         keyLine.setViews([cloudKey, cloudKeyStatus, NSView()], in: .leading)
 
-        let stack = NSStackView(views: [SetupLayout.cards(providerCards.cards), keyLine])
+        let stack = cloudOptions
+        stack.setViews([SetupLayout.cards(providerCards.cards), keyLine], in: .leading)
+        stack.identifier = .init("transcription.cloud-options")
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -1018,20 +1066,21 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         Config.update(path: ["keep_audio"], value: keepAudio.state == .on ? true : nil)
     }
 
-    /// The cloud switch. Turning it on for a service with no key does not
-    /// turn it on: it opens the key field instead and leaves the switch where
-    /// it was, because a switch that says "on" while every transcript fails
-    /// with HTTP 401 is a lie the person only finds out about after a meeting.
+    /// A cloud service with no key opens the key field and keeps the current
+    /// mode in force until the key is accepted.
     @objc private func cloudToggled() {
-        if cloudSwitch.state == .on { compatibleSwitch.state = .off }
-        if cloudSwitch.state == .on, !Credentials.hasTranscriptionKey(for: provider) {
+        if !Credentials.hasTranscriptionKey(for: provider) {
             pendingProvider = provider
-            cloudSwitch.state = .off
+            pendingCloudOnly = true
             refresh()
             focusKeyField()
             return
         }
         pendingProvider = nil
+        pendingCloudOnly = false
+        cloudSwitch.state = .on
+        localSwitch.state = .off
+        compatibleSwitch.state = .off
         commitTranscription()
     }
 
@@ -1039,6 +1088,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// key also switches the cloud on. A card without one only opens the key
     /// field: what is in force stays in force until the new key is accepted.
     private func providerPicked(_ id: String) {
+        // Changing providers while choosing cloud-only must not discard the
+        // pending mode choice, even if the previous configuration had fallback.
+        let preserveFallback = !pendingCloudOnly && transcriptionChoice.cloud && transcriptionChoice.local
         guard Credentials.hasTranscriptionKey(for: id) else {
             pendingProvider = id
             refresh()
@@ -1046,13 +1098,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             return
         }
         pendingProvider = nil
+        pendingCloudOnly = false
         provider = id
         cloudSwitch.state = .on
+        localSwitch.state = preserveFallback ? .on : .off
         compatibleSwitch.state = .off
         commitTranscription()
     }
 
-    /// The switch is the download button: there is nothing to decide between
+    /// The selection is the download button: there is nothing to decide between
     /// "I want this" and "fetch the model", so asking twice is a step for its
     /// own sake.
     ///
@@ -1070,16 +1124,24 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// asks whether the local model is wanted and missing, and a choice that
     /// was never written is not wanted.
     @objc private func localToggled() {
-        if localSwitch.state == .on { compatibleSwitch.state = .off }
+        pendingProvider = nil
+        pendingCloudOnly = false
+        localSwitch.state = .on
+        cloudSwitch.state = .off
+        compatibleSwitch.state = .off
         commitTranscription()
-        if localSwitch.state == .on { downloadLocalIfNeeded() }
+        downloadLocalIfNeeded()
     }
 
     private func localEnginePicked(_ id: String) {
         localEngineCards.select(id)
-        if localSwitch.state == .on { compatibleSwitch.state = .off }
-        commitTranscription()
-        if localSwitch.state == .on { downloadLocalIfNeeded(id) }
+        if localSwitch.state == .on {
+            commitTranscription()
+            downloadLocalIfNeeded(id)
+        } else {
+            write(["transcription", "local_engine"], id == "parakeet" ? nil : id)
+            refresh()
+        }
     }
 
     @objc private func downloadLocalClicked(_ sender: NSButton) {
@@ -1089,8 +1151,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         else { return }
         let id = String(raw.dropFirst(prefix.count))
         guard Config.localEngines.contains(id) else { return }
+        pendingProvider = nil
+        pendingCloudOnly = false
         localEngineCards.select(id)
         localSwitch.state = .on
+        cloudSwitch.state = .off
         compatibleSwitch.state = .off
         commitTranscription()
         downloadLocalIfNeeded(id)
@@ -1112,12 +1177,25 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func compatibleToggled() {
-        if compatibleSwitch.state == .on {
-            cloudSwitch.state = .off
-            localSwitch.state = .off
-            pendingProvider = nil
-        }
+        compatibleSwitch.state = .on
+        cloudSwitch.state = .off
+        localSwitch.state = .off
+        pendingProvider = nil
+        pendingCloudOnly = false
         commitTranscription()
+    }
+
+    @objc private func additionalTranscriptionModeChanged() {
+        let mode = additionalTranscriptionModes.selectedItem?.representedObject as? String ?? ""
+        guard mode == "auto" || mode == "disabled" else { refresh(); return }
+        pendingProvider = nil
+        pendingCloudOnly = false
+        let selected = TranscriptionChoice(
+            cloud: mode == "auto", local: mode == "auto" && Platform.supportsLocalModels,
+            provider: provider, localEngine: localEngineCards.selected ?? transcriptionChoice.localEngine)
+        for update in selected.updates { write(update.path, update.value) }
+        refresh()
+        if mode == "auto" { downloadLocalIfNeeded() }
     }
 
     @objc private func compatibleProtocolChanged() {
@@ -1125,15 +1203,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         write(["transcription", "compatible", "protocol"], value == "auto" ? nil : value)
     }
 
-    @objc private func saveCompatibleTokenClicked() { saveCompatibleToken() }
-
-    @objc private func checkCompatibleConnectionClicked() { checkCompatibleServer(recognition: false) }
     @objc private func checkCompatibleRecognitionClicked() { checkCompatibleServer(recognition: true) }
 
     func checkCompatibleServer(recognition: Bool) {
         guard compatibleProbeTask == nil else { return }
         view.window?.makeFirstResponder(nil)
-        compatibleConnectionButton.isEnabled = false
         compatibleRecognitionButton.isEnabled = false
         compatibleStatus.stringValue = recognition
             ? localised("Checking a generated test phrase…", "Проверяю сгенерированную тестовую фразу…")
@@ -1142,7 +1216,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             guard let self else { return }
             defer {
                 compatibleProbeTask = nil
-                compatibleConnectionButton.isEnabled = true
                 compatibleRecognitionButton.isEnabled = true
             }
             do {
@@ -1164,33 +1237,42 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         guard !token.isEmpty else { return }
         let slot = Credentials.transcriptionSlot(for: "compatible", in: Config.raw())
         guard slot.isAmanus else {
-            compatibleStatus.stringValue = Credentials.notOursToWrite(slot)
+            compatibleTokenStatus.stringValue = Credentials.notOursToWrite(slot)
             return
         }
         do {
             try Credentials.writeSecret(token, to: slot.path)
             compatibleToken.stringValue = ""
-            compatibleStatus.stringValue = localised(
-                "Token saved. The server will check it when transcribing.",
-                "Токен сохранён. Сервер проверит его при расшифровке.")
+            updateCompatibleTokenState()
         } catch {
-            compatibleStatus.stringValue = localised("Couldn't save token: ", "Не удалось сохранить токен: ") + "\(error)"
+            compatibleTokenStatus.stringValue = localised("Couldn't save token: ", "Не удалось сохранить токен: ") + "\(error)"
         }
     }
 
     @objc private func removeCompatibleTokenClicked() {
         let slot = Credentials.transcriptionSlot(for: "compatible", in: Config.raw())
         guard slot.isAmanus else {
-            compatibleStatus.stringValue = Credentials.notOursToWrite(slot)
+            compatibleTokenStatus.stringValue = Credentials.notOursToWrite(slot)
             return
         }
         do {
             if FileManager.default.fileExists(atPath: slot.path.path) { try FileManager.default.removeItem(at: slot.path) }
             compatibleToken.stringValue = ""
-            compatibleStatus.stringValue = localised("Saved token removed.", "Сохранённый токен удалён.")
+            updateCompatibleTokenState()
         } catch {
-            compatibleStatus.stringValue = localised("Couldn't remove token: ", "Не удалось удалить токен: ") + "\(error)"
+            compatibleTokenStatus.stringValue = localised("Couldn't remove token: ", "Не удалось удалить токен: ") + "\(error)"
         }
+    }
+
+    private func updateCompatibleTokenState() {
+        let slot = Credentials.transcriptionSlot(for: "compatible", in: Config.raw())
+        let hasToken = Config.compatibleTranscriptionKey() != nil
+        compatibleTokenStatus.stringValue = hasToken
+            ? localised("Token saved", "Токен сохранён") : ""
+        compatibleRemoveToken.isHidden = !hasToken || !slot.isAmanus
+        compatibleToken.placeholderString = hasToken
+            ? localised("paste to replace", "вставьте замену")
+            : localised("optional token", "токен, если нужен")
     }
 
     /// Whichever window is showing the form — the setup wizard or the
@@ -1748,8 +1830,12 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         // A key that works is the answer to the question the switch asked, so
         // it turns the cloud on rather than making the person click twice.
         provider = target
+        let preserveFallback = !pendingCloudOnly && transcriptionChoice.cloud && transcriptionChoice.local
         pendingProvider = nil
+        pendingCloudOnly = false
         cloudSwitch.state = .on
+        localSwitch.state = preserveFallback ? .on : .off
+        compatibleSwitch.state = .off
         commitTranscription()
     }
 
@@ -2021,18 +2107,23 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             Credentials.hasTranscriptionKey(for: $0)
         }
 
-        cloudSwitch.state = choice.cloud ? .on : .off
+        cloudSwitch.state = choice.cloud && !choice.local ? .on : .off
         compatibleSwitch.state = choice.compatible ? .on : .off
+        let additionalMode = choice.cloud && choice.local ? "auto"
+            : (!choice.cloud && !choice.local && !choice.compatible ? "disabled" : "")
+        if let index = additionalTranscriptionModes.itemArray.firstIndex(where: {
+            $0.representedObject as? String == additionalMode
+        }) { additionalTranscriptionModes.selectItem(at: index) }
         compatibleOptions.isHidden = !choice.compatible
+        localOptions.isHidden = !choice.local
+        cloudOptions.isHidden = !choice.cloud && pendingProvider == nil
         compatibleURL.stringValue = Config.compatibleTranscriptionBaseURL()
         compatibleModel.stringValue = Config.compatibleTranscriptionModel()
         let serverProtocol = Config.compatibleTranscriptionProtocol()
         if let index = compatibleProtocol.itemArray.firstIndex(where: {
             $0.representedObject as? String == serverProtocol
         }) { compatibleProtocol.selectItem(at: index) }
-        compatibleToken.placeholderString = Config.compatibleTranscriptionKey() == nil
-            ? localised("optional token", "токен, если нужен")
-            : localised("token saved — paste to replace", "токен сохранён — вставьте замену")
+        updateCompatibleTokenState()
         // The card under the key field is the one being answered, so a
         // provider waiting for a key is the one shown chosen.
         providerCards.select(pendingProvider ?? provider)
@@ -2064,7 +2155,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         keyLine.isHidden = pendingProvider == nil && Credentials.hasTranscriptionKey(for: provider)
 
         localSwitch.isEnabled = Platform.supportsLocalModels
-        localSwitch.state = choice.local ? .on : .off
+        localSwitch.state = choice.local && !choice.cloud ? .on : .off
         localEngineCards.select(choice.localEngine)
         for card in localEngineCards.cards {
             card.isEnabled = Platform.supportsLocalModels

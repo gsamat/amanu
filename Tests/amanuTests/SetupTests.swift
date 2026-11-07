@@ -424,13 +424,8 @@ struct SetupTests {
         #expect(label.textColor == .systemGreen)
     }
 
-    /// The transcription section is two switches, and a switch nobody wired
-    /// is the defect this file exists because of — the Summaries one shipped
-    /// that way and silently summarised meetings that had been switched off.
-    /// A target that is set is not evidence of anything being written, so
-    /// the switches are thrown and the writes read back.
     @Test(
-        "Both transcription switches write what they say",
+        "Transcription modes are exclusive and retain record-only and fallback",
         .enabled(if: Platform.supportsLocalModels))
     @MainActor
     func transcriptionSwitchesWrite() throws {
@@ -439,18 +434,31 @@ struct SetupTests {
         defer { form.stop() }
         form.storedTranscription = { store.choice }
         form.write = { store.write($0, $1) }
+        form.parakeetIsHere = { true }
         form.refresh()
 
-        let cloud = try Self.control(NSSwitch.self, "transcription.cloud", in: form.view)
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
-        #expect(cloud.state == .on && local.state == .on)
-
-        cloud.performClick(nil)
-        #expect(store.engine == "parakeet", "the cloud went off and \(store.engine ?? "nothing") was written")
-        #expect(store.enabled)
-
+        let cloud = try Self.control(NSButton.self, "transcription.cloud", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
+        let compatible = try Self.control(NSButton.self, "transcription.compatible", in: form.view)
+        let additional = try Self.control(NSPopUpButton.self, "transcription.additional-modes", in: form.view)
+        #expect(cloud.state == .off && local.state == .off && compatible.state == .off)
+        #expect(additional.selectedItem?.representedObject as? String == "auto")
+        #expect(store.log.isEmpty, "redrawing auto must not rewrite the existing fallback")
         local.performClick(nil)
-        #expect(!store.enabled, "both off is record-only, and that was not written")
+        #expect(store.engine == "parakeet")
+        #expect(store.enabled)
+        #expect(local.state == .on && cloud.state == .off && compatible.state == .off)
+        compatible.performClick(nil)
+        #expect(store.engine == "compatible" && store.enabled)
+        #expect(compatible.state == .on && local.state == .off && cloud.state == .off)
+        additional.selectItem(at: 2)
+        additional.sendAction(additional.action, to: additional.target)
+        #expect(!store.enabled)
+        additional.selectItem(at: 1)
+        additional.sendAction(additional.action, to: additional.target)
+        #expect(store.enabled && store.engine == nil)
+        #expect(additional.selectedItem?.representedObject as? String == "auto")
+        #expect(cloud.state == .off && local.state == .off && compatible.state == .off)
     }
 
     /// Cloud providers are on screen whether or not the cloud is switched on,
@@ -920,13 +928,13 @@ struct SetupTests {
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         #expect(local.state == .off, "the form did not start from the cloud-only config")
 
         local.performClick(nil)
 
         #expect(local.state == .on, "the switch was put back by the redraw its own click caused")
-        #expect(store.engine == nil, "the click wrote \(store.engine ?? "nothing")")
+        #expect(store.engine == "parakeet", "the click wrote \(store.engine ?? "nothing")")
         #expect(store.enabled)
         #expect(form.isDownloading, "the model was chosen but never fetched")
     }
@@ -949,13 +957,11 @@ struct SetupTests {
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         local.performClick(nil)
         let first = store.log
         #expect(form.isDownloading)
 
-        local.performClick(nil)
-        #expect(local.state == .off)
         store.log = []
         local.performClick(nil)
 
@@ -984,7 +990,7 @@ struct SetupTests {
         form.fetchParakeet = {}
         form.refresh()
 
-        let local = try Self.control(NSSwitch.self, "transcription.local", in: form.view)
+        let local = try Self.control(NSButton.self, "transcription.local", in: form.view)
         #expect(local.state == .off)
 
         local.performClick(nil)
