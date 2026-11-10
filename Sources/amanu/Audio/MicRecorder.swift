@@ -691,7 +691,7 @@ final class MicRecorder: @unchecked Sendable {
             mElement: kAudioObjectPropertyElementMain
         )
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            DispatchQueue.main.async { self?.checkRoute() }
+            DispatchQueue.main.async { [weak self] in self?.checkRoute() }
         }
         let status = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
