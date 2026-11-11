@@ -460,14 +460,18 @@ reasoning alone. Worth knowing before trusting any of them in front of someone.
 - **Silence for a gap, written off the tap callback.** Buffers after a gap go
   through `TrackWriter`'s queue until it catches up. Order and length are
   tested against a file; a real route change has not been listened to since.
-- **A microphone that comes back after AirPods come off.** With the deadlock
-  fixed, AirPods Max were taken off mid-call on 11 November 2026 (macOS 15.8):
-  the app stayed responsive, recorded the restart and stopped cleanly when
-  asked. `coreaudiod` spun all the same, and for as long as it did the rebuilt
-  engine delivered no buffers — the last 26 seconds of the mic track are
-  missing, with no `gap_ms` on the restart. Whether amanu's capture has any
-  part in starting that loop is not known: the same call with amanu not
-  running has not been tried.
+- **What is on the mic track after AirPods come off.** With the deadlock
+  fixed, AirPods Max were taken off mid-call twice on 11 November 2026 (macOS
+  15.8, the call app using Voice Isolation). Both times the app stayed
+  responsive, recorded the restart and stopped cleanly. With the system's
+  microphone mode for amanu itself on Voice Isolation, `coreaudiod` spun
+  anyway and the rebuilt engine delivered no buffers for the 26 seconds until
+  the recording was stopped. With that mode on Standard there was no spin:
+  capture moved to the built-in microphone after a gap of 891 ms and the file
+  grew to the end. That is one run each way, so the microphone mode is a
+  suspect and not a finding — and nothing was transcribed from the 40 seconds
+  after the switch, with the audio already discarded, so whether the built-in
+  microphone was carrying sound has not been heard.
 - **Stopping on sleep.** The recording ends on `willSleepNotification`, which
   macOS delivers with a little time to spare. That the files and meta.json
   are complete when the lid opens again has not been checked on a real lid.
