@@ -13,6 +13,7 @@ public sealed record DownloadProgress(string Item, long Received, long Total)
 public sealed class ModelManager(string dataDirectory, HttpClient httpClient, string? applicationDirectory = null)
 {
     public CpuTranscriptionGate CpuTranscription { get; } = new();
+    public LocalComputeBackend LocalBackend { get; } = new();
     public string ModelDirectory { get; } = Path.Combine(dataDirectory, "models");
     public string LiveRuntimeDirectory => Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "live-runtime"));
     public bool LiveRuntimePresent => File.Exists(Path.Combine(LiveRuntimeDirectory, "transcribe.dll"));

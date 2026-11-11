@@ -91,7 +91,7 @@ internal static class Http
 }
 
 /// <summary>transcribe.cpp on this computer, one call per track: mic is "me", the call is "them".</summary>
-public sealed class LocalTranscriptionEngine(ModelManager models, string model, string? languagePin) : ITranscriptionEngine
+public sealed class LocalTranscriptionEngine(ModelManager models, string model, string? languagePin, string localDevice = LocalComputeBackend.Automatic) : ITranscriptionEngine
 {
     /// <summary>The macOS GigaAMEngine's chunk.</summary>
     private const int GigaAmChunkSeconds = 20;
@@ -153,10 +153,13 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
                 foreach (var chunk in chunks)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var args = new List<string> { "-m", modelPath, "--backend", "cpu", "-q", "--timestamps", "word" };
-                    if (!string.IsNullOrWhiteSpace(languagePin)) args.AddRange(["--language", languagePin]);
-                    args.Add(chunk.Path);
-                    var answer = await RunCliAsync(cli, args, cancellationToken).ConfigureAwait(false);
+                    var answer = await RunCliOnBestBackendAsync(cli, backend =>
+                    {
+                        var args = new List<string> { "-m", modelPath, "--backend", backend, "-q", "--timestamps", "word" };
+                        if (!string.IsNullOrWhiteSpace(languagePin)) args.AddRange(["--language", languagePin]);
+                        args.Add(chunk.Path);
+                        return args;
+                    }, cancellationToken).ConfigureAwait(false);
                     var parsed = LocalCliWords.Parse(answer);
                     words.AddRange(parsed.Select(word => word with
                     {
@@ -178,12 +181,15 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
             IReadOnlyList<(string Path, long StartMs, long EndMs)> pieces = model == "gigaam"
                 ? AudioPreprocessor.Split(wave, temp, GigaAmChunkSeconds)
                 : [(wave, 0L, 0L)];
-            var arguments = new List<string> { "-m", modelPath, "--backend", "cpu" };
             var batch = Path.Combine(temp, "batch.txt");
             await File.WriteAllLinesAsync(batch, pieces.Select(piece => piece.Path), cancellationToken).ConfigureAwait(false);
-            arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
-            if (!string.IsNullOrWhiteSpace(languagePin)) arguments.AddRange(["--language", languagePin]);
-            var output = await RunCliAsync(cli, arguments, cancellationToken).ConfigureAwait(false);
+            var output = await RunCliOnBestBackendAsync(cli, backend =>
+            {
+                var arguments = new List<string> { "-m", modelPath, "--backend", backend };
+                arguments.AddRange(["--batch", batch, "--batch-jsonl", "--timestamps", "auto"]);
+                if (!string.IsNullOrWhiteSpace(languagePin)) arguments.AddRange(["--language", languagePin]);
+                return arguments;
+            }, cancellationToken).ConfigureAwait(false);
             if (model == "gigaam")
             {
                 // One segment per piece, as on the Mac: the piece's span, its text.
@@ -216,6 +222,27 @@ public sealed class LocalTranscriptionEngine(ModelManager models, string model, 
         finally
         {
             if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Runs the CLI on the backend the setting allows and, when a GPU pass fails,
+    /// once more on the processor. The GPU is written off only when the
+    /// processor then succeeds: a recording that fails on both is the
+    /// recording's fault, not the card's, and must not cost the next file its GPU.
+    /// </summary>
+    private async Task<string> RunCliOnBestBackendAsync(
+        string cli, Func<string, IEnumerable<string>> arguments, CancellationToken cancellationToken)
+    {
+        var backend = models.LocalBackend.For(localDevice);
+        if (backend == LocalComputeBackend.Processor)
+            return await RunCliAsync(cli, arguments(backend), cancellationToken).ConfigureAwait(false);
+        try { return await RunCliAsync(cli, arguments(backend), cancellationToken).ConfigureAwait(false); }
+        catch (ProcessingFailure) when (!cancellationToken.IsCancellationRequested)
+        {
+            var output = await RunCliAsync(cli, arguments(LocalComputeBackend.Processor), cancellationToken).ConfigureAwait(false);
+            models.LocalBackend.ProcessorSucceededWhereGpuFailed();
+            return output;
         }
     }
 

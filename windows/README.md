@@ -33,7 +33,10 @@ release source, which is newer than the earlier beta tree in some checkouts.
 
 Install Git, the .NET 10 SDK, CMake, and Visual Studio 2022 C++ Build Tools with
 Desktop development with C++ and a Windows 11 SDK. Use a developer PowerShell
-with CMake and the MSVC toolchain available.
+with CMake and the MSVC toolchain available. Install the
+[Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows) as well to build GPU
+support into the final-transcript runtime; without it the build warns and
+produces a processor-only runtime.
 
 For managed-code development:
 
@@ -60,7 +63,11 @@ runtime, and packages the installer, portable ZIP, and stable update feed in
 Python, or separate native runtime installation. Models download from Settings.
 
 Both native builds use portable CPU variants rather than the build computer's
-CPU features. The final-transcript build runs a CPU discovery/startup check.
+CPU features. The final-transcript runtime also carries a Vulkan module, loaded
+only where a GPU driver provides Vulkan. With `transcription.local_device` at
+`auto` (the default), final transcripts run on that GPU and fall back to the
+processor if it fails; `cpu` keeps them on the processor. Live recognition
+always uses the processor. The final-transcript build runs a CPU discovery/startup check.
 It also runs `tests/Test-NativeUnicodePaths.ps1`: the CLI, model, WAV and batch
 list are exercised on paths containing Cyrillic, CJK, accented characters,
 spaces and emoji. This smoke test uses a generated WAV and deliberately short

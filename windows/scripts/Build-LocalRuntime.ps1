@@ -1,11 +1,24 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$PublishDirectory
+    [string]$PublishDirectory,
+    # The release workflow passes this so a runner that lost the Vulkan SDK
+    # fails the build instead of quietly shipping a processor-only runtime.
+    [switch]$RequireVulkan
 )
 
 $ErrorActionPreference = "Stop"
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw "Building the local runtime requires CMake and the MSVC C++ build tools on Windows."
+}
+# The Vulkan module is loaded at runtime like the CPU variants. On a computer
+# without a Vulkan driver it does not load and the CLI keeps to the processor,
+# so one package serves every machine. Building it needs the Vulkan SDK.
+$vulkan = -not [string]::IsNullOrWhiteSpace($env:VULKAN_SDK) -and (Test-Path -LiteralPath $env:VULKAN_SDK)
+if ($RequireVulkan -and -not $vulkan) {
+    throw "The release runtime needs the Vulkan SDK; VULKAN_SDK is not set to an existing directory."
+}
+if (-not $vulkan) {
+    Write-Warning "VULKAN_SDK is not set: building a processor-only local runtime."
 }
 $sourceCommit = "a94e021ef658dc7c788837341a13f6acea3baf3c"
 $workDirectory = Join-Path ([IO.Path]::GetTempPath()) ("amanu-transcribe-" + [Guid]::NewGuid().ToString("N"))
@@ -37,7 +50,7 @@ try {
         -DTRANSCRIBE_BUILD_TOOLS=OFF `
         -DTRANSCRIBE_BUILD_SHARED=ON `
         -DTRANSCRIBE_GGML_BACKEND_DL=ON `
-        -DTRANSCRIBE_VULKAN=OFF `
+        "-DTRANSCRIBE_VULKAN=$(if ($vulkan) { 'ON' } else { 'OFF' })" `
         -DTRANSCRIBE_USE_OPENMP=OFF `
         -DGGML_NATIVE=OFF `
         -DGGML_CPU_ALL_VARIANTS=ON `
@@ -57,6 +70,9 @@ try {
     Get-ChildItem -LiteralPath $buildDirectory -Filter '*.dll' -File -Recurse |
         Where-Object { $_.FullName -match '[\\/]Release[\\/]' } |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $destinationDirectory -Force }
+    if ($vulkan -and -not (Test-Path -LiteralPath (Join-Path $destinationDirectory "ggml-vulkan.dll"))) {
+        throw "The Vulkan build produced no ggml-vulkan.dll."
+    }
     $licenses = Join-Path $destinationDirectory "licenses"
     New-Item -ItemType Directory -Force -Path $licenses | Out-Null
     Copy-Item -LiteralPath (Join-Path $sourceDirectory "LICENSE") -Destination (Join-Path $licenses "transcribe.cpp-LICENSE") -Force

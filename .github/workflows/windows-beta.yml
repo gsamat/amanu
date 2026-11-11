@@ -78,10 +78,18 @@ jobs:
           --property:Version=${{ env.AMANU_VERSION }}
           --output ${{ runner.temp }}/amanu-publish
 
+      # glslc from the SDK compiles ggml's Vulkan shaders into ggml-vulkan.dll.
+      # Users need no SDK: the Vulkan loader ships with Windows GPU drivers.
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: 1.4.309.0
+          cache: true
+
       - name: Build pinned local transcription CLI
         shell: pwsh
         run: |
-          & windows/scripts/Build-LocalRuntime.ps1 -PublishDirectory "${{ runner.temp }}/amanu-publish"
+          & windows/scripts/Build-LocalRuntime.ps1 -PublishDirectory "${{ runner.temp }}/amanu-publish" -RequireVulkan
 
       - name: Build pinned streaming runtime
         shell: pwsh
