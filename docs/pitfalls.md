@@ -460,11 +460,14 @@ reasoning alone. Worth knowing before trusting any of them in front of someone.
 - **Silence for a gap, written off the tap callback.** Buffers after a gap go
   through `TrackWriter`'s queue until it catches up. Order and length are
   tested against a file; a real route change has not been listened to since.
-- **The route-change deadlock fix against real headphones.** The shape of the
-  deadlock is tested without a device, and the reasoning about the two queues
-  comes from a `sample` of the hung process. Nobody has yet taken AirPods off
-  mid-recording with the fix in place, and whether `coreaudiod` still spins
-  afterwards is a separate question that only that will answer.
+- **A microphone that comes back after AirPods come off.** With the deadlock
+  fixed, AirPods Max were taken off mid-call on 11 November 2026 (macOS 15.8):
+  the app stayed responsive, recorded the restart and stopped cleanly when
+  asked. `coreaudiod` spun all the same, and for as long as it did the rebuilt
+  engine delivered no buffers — the last 26 seconds of the mic track are
+  missing, with no `gap_ms` on the restart. Whether amanu's capture has any
+  part in starting that loop is not known: the same call with amanu not
+  running has not been tried.
 - **Stopping on sleep.** The recording ends on `willSleepNotification`, which
   macOS delivers with a little time to spare. That the files and meta.json
   are complete when the lid opens again has not been checked on a real lid.
