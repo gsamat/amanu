@@ -266,6 +266,27 @@ with a wait that gives up after two seconds (`MicRecorder.Retiring`) — the
 order of teardown and setup is worth keeping, an unbounded wait for Core Audio
 on the main thread is not.
 
+## Voice Isolation chosen for amanu itself sets `coreaudiod` spinning
+
+macOS keeps a microphone mode per application, chosen in Control Center while
+that application is recording. With amanu's own mode on Voice Isolation, taking
+AirPods Max off mid-call sent `coreaudiod` to 130–320% CPU within seconds, on
+macOS 15.8, in all three recordings where it was tried — two on 0.6.5, one
+with the deadlock above already fixed. It kept spinning after the recording
+stopped and after amanu was killed, until `sudo killall coreaudiod`. While it
+spins, the rebuilt engine delivers no buffers at all, and on 0.6.5 the main
+thread deadlocks as described above. `coreaudiod` logs
+`SIMULATE [me.samat.amanu]` / `semantics = voice isolation` when a recording
+starts in that mode, which is the quickest way to tell it is on.
+
+With amanu on Standard, and the call app left on Voice Isolation, the same
+route change was uneventful both times it was tried, on 0.6.5 and on the fixed
+build: capture moved to the built-in microphone after a gap of about 0.9 s and
+`coreaudiod` stayed under 20%. amanu records raw and has no use for a
+microphone mode, so the setting is easy to leave on by accident and nothing in
+the app shows it. (What the built-in microphone then recorded was silence, for
+an unrelated reason: three discrete channels folded to mono, issue #57.)
+
 ## The microphone has to be followed; it is not inherited
 
 `AVAudioEngine` binds to the default input when it starts and stays there.
@@ -460,18 +481,10 @@ reasoning alone. Worth knowing before trusting any of them in front of someone.
 - **Silence for a gap, written off the tap callback.** Buffers after a gap go
   through `TrackWriter`'s queue until it catches up. Order and length are
   tested against a file; a real route change has not been listened to since.
-- **What is on the mic track after AirPods come off.** With the deadlock
-  fixed, AirPods Max were taken off mid-call twice on 11 November 2026 (macOS
-  15.8, the call app using Voice Isolation). Both times the app stayed
-  responsive, recorded the restart and stopped cleanly. With the system's
-  microphone mode for amanu itself on Voice Isolation, `coreaudiod` spun
-  anyway and the rebuilt engine delivered no buffers for the 26 seconds until
-  the recording was stopped. With that mode on Standard there was no spin:
-  capture moved to the built-in microphone after a gap of 891 ms and the file
-  grew to the end. That is one run each way, so the microphone mode is a
-  suspect and not a finding — and nothing was transcribed from the 40 seconds
-  after the switch, with the audio already discarded, so whether the built-in
-  microphone was carrying sound has not been heard.
+- **Why Voice Isolation on amanu sets `coreaudiod` spinning.** The pairing is
+  measured — see "Voice Isolation chosen for amanu itself" above — and the
+  mechanism is not. Five recordings on one Mac are the whole of the evidence,
+  and nobody has looked inside `coreaudiod` while the mode was being changed.
 - **Stopping on sleep.** The recording ends on `willSleepNotification`, which
   macOS delivers with a little time to spare. That the files and meta.json
   are complete when the lid opens again has not been checked on a real lid.
