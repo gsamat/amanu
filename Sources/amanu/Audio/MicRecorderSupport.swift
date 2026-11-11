@@ -155,6 +155,82 @@ extension MicRecorder {
         throw lastError ?? RecorderError.engineStartFailed(CocoaError(.featureUnsupported))
     }
 
+    /// Watch for `AVAudioEngineConfigurationChange` without making whoever
+    /// posts it wait for the main thread.
+    ///
+    /// The engine posts it synchronously from its own serial queue, in the
+    /// middle of reconfiguring itself. An observer registered on the main
+    /// operation queue turns that post into a wait for the main thread — and
+    /// the main thread, rebuilding capture for the same route change, is by
+    /// then waiting for the engine's queue: `stop()`, `removeTap(onBus:)` and
+    /// the engine's `dealloc` all run on it synchronously. Neither side ever
+    /// lets go. On 10 November 2026 AirPods coming off mid-meeting left amanu
+    /// in exactly that state, twice: the microphone track ended where the
+    /// headphones did, the app answered neither `amanu record stop` nor Quit,
+    /// and `coreaudiod` spun until it was killed.
+    ///
+    /// So the observer runs on the poster's thread, does nothing there but
+    /// note which engine posted, and hands the rest to the main queue without
+    /// waiting for it. The engine is carried as an identity and not as a
+    /// reference: a reference would keep a replaced engine alive until the
+    /// main thread got to it, and then release it there.
+    static func observeConfigurationChanges(
+        in center: NotificationCenter = .default,
+        deliver: @escaping @Sendable (_ poster: ObjectIdentifier?) -> Void
+    ) -> NSObjectProtocol {
+        center.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil
+        ) { note in
+            let poster = note.object.map { ObjectIdentifier($0 as AnyObject) }
+            DispatchQueue.main.async { deliver(poster) }
+        }
+    }
+
+    /// The last reference to an engine that capture has finished with, so
+    /// that it can be dropped somewhere other than the thread that replaced
+    /// it.
+    ///
+    /// `-[AVAudioEngine dealloc]` waits for the engine's own queue, and the
+    /// thread that replaces an engine is the main thread. Dropping the
+    /// reference there ties the whole app to whatever that queue is doing
+    /// with a device that has just gone away — which, the one time it was
+    /// waiting for the main thread itself, was for ever.
+    ///
+    /// The caller still waits, because order matters: the old engine's voice
+    /// unit should have given its devices back before the new one asks for
+    /// them. But it waits only so long, and after that the old engine goes
+    /// away by itself whenever its queue lets it.
+    final class Retiring: @unchecked Sendable {
+        /// Concurrent, so that one engine that never finishes going away does
+        /// not stand in front of the next.
+        static let queue = DispatchQueue(
+            label: "me.samat.amanu.mic-retire", qos: .userInitiated, attributes: .concurrent)
+
+        /// Tearing an engine down takes milliseconds. Two seconds is far
+        /// outside that and still short of a track anyone would call stalled.
+        static let patience: TimeInterval = 2
+
+        private var object: AnyObject?
+
+        init(_ object: AnyObject) { self.object = object }
+
+        /// Drop the reference on `queue`, and return once it is gone or
+        /// `limit` has passed, whichever is first. False means it had not
+        /// gone yet. The caller must hold no other reference.
+        @discardableResult
+        func release(
+            on queue: DispatchQueue = Retiring.queue,
+            waitingUpTo limit: TimeInterval = Retiring.patience
+        ) -> Bool {
+            let gone = DispatchSemaphore(value: 0)
+            queue.async {
+                self.object = nil
+                gone.signal()
+            }
+            return gone.wait(timeout: .now() + limit) == .success
+        }
+    }
+
     /// The longest dead span written into the track as silence. A route
     /// change is seconds; anything near this is a machine that stopped
     /// delivering audio for reasons of its own, and writing it all out is

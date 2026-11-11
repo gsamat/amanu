@@ -237,6 +237,35 @@ stopped, change dismissed as ours, mic silent until the next route change
 happened along. What the window is for is buying time to ask the only question
 that has an answer: five seconds after the attach, are buffers still arriving?
 
+## Nothing the engine posts may wait for the main thread
+
+`AVAudioEngine` posts `AVAudioEngineConfigurationChange` synchronously, from
+its own serial queue, while it is still in the middle of reconfiguring itself.
+Register the observer with `queue: .main` and that post becomes
+`-[NSOperation waitUntilFinished]` on the main thread. The main thread,
+meanwhile, is rebuilding capture for the very same route change, and
+`engine.stop()`, `removeTap(onBus:)` and the engine's `dealloc` each wait for
+the engine's queue. Each side is now waiting for the other, and nothing in the
+process says so: no error, no log line, a microphone track that simply stops
+growing, an app that answers neither the doorbell nor Quit.
+
+On 10 November 2026 that happened twice in an afternoon, both times when
+AirPods came off at the end of a call on macOS 15.8 (issue #63). `sample`
+showed the main thread in `checkRoute → restartCapture → attach →
+-[AVAudioEngine dealloc]` and the `engine` queue in
+`AVAudioEngineImpl::IOUnitConfigurationChanged → postNotification →
+waitUntilFinished`. `coreaudiod` then spun at 130–320% CPU until it was
+killed, and went on spinning after amanu was.
+
+So the observer is registered with `queue: nil`, notes which engine posted,
+and hands the rest to the main queue asynchronously
+(`MicRecorder.observeConfigurationChanges`). The same rule covers anything
+else that may ever run on an audio queue: dispatch to the main thread, never
+wait for it. The engine being replaced is also released off the main thread,
+with a wait that gives up after two seconds (`MicRecorder.Retiring`) — the
+order of teardown and setup is worth keeping, an unbounded wait for Core Audio
+on the main thread is not.
+
 ## The microphone has to be followed; it is not inherited
 
 `AVAudioEngine` binds to the default input when it starts and stays there.
@@ -431,6 +460,11 @@ reasoning alone. Worth knowing before trusting any of them in front of someone.
 - **Silence for a gap, written off the tap callback.** Buffers after a gap go
   through `TrackWriter`'s queue until it catches up. Order and length are
   tested against a file; a real route change has not been listened to since.
+- **The route-change deadlock fix against real headphones.** The shape of the
+  deadlock is tested without a device, and the reasoning about the two queues
+  comes from a `sample` of the hung process. Nobody has yet taken AirPods off
+  mid-recording with the fix in place, and whether `coreaudiod` still spins
+  afterwards is a separate question that only that will answer.
 - **Stopping on sleep.** The recording ends on `willSleepNotification`, which
   macOS delivers with a little time to spare. That the files and meta.json
   are complete when the lid opens again has not been checked on a real lid.
