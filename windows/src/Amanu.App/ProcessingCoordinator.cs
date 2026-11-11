@@ -517,7 +517,8 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
 
     public ITranscriptionEngine CreateLocal(string model, AppSettings current) =>
         localEngineFactory?.Invoke(model, current)
-        ?? new LocalTranscriptionEngine(models, model, MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)));
+        ?? new LocalTranscriptionEngine(models, model, MeetingLanguages.Pin(MeetingLanguages.Expected(current.Transcription.Language)),
+            current.Transcription.LocalDevice);
 
     /// <returns>Whether naming is done, off, or given up on — anything but waiting.</returns>
     private async Task<bool> NameSpeakersAsync(string directory, string title, TranscriptDocument transcript, CancellationToken cancellationToken)

@@ -163,6 +163,7 @@ public sealed class TranscriptionSettings
 {
     public static readonly IReadOnlyList<string> CloudEngines = ["assemblyai", "openai", "elevenlabs"];
     public static readonly IReadOnlyList<string> LocalEngines = ["parakeet", "whisper", "gigaam"];
+    public static readonly IReadOnlyList<string> LocalDevices = ["auto", "cpu"];
 
     [JsonPropertyName("enabled")]
     public bool Enabled { get; set; } = true;
@@ -180,6 +181,15 @@ public sealed class TranscriptionSettings
 
     [JsonPropertyName("local_engine")]
     public string LocalEngine { get; set; } = "parakeet";
+
+    /// <summary>
+    /// Where the final transcript's local model runs. <c>auto</c>: a GPU when the
+    /// runtime finds one through Vulkan, the processor otherwise and whenever the
+    /// GPU fails. <c>cpu</c>: always the processor. Live recognition stays on the
+    /// processor either way.
+    /// </summary>
+    [JsonPropertyName("local_device")]
+    public string LocalDevice { get; set; } = "auto";
 
     [JsonPropertyName("language")]
     public string? Language { get; set; }

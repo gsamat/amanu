@@ -540,10 +540,13 @@ Download Parakeet in Settings and make the selected Ollama model available
 before using this example offline.
 
 - `transcription.*` supports `enabled`, `engine`, `cloud`, `local_engine`,
-  `language`, `openai.model`, and `assemblyai.speech_model`. Choose `parakeet`,
-  `whisper`, or `gigaam` for local processing, or `assemblyai`, `openai`, or
-  `elevenlabs` for a specific cloud engine. `auto` uses the configured cloud
-  engine when available and otherwise the selected local engine.
+  `local_device`, `language`, `openai.model`, and `assemblyai.speech_model`.
+  Choose `parakeet`, `whisper`, or `gigaam` for local processing, or
+  `assemblyai`, `openai`, or `elevenlabs` for a specific cloud engine. `auto`
+  uses the configured cloud engine when available and otherwise the selected
+  local engine. `local_device` is `auto` by default, which runs final local
+  transcripts on a Vulkan-capable GPU when there is one and falls back to the
+  processor; `cpu` always uses the processor.
 - `summary.*` supports `enabled`, `backend`, `language`, `model`,
   `openai_model`, `openai_base_url`, `ollama_model`, `ollama_base_url`, and
   `template`. Backend names are `auto`, `claude-cli`, `anthropic-api`,

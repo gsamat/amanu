@@ -13,6 +13,7 @@ public sealed record DownloadProgress(string Item, long Received, long Total)
 public sealed class ModelManager(string dataDirectory, HttpClient httpClient, string? applicationDirectory = null)
 {
     public CpuTranscriptionGate CpuTranscription { get; } = new();
+    public LocalComputeBackend LocalBackend { get; } = new();
     public string ModelDirectory { get; } = Path.Combine(dataDirectory, "models");
     public string LiveRuntimeDirectory => Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "live-runtime"));
     public bool LiveRuntimePresent => File.Exists(Path.Combine(LiveRuntimeDirectory, "transcribe.dll"));
@@ -26,6 +27,20 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
         get
         {
             var path = Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "local-runtime", "transcribe-cli.exe"));
+            return File.Exists(path) ? path : null;
+        }
+    }
+
+    /// <summary>
+    /// The same CLI beside ggml's Vulkan module, or null in a processor-only
+    /// build. It lives apart from <see cref="CliPath"/> so that a driver which
+    /// crashes the moment Vulkan is enumerated cannot also break the retry.
+    /// </summary>
+    public string? GpuCliPath
+    {
+        get
+        {
+            var path = Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "local-runtime-gpu", "transcribe-cli.exe"));
             return File.Exists(path) ? path : null;
         }
     }
