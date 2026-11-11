@@ -31,6 +31,20 @@ public sealed class ModelManager(string dataDirectory, HttpClient httpClient, st
         }
     }
 
+    /// <summary>
+    /// The same CLI beside ggml's Vulkan module, or null in a processor-only
+    /// build. It lives apart from <see cref="CliPath"/> so that a driver which
+    /// crashes the moment Vulkan is enumerated cannot also break the retry.
+    /// </summary>
+    public string? GpuCliPath
+    {
+        get
+        {
+            var path = Path.GetFullPath(Path.Combine(applicationDirectory ?? AppContext.BaseDirectory, "local-runtime-gpu", "transcribe-cli.exe"));
+            return File.Exists(path) ? path : null;
+        }
+    }
+
     public string ModelPath(string model) => Path.Combine(ModelDirectory, ModelCatalog.Models[model].FileName);
     public bool IsReady(string model) =>
         (model == "nemotron-live" ? LiveRuntimePresent : CliPath is not null)

@@ -21,7 +21,7 @@ function Assert-CompanySignature([string] $Path) {
     Write-Host "Verified ${Path}: $($signature.SignerCertificate.Subject), timestamp present"
 }
 
-$payloadPaths = @('Amanu.exe', 'Amanu.dll', 'Amanu.Core.dll', 'local-runtime/transcribe-cli.exe')
+$payloadPaths = @('Amanu.exe', 'Amanu.dll', 'Amanu.Core.dll', 'local-runtime/transcribe-cli.exe', 'local-runtime-gpu/transcribe-cli.exe')
 foreach ($relativePath in $payloadPaths) {
     Assert-CompanySignature (Join-Path $PublishDirectory $relativePath)
 }

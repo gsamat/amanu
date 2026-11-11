@@ -63,11 +63,14 @@ runtime, and packages the installer, portable ZIP, and stable update feed in
 Python, or separate native runtime installation. Models download from Settings.
 
 Both native builds use portable CPU variants rather than the build computer's
-CPU features. The final-transcript runtime also carries a Vulkan module, loaded
-only where a GPU driver provides Vulkan. With `transcription.local_device` at
-`auto` (the default), final transcripts run on that GPU and fall back to the
-processor if it fails; `cpu` keeps them on the processor. Live recognition
-always uses the processor. The final-transcript build runs a CPU discovery/startup check.
+CPU features. When the Vulkan SDK is present, the final-transcript build also
+produces `local-runtime-gpu`: the same CLI plus ggml's Vulkan module, kept out
+of `local-runtime` so that a broken Vulkan driver cannot affect the processor
+runtime. With `transcription.local_device` at `auto` (the default), final
+transcripts run through `local-runtime-gpu`, which uses a GPU when Vulkan offers
+one, and are retried on `local-runtime` if that fails; `cpu` always uses
+`local-runtime`. Live recognition always uses the processor. Both directories
+get the CPU discovery/startup check.
 It also runs `tests/Test-NativeUnicodePaths.ps1`: the CLI, model, WAV and batch
 list are exercised on paths containing Cyrillic, CJK, accented characters,
 spaces and emoji. This smoke test uses a generated WAV and deliberately short

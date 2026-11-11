@@ -80,10 +80,11 @@ jobs:
 
       # glslc from the SDK compiles ggml's Vulkan shaders into ggml-vulkan.dll.
       # Users need no SDK: the Vulkan loader ships with Windows GPU drivers.
+      # The same step and SDK pin Handy and Meetily use for their Windows Vulkan builds.
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1
+        uses: humbletim/install-vulkan-sdk@v1.2
         with:
-          vulkan_version: 1.4.309.0
+          version: 1.4.309.0
           cache: true
 
       - name: Build pinned local transcription CLI
@@ -136,6 +137,7 @@ jobs:
             ${{ runner.temp }}\amanu-publish\Amanu.dll
             ${{ runner.temp }}\amanu-publish\Amanu.Core.dll
             ${{ runner.temp }}\amanu-publish\local-runtime\transcribe-cli.exe
+            ${{ runner.temp }}\amanu-publish\local-runtime-gpu\transcribe-cli.exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256

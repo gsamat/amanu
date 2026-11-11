@@ -7,15 +7,21 @@ namespace Amanu.Core.Tests;
 public sealed class LocalComputeBackendTests
 {
     [Fact]
-    public void Auto_lets_the_runtime_pick_a_gpu()
+    public void Auto_uses_the_gpu_runtime_when_the_package_has_one()
     {
-        Assert.Equal("auto", new LocalComputeBackend().For("auto"));
+        Assert.True(new LocalComputeBackend().UseGpu("auto", gpuRuntimePresent: true));
+    }
+
+    [Fact]
+    public void A_processor_only_package_stays_on_the_processor()
+    {
+        Assert.False(new LocalComputeBackend().UseGpu("auto", gpuRuntimePresent: false));
     }
 
     [Fact]
     public void Cpu_keeps_every_pass_on_the_processor()
     {
-        Assert.Equal("cpu", new LocalComputeBackend().For("cpu"));
+        Assert.False(new LocalComputeBackend().UseGpu("cpu", gpuRuntimePresent: true));
     }
 
     [Fact]
@@ -25,7 +31,7 @@ public sealed class LocalComputeBackendTests
         backend.ProcessorSucceededWhereGpuFailed();
 
         Assert.True(backend.GpuHasFailed);
-        Assert.Equal("cpu", backend.For("auto"));
+        Assert.False(backend.UseGpu("auto", gpuRuntimePresent: true));
     }
 
     [Fact]
