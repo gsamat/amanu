@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os.lock
 import Testing
 
 @testable import amanu
@@ -198,6 +199,125 @@ struct MicRestartTests {
                 failedOnChosenDevice: { false })
         }
         #expect(attempts == [false])
+    }
+
+    // MARK: - the main thread during a route change
+
+    /// The shape of 10 November 2026, without the device. The main thread is
+    /// waiting for the engine's queue, as it does inside `engine.stop()` and
+    /// the engine's `dealloc`, while that queue posts the configuration
+    /// change. Observed on the main operation queue, the post waits for the
+    /// main thread in turn and neither moves again; here that shows as the
+    /// wait timing out instead of as a test that never ends.
+    @Test("A configuration change posted while the main thread waits for the poster is not a deadlock")
+    func configurationChangeDoesNotWaitForTheMainThread() async {
+        let center = NotificationCenter()
+        let delivered = DispatchSemaphore(value: 0)
+        let deliveredOnMain = OSAllocatedUnfairLock(initialState: [Bool]())
+        let token = MicRecorder.observeConfigurationChanges(in: center) { _ in
+            deliveredOnMain.withLock { $0.append(pthread_main_np() != 0) }
+            delivered.signal()
+        }
+        defer { center.removeObserver(token) }
+
+        let engineQueue = DispatchQueue(label: "amanu.tests.engine")
+        let posted = DispatchSemaphore(value: 0)
+        let postReturned: Bool = await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                engineQueue.async {
+                    center.post(name: .AVAudioEngineConfigurationChange, object: nil)
+                    posted.signal()
+                }
+                continuation.resume(returning: posted.wait(timeout: .now() + 5) == .success)
+            }
+        }
+        #expect(postReturned, "the post waited for the main thread, which was waiting for it")
+
+        // Not waiting is half of it; the change still has to arrive, and on
+        // the main thread, where everything that acts on it lives.
+        let arrived: Bool = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: delivered.wait(timeout: .now() + 5) == .success)
+            }
+        }
+        #expect(arrived)
+        #expect(deliveredOnMain.withLock { $0 } == [true])
+    }
+
+    @Test("The observer says which engine posted without keeping it alive")
+    func configurationChangeCarriesAnIdentityNotAReference() async {
+        final class Poster {
+            let gone: OSAllocatedUnfairLock<Bool>
+            init(gone: OSAllocatedUnfairLock<Bool>) { self.gone = gone }
+            deinit { gone.withLock { $0 = true } }
+        }
+        let gone = OSAllocatedUnfairLock(initialState: false)
+        let center = NotificationCenter()
+        let seen = OSAllocatedUnfairLock(initialState: [ObjectIdentifier?]())
+        let delivered = DispatchSemaphore(value: 0)
+        let token = MicRecorder.observeConfigurationChanges(in: center) { poster in
+            seen.withLock { $0.append(poster) }
+            delivered.signal()
+        }
+        defer { center.removeObserver(token) }
+
+        var poster: Poster? = Poster(gone: gone)
+        let identity = ObjectIdentifier(poster!)
+        center.post(name: .AVAudioEngineConfigurationChange, object: poster)
+        poster = nil
+        #expect(gone.withLock { $0 })
+
+        let arrived: Bool = await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                continuation.resume(returning: delivered.wait(timeout: .now() + 5) == .success)
+            }
+        }
+        #expect(arrived)
+        #expect(seen.withLock { $0 } == [identity])
+    }
+
+    /// `-[AVAudioEngine dealloc]` waits for the engine's queue, so where the
+    /// last reference is dropped is where the wait happens.
+    @Test("An engine that has been replaced is let go off the thread that replaced it")
+    @MainActor
+    func aRetiredEngineIsReleasedElsewhere() async {
+        final class Probe: @unchecked Sendable {
+            let onDeinit: @Sendable (Bool) -> Void
+            init(onDeinit: @escaping @Sendable (Bool) -> Void) { self.onDeinit = onDeinit }
+            deinit { onDeinit(pthread_main_np() != 0) }
+        }
+        let releasedOnMain: Bool = await withCheckedContinuation { continuation in
+            var probe: Probe? = Probe { continuation.resume(returning: $0) }
+            let retiring = MicRecorder.Retiring(probe!)
+            probe = nil
+            retiring.release()
+        }
+        #expect(!releasedOnMain)
+    }
+
+    /// The wait for the old engine keeps teardown ahead of setup. It must not
+    /// become the hang it replaced.
+    @Test("An engine that will not go away holds its replacement up only so long")
+    func aStuckEngineIsNotWaitedForForever() {
+        final class Stuck: @unchecked Sendable {
+            let letGo: DispatchSemaphore
+            init(letGo: DispatchSemaphore) { self.letGo = letGo }
+            deinit { letGo.wait() }
+        }
+        let letGo = DispatchSemaphore(value: 0)
+        defer { letGo.signal() }
+        var stuck: Stuck? = Stuck(letGo: letGo)
+        let retiring = MicRecorder.Retiring(stuck!)
+        stuck = nil
+
+        let began = Date()
+        let gone = retiring.release(waitingUpTo: 0.2)
+        #expect(!gone)
+        #expect(Date().timeIntervalSince(began) < 2)
+
+        // And one that does go away is waited for, so the order holds.
+        final class Plain {}
+        #expect(MicRecorder.Retiring(Plain()).release(waitingUpTo: 5))
     }
 
     // MARK: - writing after a gap

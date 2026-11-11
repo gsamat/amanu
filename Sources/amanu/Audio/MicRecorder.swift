@@ -201,8 +201,8 @@ final class MicRecorder: @unchecked Sendable {
         set { state.withLock { $0.muted = newValue } }
     }
 
-    // Main-thread only: the observer is registered on the main queue and
-    // handleConfigChange runs there, so these need no lock.
+    // Main-thread only: the observer hands every configuration change to the
+    // main queue and handleConfigChange runs there, so these need no lock.
     private var configObserver: NSObjectProtocol?
     private var restartPending = false
     /// The route the current engine attached to, so a restart can say what
@@ -301,10 +301,13 @@ final class MicRecorder: @unchecked Sendable {
         // A call app (FaceTime, Zoom) grabbing the mic reconfigures the input
         // device and stops the engine mid-session; without this observer the
         // track just ends there (2026.07.28: 1.7s mic on a 19min call).
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let self, (note.object as? AVAudioEngine) === self.engine else { return }
+        //
+        // Delivered on the main queue, but never by making the engine wait
+        // for it — see `observeConfigurationChanges`. By the time it arrives
+        // the engine that posted it may already have been replaced, and a
+        // change to an engine that is gone is not a change to this one.
+        configObserver = Self.observeConfigurationChanges { [weak self] poster in
+            guard let self, poster == ObjectIdentifier(self.engine) else { return }
             self.handleConfigChange()
         }
         listenForDefaultInputChanges()
@@ -383,7 +386,7 @@ final class MicRecorder: @unchecked Sendable {
     /// follows the open file rather than the new device, and a failure here
     /// leaves that file alone.
     private func attach(voiceProcessing: Bool, reusingFile: Bool = false) throws {
-        engine = AVAudioEngine()
+        replaceEngine()
         let input = engine.inputNode
         bindInputDevice(of: input)
 
@@ -475,6 +478,25 @@ final class MicRecorder: @unchecked Sendable {
         let report = "mic: voiceProcessing=\(input.isVoiceProcessingEnabled) "
             + "input=\(input.outputFormat(forBus: 0)) tap=\(monoFormat)\n"
         FileHandle.standardError.write(Data(report.utf8))
+    }
+
+    /// Start over with a fresh engine, and let the old one go somewhere
+    /// other than here. Every caller has already stopped it and removed its
+    /// tap, or never started it, so nothing of it is still writing; what is
+    /// left is its `dealloc`,
+    /// which waits for the engine's own queue — see `Retiring`.
+    ///
+    /// The new engine exists before the old one is released, so the two never
+    /// share an address, which is what lets a configuration change be matched
+    /// to its engine by identity.
+    private func replaceEngine() {
+        let retiring = Retiring(engine)
+        engine = AVAudioEngine()
+        if !retiring.release() {
+            FileHandle.standardError.write(Data(
+                "warning: the old mic engine is slow to go away — carrying on without waiting\n".utf8
+            ))
+        }
     }
 
     private static func name(of format: AVAudioCommonFormat) -> String {
@@ -691,7 +713,7 @@ final class MicRecorder: @unchecked Sendable {
             mElement: kAudioObjectPropertyElementMain
         )
         let listener: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            DispatchQueue.main.async { self?.checkRoute() }
+            DispatchQueue.main.async { [weak self] in self?.checkRoute() }
         }
         let status = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &address, DispatchQueue.main, listener
