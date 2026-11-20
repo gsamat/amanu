@@ -20,15 +20,19 @@ python3 -m unittest discover -s Tests/scripts -p 'test_*.py'
 ```
 
 For a local code-only build with Command Line Tools but no Xcode `actool`,
-you can reuse the compiled icon resources from a trusted installed Amanu:
+you can reuse the compiled icon resources from a trusted installed Amanu and
+build only the host architecture:
 
 ```sh
-AMANU_PREBUILT_ICON_RESOURCES=/Applications/Amanu.app/Contents/Resources make app
+AMANU_PREBUILT_ICON_RESOURCES=/Applications/Amanu.app/Contents/Resources make local-app
 ```
 
 This opt-in checks that the classic icon matches this checkout and requires
 an existing `Assets.car`. It does not compile changed icon artwork; use the
 ordinary Xcode-backed path for releases and icon changes.
+`local-app` uses the same bundle recipe but is host-only. The default `app`
+target and release builds remain universal; do not distribute a local build
+as the universal release.
 
 From the released Windows source's `windows` directory, on Windows:
 
