@@ -18,6 +18,7 @@ let package = Package(
                 .product(name: "Sparkle", package: "Sparkle"),
                 "WhisperFramework",
                 "TranscribeCppFramework",
+                "AmanuObjC",
             ],
             // Sparkle is a framework, and `make app` puts it in
             // Contents/Frameworks. SwiftPM builds a bare executable and has no
@@ -42,6 +43,9 @@ let package = Package(
             url: "https://github.com/handy-computer/transcribe.cpp/releases/download/v0.2.0/TranscribeCpp.xcframework.zip",
             checksum: "5fffd4557d561ab6e45edd2445978682a513c1cd030c5a330c8519c5b27b64d9"
         ),
+        // Objective-C only because Swift cannot catch an NSException; see
+        // AmanuObjC.h.
+        .target(name: "AmanuObjC"),
         .testTarget(
             name: "amanuTests",
             dependencies: ["amanu"]

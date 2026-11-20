@@ -770,7 +770,7 @@ final class AppController {
             // new to say the second time.
             notifyUser(
                 title: localised("amanu — recording failed", "amanu — не удалось начать запись"),
-                body: "\(error)",
+                body: (error as? RecordingSession.StartFailure)?.bannerBody ?? "\(error)",
                 replacing: Self.startFailedBanner)
             return false
         }

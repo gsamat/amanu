@@ -9,6 +9,9 @@ import Testing
 /// calls a stall.
 final class FakeMicRecorder: MicTrackRecorder {
     var startError: Error?
+    /// Runs inside `start`, before it succeeds, for a test that needs the
+    /// real way a recorder fails (an Objective-C exception behind `guarded`).
+    var duringStart: (() throws -> Void)?
     var writesFile = true
     private(set) var started = false
     private(set) var stopped = false
@@ -24,6 +27,7 @@ final class FakeMicRecorder: MicTrackRecorder {
 
     func start(writingTo url: URL, callApps: [String]) throws {
         if let startError { throw startError }
+        try duringStart?()
         started = true
         if writesFile { try Data(repeating: 1, count: 64).write(to: url) }
     }
@@ -102,6 +106,29 @@ struct RecordingSessionTests {
         #expect(!exists(session.dir.appendingPathComponent(".recording.json")))
         #expect(!exists(session.dir),
                 "A folder with no meta.json is invisible to every list and would never be tidied.")
+    }
+
+    @Test("An Objective-C exception inside the mic start ends as a clean start failure")
+    func micExceptionAfterSystemStart() throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let mic = FakeMicRecorder(), system = FakeSystemRecorder()
+        // What AVFAudio does on a second installTap or a format mismatch.
+        mic.duringStart = {
+            try MicRecorder.guarded {
+                NSException(name: .genericException, reason: "tap busy", userInfo: nil).raise()
+            }
+        }
+        let session = try RecordingSession(root: root, mic: mic, system: system)
+
+        #expect {
+            try session.start(systemAudioScope: "all")
+        } throws: { error in
+            guard case RecordingSession.StartFailure.microphone = error else { return false }
+            return true
+        }
+        #expect(system.started && system.stopped, "The tap that had started must be stopped.")
+        #expect(!exists(session.dir), "Nothing is left behind for a session that never ran.")
     }
 
     @Test("A tap that refuses to start leaves no folder behind")

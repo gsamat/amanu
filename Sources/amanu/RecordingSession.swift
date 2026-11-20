@@ -36,6 +36,25 @@ final class RecordingSession {
             case .microphone(let error): return "microphone: \(error)"
             }
         }
+
+        /// What the banner says: that the call is not being recorded and what to
+        /// try. The system's own error text is for the log, not for the person.
+        var bannerBody: String {
+            switch self {
+            case .microphone:
+                return localised(
+                    "The microphone wouldn't start, so this call is not being recorded. "
+                        + "If it keeps happening, quit and reopen amanu.",
+                    "Микрофон не запустился, звонок не записывается. "
+                        + "Если повторяется — закройте и снова откройте amanu.")
+            case .systemAudio:
+                return localised(
+                    "System audio wouldn't start, so this call is not being recorded. "
+                        + "Check the permission in amanu Setup.",
+                    "Системный звук не запустился, звонок не записывается. "
+                        + "Проверьте разрешение в настройках amanu.")
+            }
+        }
     }
 
     /// What started this session. Manual recordings are never stopped or
