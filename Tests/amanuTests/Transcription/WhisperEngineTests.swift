@@ -103,7 +103,7 @@ struct WhisperEngineTests {
 private struct RuntimeFixtureError: Error {}
 
 private actor FailingWhisperRuntime: WhisperRuntime {
-    func prepare(model: URL) async throws {}
+    func prepare(model: URL, vadModel: URL?) async throws {}
     func transcribe(
         samples: [Float], language: String?,
         progress: @escaping @Sendable (Double) -> Void
@@ -117,7 +117,7 @@ private actor RecordingWhisperRuntime: WhisperRuntime {
     private(set) var languages: [String?] = []
     private(set) var sampleCounts: [Int] = []
 
-    func prepare(model: URL) async throws {}
+    func prepare(model: URL, vadModel: URL?) async throws {}
 
     func transcribe(
         samples: [Float],
