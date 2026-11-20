@@ -22,7 +22,9 @@ struct MeetingLanguagesTests {
 
         let tail = MeetingLanguages.menu.dropFirst(MeetingLanguages.pinned.count).map(\.name)
         #expect(tail == tail.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
-        #expect(tail.first == "Bosanski")
+        // Localized collation may put Cyrillic before Latin on a Russian Mac.
+        // Membership and the ordering above should not assume an English host.
+        #expect(tail.contains("Bosanski"))
     }
 
     /// The menu is built from FluidAudio's own list, so a language it learns

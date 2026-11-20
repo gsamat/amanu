@@ -180,6 +180,18 @@ enum SettingsSchema {
                   .text,
                   describedAs: localised(
                       "detected from any language", "определяется, язык любой")),
+            Entry(["transcription", "whisper", "vad"],
+                  localised("Whisper: detect speech before decoding", "Whisper: определять речь перед распознаванием"),
+                  localised(
+                      "Downloads a verified 0.9 MB Silero model once. Can reduce silence hallucinations, but may miss very quiet speech. Does not alter saved audio.",
+                      "Один раз скачивает проверенную модель Silero, 0,9 МБ. Может уменьшить выдуманный текст на тишине, но пропустить очень тихую речь. Не меняет сохранённое аудио."),
+                  .toggle, default: false),
+            Entry(["transcription", "whisper", "language"],
+                  localised("Whisper language override", "Фиксированный язык Whisper"),
+                  localised(
+                      "Auto keeps the meeting-language policy. Pin a language only when every recording is in that language; a wrong pin can produce incorrect text.",
+                      "Auto сохраняет обычный выбор языка встреч. Фиксируйте язык только для одноязычных записей: неверный выбор может испортить текст."),
+                  .choice(["auto"] + MeetingLanguages.menu.map(\.code)), default: "auto"),
             Entry(["transcription", "model"], localised("Parakeet model", "Модель parakeet"),
                   localised(
                       "v3 covers 25 European languages; v2 is English-only.",

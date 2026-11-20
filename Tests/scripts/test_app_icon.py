@@ -1,4 +1,5 @@
 import json
+import os
 import plistlib
 import subprocess
 import tempfile
@@ -135,6 +136,52 @@ class AppIconTests(unittest.TestCase):
                 (output / "Amanu.icns").read_bytes(),
                 CLASSIC_ICON.read_bytes(),
             )
+
+
+class PrebuiltAppIconTests(unittest.TestCase):
+    def run_prebuilt(self, directory, *, matching=True, catalog=True):
+        root = Path(directory)
+        prebuilt = root / "prebuilt resources"
+        prebuilt.mkdir()
+        (prebuilt / "Amanu.icns").write_bytes(
+            CLASSIC_ICON.read_bytes() if matching else b"a different icon"
+        )
+        if catalog:
+            (prebuilt / "Assets.car").write_bytes(b"precompiled catalog")
+        tools = root / "tools"
+        tools.mkdir()
+        xcrun = tools / "xcrun"
+        xcrun.write_text("#!/bin/sh\necho 'actool must not run' >&2\nexit 99\n")
+        xcrun.chmod(0o755)
+        output = root / "output"
+        result = subprocess.run(
+            [str(BUILD_SCRIPT), str(ICON), str(CLASSIC_ICON), str(output), "14.2"],
+            env={**os.environ, "PATH": str(tools) + ":/usr/bin:/bin",
+                 "AMANU_PREBUILT_ICON_RESOURCES": str(prebuilt)},
+            capture_output=True, text=True, check=False,
+        )
+        return result, output
+
+    def test_explicit_prebuilt_resources_do_not_need_actool(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, output = self.run_prebuilt(directory)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual((output / "Assets.car").read_bytes(), b"precompiled catalog")
+            self.assertEqual((output / "Amanu.icns").read_bytes(), CLASSIC_ICON.read_bytes())
+
+    def test_prebuilt_resources_must_match_the_current_classic_icon(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, output = self.run_prebuilt(directory, matching=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("precompiled", result.stderr)
+            self.assertFalse((output / "Assets.car").exists())
+
+    def test_prebuilt_resources_must_include_a_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, output = self.run_prebuilt(directory, catalog=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("precompiled", result.stderr)
+            self.assertFalse((output / "Amanu.icns").exists())
 
 
 if __name__ == "__main__":

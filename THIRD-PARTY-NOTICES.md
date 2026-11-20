@@ -22,6 +22,10 @@ license texts are included in every application bundle under
 Amanu itself is available under the [MIT license](LICENSE), retaining the
 copyright and license notice of the quill project from which it began.
 
+The optional Whisper speech detector downloads [Silero VAD 6.2.0](https://huggingface.co/ggml-org/whisper-vad)
+from whisper.cpp's maintainers. The model is MIT-licensed, revision-pinned,
+and verified by size and SHA-256 before use; it is not bundled with the app.
+
 The LocalVQE build uses a small Amanu macOS packaging patch to produce one
 self-contained Intel dylib instead of runtime-loaded CPU-variant libraries.
 The inference implementation and model are otherwise the pinned upstream work.

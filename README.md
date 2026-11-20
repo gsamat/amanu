@@ -441,6 +441,13 @@ only values that differ from the defaults. A compact example:
   locally through Handy's `transcribe.cpp` Metal/CPU runtime. It is Russian-only;
   Amanu splits long recordings into 20-second pieces to stay inside its trained
   utterance window.
+  On macOS, `transcription.whisper.vad` opts into local Silero speech detection
+  before Whisper decoding (off by default, one additional verified 0.9 MB
+  download). It can reduce text invented on silence, but can also miss very
+  quiet speech; saved audio is unchanged. `transcription.whisper.language`
+  defaults to `auto`, preserving the normal meeting-language policy. An
+  explicit language such as `ru` pins Whisper for strictly monolingual
+  recordings without changing the language policy of other engines.
   Provider overrides are `transcription.openai.model`,
   `transcription.openai.api_key_path`,
   `transcription.assemblyai.api_key`,

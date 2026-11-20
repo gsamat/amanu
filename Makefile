@@ -22,7 +22,9 @@
 # runs on Apple Silicon and Intel Macs. Two
 # --arch flags select a multi-arch directory. Ask SwiftPM for its path:
 # Xcode 27's Swift Build engine uses .build/out instead of .build/apple.
-BUILT = $(shell swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/amanu
+SWIFT_ARCH_FLAGS = --arch arm64 --arch x86_64
+REQUIRED_APP_ARCHS = arm64 x86_64
+BUILT = $(shell swift build -c release $(SWIFT_ARCH_FLAGS) --show-bin-path)/amanu
 
 # The application bundle. Assembled by hand rather than by an Xcode project:
 # the package already builds and tests with SwiftPM, and an .app is a
@@ -77,9 +79,20 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
-.PHONY: all build localvqe verify-localvqe app icon run-app identities verify clean release release-dry
+SIGNING_ENTITLEMENTS = .build/signing-entitlements.plist
+ifeq ($(strip $(SIGN_ID)),-)
+SIGNING_ENTITLEMENTS_FLAGS = --ad-hoc
+endif
+
+.PHONY: all build localvqe verify-localvqe app local-app icon run-app identities verify clean release release-dry
 
 all: app
+
+# Local testing on a CLT-only Mac need not link the other architecture's
+# compatibility runtime. The ordinary app and release targets stay universal.
+local-app: SWIFT_ARCH_FLAGS = --arch $(shell uname -m)
+local-app: REQUIRED_APP_ARCHS = $(shell uname -m)
+local-app: app
 
 localvqe:
 	@AMANU_MINIMUM_MACOS=$(MINIMUM_MACOS) scripts/build-localvqe.sh
@@ -88,7 +101,7 @@ verify-localvqe: localvqe
 	@scripts/verify-localvqe.py
 
 build: localvqe
-	swift build -c release --arch arm64 --arch x86_64
+	swift build -c release $(SWIFT_ARCH_FLAGS)
 
 # Drawn from the same feather the menu bar uses, so the Dock, the window and
 # the status item are one program rather than three.
@@ -186,22 +199,26 @@ app: build $(ICON)
 			2>/dev/null \
 		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
 	done
+	@python3 scripts/prepare-signing-entitlements.py \
+		Packaging/Amanu.entitlements $(SIGNING_ENTITLEMENTS) $(SIGNING_ENTITLEMENTS_FLAGS)
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
 		--options runtime \
-		--entitlements Packaging/Amanu.entitlements \
+		--entitlements $(SIGNING_ENTITLEMENTS) \
 		--timestamp $(APP) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
 		--options runtime \
-		--entitlements Packaging/Amanu.entitlements \
+		--entitlements $(SIGNING_ENTITLEMENTS) \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
+	@$(APP)/Contents/MacOS/$(APP_NAME) --help >/dev/null
 	@# A missing slice is invisible until someone on the wrong Mac opens the
 	@# disk image, so fail here instead.
-	@lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q x86_64 \
-		&& lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -q arm64 \
-		|| (echo "not universal: $$(lipo -archs $(APP)/Contents/MacOS/$(APP_NAME))"; exit 1)
+	@for arch in $(REQUIRED_APP_ARCHS); do \
+		lipo -archs $(APP)/Contents/MacOS/$(APP_NAME) | grep -qw "$$arch" \
+			|| { echo "app is missing $$arch"; exit 1; }; \
+	done
 	@lipo -archs $(APP)/Contents/Frameworks/liblocalvqe.dylib | grep -q x86_64 \
 		&& lipo -archs $(APP)/Contents/Frameworks/liblocalvqe.dylib | grep -q arm64 \
 		|| (echo "LocalVQE not universal: $$(lipo -archs $(APP)/Contents/Frameworks/liblocalvqe.dylib)"; exit 1)

@@ -124,6 +124,18 @@ enum Config {
         text(.transcriptionLanguage, in: load())
     }
 
+    /// Opt-in because a detector can discard very quiet speech as silence.
+    static func whisperVAD() -> Bool {
+        flag(.whisperVAD, in: load())
+    }
+
+    /// An explicit monolingual override, not a change to the shared meeting
+    /// language policy. Auto keeps the existing expectation-based decision.
+    static func whisperLanguage() -> String? {
+        let value = string(.whisperLanguage, in: load())
+        return value == "auto" ? nil : value
+    }
+
     /// Whether a meeting should feed the optional local streaming model while
     /// it is being recorded. This is deliberately opt-in: recording and the
     /// canonical post-meeting transcript do not depend on the extra model.
