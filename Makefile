@@ -79,6 +79,11 @@ ifeq ($(strip $(SIGN_ID)),)
 SIGN_ID := -
 endif
 
+SIGNING_ENTITLEMENTS = .build/signing-entitlements.plist
+ifeq ($(strip $(SIGN_ID)),-)
+SIGNING_ENTITLEMENTS_FLAGS = --ad-hoc
+endif
+
 .PHONY: all build localvqe verify-localvqe app local-app icon run-app identities verify clean release release-dry
 
 all: app
@@ -194,17 +199,20 @@ app: build $(ICON)
 			2>/dev/null \
 		|| codesign --force --sign "$(SIGN_ID)" --options runtime --timestamp=none "$$nested" ; \
 	done
+	@python3 scripts/prepare-signing-entitlements.py \
+		Packaging/Amanu.entitlements $(SIGNING_ENTITLEMENTS) $(SIGNING_ENTITLEMENTS_FLAGS)
 	@codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
 		--options runtime \
-		--entitlements Packaging/Amanu.entitlements \
+		--entitlements $(SIGNING_ENTITLEMENTS) \
 		--timestamp $(APP) 2>/dev/null \
 	|| codesign --force --sign "$(SIGN_ID)" \
 		--identifier me.samat.amanu \
 		--options runtime \
-		--entitlements Packaging/Amanu.entitlements \
+		--entitlements $(SIGNING_ENTITLEMENTS) \
 		--timestamp=none $(APP)
 	@codesign --verify --strict --verbose=2 $(APP)
+	@$(APP)/Contents/MacOS/$(APP_NAME) --help >/dev/null
 	@# A missing slice is invisible until someone on the wrong Mac opens the
 	@# disk image, so fail here instead.
 	@for arch in $(REQUIRED_APP_ARCHS); do \

@@ -33,6 +33,10 @@ ordinary Xcode-backed path for releases and icon changes.
 `local-app` uses the same bundle recipe but is host-only. The default `app`
 target and release builds remain universal; do not distribute a local build
 as the universal release.
+When signing ad-hoc, the local signing plist disables library validation so
+frameworks without a Team ID can load. Certificate-signed builds retain the
+original entitlement values. Microphone and system-audio permission prompts
+still apply to a locally signed app.
 
 From the released Windows source's `windows` directory, on Windows:
 
