@@ -19,6 +19,17 @@ python3 landing/tests/check.py
 python3 -m unittest discover -s Tests/scripts -p 'test_*.py'
 ```
 
+For a local code-only build with Command Line Tools but no Xcode `actool`,
+you can reuse the compiled icon resources from a trusted installed Amanu:
+
+```sh
+AMANU_PREBUILT_ICON_RESOURCES=/Applications/Amanu.app/Contents/Resources make app
+```
+
+This opt-in checks that the classic icon matches this checkout and requires
+an existing `Assets.car`. It does not compile changed icon artwork; use the
+ordinary Xcode-backed path for releases and icon changes.
+
 From the released Windows source's `windows` directory, on Windows:
 
 ```powershell

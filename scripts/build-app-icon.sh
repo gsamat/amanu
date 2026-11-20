@@ -21,6 +21,26 @@ test -f "$FALLBACK_ICON" || {
     exit 1
 }
 
+# A local code-only build can reuse the catalog from a trusted installed app.
+# This is explicit, never an automatic fallback that could hide stale artwork
+# in a release. The ordinary path below still compiles the adaptive icon.
+if [ -n "${AMANU_PREBUILT_ICON_RESOURCES:-}" ]; then
+    PREBUILT=$AMANU_PREBUILT_ICON_RESOURCES
+    test -s "$PREBUILT/Assets.car" || {
+        echo "precompiled Assets.car is missing or empty" >&2
+        exit 1
+    }
+    cmp -s "$FALLBACK_ICON" "$PREBUILT/Amanu.icns" || {
+        echo "precompiled icon does not match the current classic icon" >&2
+        exit 1
+    }
+    mkdir -p "$OUTPUT_DIR"
+    cp "$PREBUILT/Assets.car" "$OUTPUT_DIR/Assets.car"
+    cp "$FALLBACK_ICON" "$OUTPUT_DIR/Amanu.icns"
+    echo "reusing precompiled icons from $PREBUILT (explicit local build)"
+    exit 0
+fi
+
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/amanu-app-icon.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/compiled" "$OUTPUT_DIR"
