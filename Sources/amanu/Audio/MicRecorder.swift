@@ -5,6 +5,7 @@
 // SDK rather than races here — the state genuinely shared across threads is
 // the locked LockedState below.
 @preconcurrency import AVFoundation
+import AmanuObjC
 import Foundation
 import os.lock
 
@@ -434,11 +435,14 @@ final class MicRecorder: @unchecked Sendable {
             // output device or the input side never produces audio. The mixer
             // has no sources — nothing is monitored or played — its connection
             // exists solely to give the unit a formatted output path.
-            engine.connect(engine.mainMixerNode, to: engine.outputNode, format: monoFormat)
+            let engine = self.engine
+            try Self.guarded {
+                engine.connect(engine.mainMixerNode, to: engine.outputNode, format: monoFormat)
+            }
             livenessFrames = 0
             livenessPeak = 0
             livenessSettled = false
-            installVoiceTap(on: input, format: monoFormat, reusingFile: existing != nil)
+            try installVoiceTap(on: input, format: monoFormat, reusingFile: existing != nil)
         } else {
             try installRawTap(on: input, inputFormat: inputFormat, monoFormat: monoFormat)
         }
@@ -460,9 +464,14 @@ final class MicRecorder: @unchecked Sendable {
         }
         attachedReusingFile = existing != nil
 
-        engine.prepare()
         do {
-            try engine.start()
+            let engine = self.engine
+            var startError: Error?
+            try Self.guarded {
+                engine.prepare()
+                do { try engine.start() } catch { startError = error }
+            }
+            if let startError { throw startError }
         } catch {
             input.removeTap(onBus: 0)
             if existing == nil { file = nil }
@@ -524,9 +533,9 @@ final class MicRecorder: @unchecked Sendable {
     /// path exists to prevent.
     private func installVoiceTap(
         on input: AVAudioInputNode, format: AVAudioFormat, reusingFile: Bool
-    ) {
+    ) throws {
         let checkFrames = Int(format.sampleRate * (reusingFile ? 3 : 1))
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        try Self.guarded { input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             guard let self, let writer = self.writer else { return }
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
             self.lastBufferAt = Date()
@@ -549,7 +558,7 @@ final class MicRecorder: @unchecked Sendable {
             }
 
             self.writeTracked(buffer, to: writer)
-        }
+        } }
     }
 
     /// Write one captured buffer, recording its level on the way through and
@@ -588,7 +597,7 @@ final class MicRecorder: @unchecked Sendable {
         }
         let sameRate = inputFormat.sampleRate == monoFormat.sampleRate
         let ratio = monoFormat.sampleRate / inputFormat.sampleRate
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+        try Self.guarded { input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self, let writer = self.writer else { return }
             if self.firstBufferAt == nil { self.firstBufferAt = Date() }
             self.lastBufferAt = Date()
@@ -610,7 +619,17 @@ final class MicRecorder: @unchecked Sendable {
                 return
             }
             self.writeTracked(mono, to: writer)
-        }
+        } }
+    }
+
+    /// Run an AVFAudio call that reports failure by raising an Objective-C
+    /// exception, and turn the exception into a thrown error. Without this
+    /// a raise in `start` unwinds through `RecordingSession.start` and the
+    /// auto-record timer without running a catch: the system tap that had
+    /// already started is never stopped, the session is never assigned, and
+    /// the timer that called it never fires again (2026-11-16, 0.6.5).
+    static func guarded(_ body: () -> Void) throws {
+        try AmanuObjCExceptionCatcher.catching(body)
     }
 
     /// Feed `buffer` through `converter` exactly once, for the rate-mismatched
