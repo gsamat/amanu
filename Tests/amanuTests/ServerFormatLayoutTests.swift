@@ -14,7 +14,8 @@ struct ServerFormatLayoutTests {
         defer { form.stop() }
 
         let fields = form.view.allDescendants.compactMap { $0 as? NSTextField }
-        let format = try #require(fields.first { $0.identifier?.rawValue == "transcription.compatible.format" })
+        let format = try #require(form.view.allDescendants.compactMap { $0 as? NSPopUpButton }
+            .first { $0.identifier?.rawValue == "transcription.compatible.format" })
         let url = try #require(fields.first { $0.identifier?.rawValue == "transcription.compatible.base-url" })
         let formatRow = try #require(format.superview as? NSStackView)
         let urlRow = try #require(url.superview as? NSStackView)
@@ -22,7 +23,7 @@ struct ServerFormatLayoutTests {
         let heading = try #require(formatRow.arrangedSubviews.first as? NSTextField)
         let urlHeading = try #require(urlRow.arrangedSubviews.first as? NSTextField)
 
-        #expect(format.stringValue == "MLX Audio")
+        #expect(format.selectedItem?.title == "MLX Audio")
         #expect(heading.stringValue == "Формат API")
         #expect(heading.textColor == .secondaryLabelColor)
         #expect(format.accessibilityLabel() == "Формат API")

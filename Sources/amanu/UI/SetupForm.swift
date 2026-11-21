@@ -207,9 +207,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private var pendingCloudFallbackModel: String?
     private let compatibleURL = NSTextField()
     private let compatibleModel = NSTextField()
-    private let compatibleFormat = NSTextField(labelWithString: "")
-    private let compatibleUseMLX = NSButton()
-    private let compatibleFormatAction = NSStackView()
+    private let compatibleFormat = NSPopUpButton()
     private let compatibleToken = NSSecureTextField()
     private let compatibleStatus = NSTextField(wrappingLabelWithString: "")
     private let compatibleTokenStatus = NSTextField(labelWithString: "")
@@ -590,16 +588,9 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         compatibleToken.placeholderString = localised("optional token", "токен, если нужен")
         compatibleFormat.identifier = .init("transcription.compatible.format")
         compatibleFormat.font = SetupLayout.detailFont
-        compatibleFormat.lineBreakMode = .byWordWrapping
-        compatibleFormat.maximumNumberOfLines = 0
-        compatibleUseMLX.title = localised("Use MLX Audio", "Использовать MLX Audio")
-        compatibleUseMLX.bezelStyle = .rounded
-        compatibleUseMLX.target = self
-        compatibleUseMLX.action = #selector(useMLXAudioClicked)
-        compatibleUseMLX.identifier = .init("transcription.compatible.use-mlx")
-        compatibleUseMLX.setContentHuggingPriority(.required, for: .horizontal)
-        compatibleFormatAction.setViews([compatibleUseMLX, NSView()], in: .leading)
-        compatibleFormatAction.orientation = .horizontal
+        compatibleFormat.target = self
+        compatibleFormat.action = #selector(compatibleFormatChanged)
+        compatibleFormat.setContentHuggingPriority(.required, for: .horizontal)
         compatibleStatus.font = SetupLayout.statusFont
         compatibleStatus.textColor = .secondaryLabelColor
         compatibleStatus.maximumNumberOfLines = 0
@@ -648,7 +639,6 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             summaryFieldRow(localised("API format", "Формат API"), compatibleFormat),
             summaryFieldRow(localised("Server URL", "URL сервера"), compatibleURL),
             summaryFieldRow(localised("Model", "Модель"), compatibleModel),
-            compatibleFormatAction,
             summaryFieldRow(localised("Token", "Токен"), compatibleToken),
             tokenActions, checkRow, testNote,
         ] {
@@ -1386,7 +1376,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// person selects the engine or edits its address/model.
     private func useMLXForNewCompatibleChoice() {
         guard legacyCompatibleProfile() == nil,
-              Config.compatibleTranscriptionProtocol() != "mlx-audio" else { return }
+              Config.compatibleTranscriptionProtocol() == "auto" else { return }
         write(["transcription", "compatible", "protocol"], "mlx-audio")
     }
 
@@ -1402,27 +1392,36 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     private func updateCompatibleFormat() {
+        compatibleFormat.removeAllItems()
+        for (title, value) in [("MLX Audio", "mlx-audio"), ("oMLX", "omlx")] {
+            compatibleFormat.addItem(withTitle: title)
+            compatibleFormat.lastItem?.representedObject = value
+        }
         if let legacy = legacyCompatibleProfile() {
             let name = legacy == "deepinfra" ? "DeepInfra" : "OpenRouter"
-            compatibleFormat.stringValue = localised(
+            compatibleFormat.addItem(withTitle: localised(
                 "\(name) (previous setting)",
-                "\(name) (прежняя настройка)")
-            compatibleFormatAction.isHidden = false
+                "\(name) (прежняя настройка)"))
+            compatibleFormat.lastItem?.representedObject = legacy
+            compatibleFormat.select(compatibleFormat.lastItem)
             return
         }
         let profile = Config.compatibleTranscriptionProtocol()
         let host = URLComponents(string: Config.compatibleTranscriptionBaseURL())?.host?.lowercased()
         let local = host.map { ["localhost", "127.0.0.1", "::1", "[::1]"].contains($0) } ?? false
-        let isMLX = profile == "mlx-audio" || (profile == "auto" && local)
-        compatibleFormat.stringValue = isMLX
-            ? "MLX Audio"
-            : localised("Not determined. Choose MLX Audio.",
-                        "Не определён. Выберите MLX Audio.")
-        compatibleFormatAction.isHidden = isMLX
+        let selected = profile == "auto" && local ? "mlx-audio" : profile
+        if let item = compatibleFormat.itemArray.first(where: { $0.representedObject as? String == selected }) {
+            compatibleFormat.select(item)
+        } else {
+            compatibleFormat.addItem(withTitle: localised("Select format", "Выберите формат"))
+            compatibleFormat.select(compatibleFormat.lastItem)
+        }
     }
 
-    @objc private func useMLXAudioClicked() {
-        write(["transcription", "compatible", "protocol"], "mlx-audio")
+    @objc private func compatibleFormatChanged() {
+        guard let format = compatibleFormat.selectedItem?.representedObject as? String else { return }
+        write(["transcription", "compatible", "protocol"], format)
+        compatibleStatus.stringValue = ""
         refresh()
     }
 

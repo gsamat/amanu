@@ -594,7 +594,7 @@ struct InterfaceLanguageTests {
             // The models, named the way their release notes name them.
             "parakeet v3", "parakeet v2", "NVIDIA nemotron",
             "Parakeet", "Parakeet v3", "Whisper", "GigaAM", "Whisper large-v3-turbo", "GigaAM v3",
-            "MLX Audio", "DeepInfra", "OpenRouter",
+            "MLX Audio", "oMLX", "DeepInfra", "OpenRouter",
             "http://127.0.0.1:8000/v1", "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4",
         ]
         if names.contains(text) { return true }

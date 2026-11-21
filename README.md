@@ -19,7 +19,7 @@ on your computer.
 | Signing | Apple Developer ID, notarized | Microsoft Artifact Signing, Fands Software LLC |
 | Recording | Automatic and manual; microphone and call audio | Automatic and manual; microphone and call audio |
 | Local transcription | Parakeet, Whisper, GigaAM on Apple Silicon | Parakeet, Whisper, GigaAM on x64 |
-| User-managed STT server | MLX Audio (Nemotron 3.5 Transcribe) | — |
+| User-managed STT server | oMLX or MLX Audio (Nemotron 3.5 Transcribe) | — |
 | Cloud transcription | AssemblyAI, OpenAI, ElevenLabs | AssemblyAI, OpenAI, ElevenLabs |
 | Summaries | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama | Claude Code, Codex, Anthropic, OpenAI, OpenAI-compatible, Ollama |
 | Live transcript | Separate local streaming model | Separate local streaming model |
@@ -71,7 +71,7 @@ summarize a meeting without sending its contents anywhere:
   runtime and downloads the selected model from Settings.
 - The optional live transcript runs locally.
 - On macOS, a [user-managed STT server](docs/nemotron-server.md) can run
-  Nemotron 3.5 Transcribe through MLX Audio on this Mac.
+  Nemotron 3.5 Transcribe through oMLX or MLX Audio on this Mac.
 - Ollama can write summaries locally when its Base URL is localhost/loopback.
 
 Cloud models are available when quality or convenience matters more than
@@ -463,7 +463,7 @@ only values that differ from the defaults. A compact example:
 - `transcription.engine: "compatible"` uses a configured speech server.
   `transcription.compatible.base_url` defaults to `http://127.0.0.1:8000/v1`;
   `transcription.compatible.model` names the served model.
-  New server configurations use the MLX Audio API format. The existing
+  Select oMLX or MLX Audio as the server's API format; the existing
   `transcription.compatible.protocol` setting remains readable for earlier
   configurations. The optional token is read from
   `transcription.compatible.api_key_path`, or from Amanu's separate

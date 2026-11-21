@@ -326,7 +326,7 @@ enum SettingsSchema {
             Entry(["transcription", "compatible", "protocol"],
                   localised("Server protocol", "Протокол сервера"),
                   localised("Auto selects the protocol from the server URL.", "Автоматически — выбор по URL сервера."),
-                  .choice(["auto", "mlx-audio", "deepinfra", "openrouter"]), default: "auto", askedInSetup: true),
+                  .choice(["auto", "mlx-audio", "omlx", "deepinfra", "openrouter"]), default: "auto", askedInSetup: true),
             Entry(["transcription", "compatible", "api_key_path"],
                   localised("Transcription server token file", "Файл токена сервера расшифровки"),
                   localised("A separate token for this server. AMANU_COMPATIBLE_TRANSCRIPTION_API_KEY wins over it.",

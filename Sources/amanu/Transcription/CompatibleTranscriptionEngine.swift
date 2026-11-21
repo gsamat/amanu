@@ -6,6 +6,7 @@ import Foundation
 enum CompatibleTranscriptionProtocol: String, CaseIterable, Sendable {
     case automatic = "auto"
     case mlxAudio = "mlx-audio"
+    case omlx = "omlx"
     case deepInfra = "deepinfra"
     case openRouter = "openrouter"
 }
@@ -43,7 +44,7 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
             case .rejected(let status): return "compatible transcription request rejected (HTTP \(status)); audio retained"
             case .diarizationUnsupported: return "OpenRouter reports that the selected model does not support speaker diarization; choose another model or provider (HTTP 400)"
             case .unavailable(let status): return "compatible transcription service unavailable (HTTP \(status))"
-            case .malformed: return "compatible transcription requires word timestamps and speaker labels; response incompatible"
+            case .malformed: return "compatible transcription requires timestamps and speaker labels; response incompatible"
             case .incomplete: return "compatible transcription response incomplete or generation limit reached; audio retained"
             case .invalidAudio: return "compatible transcription could not prepare the complete audio"
             case .uploadTooLarge: return "compatible transcription could not fit audio within the upload limit"
@@ -86,7 +87,7 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
     ) throws {
         let resolved = try Self.resolve(baseURL: baseURL, protocol: apiProtocol, model: model)
         let key = apiKey?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard resolved.profile == .mlxAudio || key?.isEmpty == false else { throw Failure.noAPIKey }
+        guard resolved.profile == .mlxAudio || resolved.profile == .omlx || key?.isEmpty == false else { throw Failure.noAPIKey }
         guard chunkDuration.isFinite, chunkDuration > 0, chunkDuration <= 2_400,
               maximumUploadBytes > 0, maximumUploadBytes <= 24_000_000
         else { throw Failure.configuration("invalid audio chunk limits") }
@@ -141,7 +142,11 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
                 try data.write(to: cache, options: .atomic)
             }
             let prefix = prepared.pieces.count > 1 ? "p\(index + 1)-" : ""
-            all += Self.segments(from: words, offset: piece.offset, speakerPrefix: prefix)
+            if apiProtocol == .omlx {
+                all += Self.omlxSegments(from: words, offset: piece.offset, speakerPrefix: prefix)
+            } else {
+                all += Self.segments(from: words, offset: piece.offset, speakerPrefix: prefix)
+            }
         }
         return all.sorted { $0.start < $1.start }
     }
@@ -267,6 +272,11 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
             fields = [("model", model), ("response_format", "verbose_json"),
                       ("diarize", "true"), ("timestamp_granularities[]", "word"),
                       ("temperature", "0")]
+        case .omlx:
+            // oMLX asks Nemotron for speakers through its diarized response
+            // format and returns turns, rather than individual timed words.
+            fields = [("model", model), ("response_format", "diarized_json"),
+                      ("stream", "false"), ("max_tokens", "\(maxTokens)")]
         }
         if let language = MeetingLanguages.pin(for: expected) { fields.append(("language", language)) }
         return fields
@@ -321,7 +331,8 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
            ["failed", "error", "queued", "running", "pending"].contains(status) {
             throw Failure.incomplete
         }
-        guard let items = profile == .mlxAudio ? response.segments : response.words else {
+        if profile == .omlx, response.text == nil { throw Failure.malformed }
+        guard let items = (profile == .mlxAudio || profile == .omlx) ? response.segments : response.words else {
             throw Failure.malformed
         }
         // A provider can use either speaker IDs or display labels. Resolve
@@ -336,7 +347,9 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
         var result: [Word] = []
         for item in items {
             if item.type == "audio_event" { continue }
-            guard item.type == nil || item.type == "word" else { throw Failure.malformed }
+            guard item.type == nil || item.type == (profile == .omlx ? "transcript.text.segment" : "word") else {
+                throw Failure.malformed
+            }
             let text = (item.word ?? item.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty,
                   let start = item.start, let end = item.end,
@@ -344,12 +357,13 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
                   end <= duration + 0.25,
                   let rawSpeaker = item.speaker?.value
                     ?? item.speaker_label.map({ aliases[$0] ?? $0 }),
-                  !rawSpeaker.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  !rawSpeaker.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  !(profile == .omlx && rawSpeaker == "None")
             else { throw Failure.malformed }
             result.append(Word(start: min(start, duration), end: min(end, duration),
                                text: text, speaker: rawSpeaker))
         }
-        if let text = response.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if let text = response.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || profile == .omlx {
             // A valid-looking prefix of timed words is still incomplete.
             // Compare coverage, not global order: alignment can reorder words
             // across overlapping speakers. Include events here even though
@@ -360,14 +374,41 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
             let raw = coverage(text)
             // Some providers put event annotations in `text`, others omit
             // them. Every spoken token must occur, while event tokens may.
-            guard Set(raw.keys).union(spoken.keys).allSatisfy({ token in
-                (raw[token] ?? 0) >= (spoken[token] ?? 0)
-                    && (raw[token] ?? 0) <= (all[token] ?? 0)
-            }) else { throw Failure.incomplete }
+            if profile == .omlx {
+                // oMLX removes speaker tags without inserting spaces, so the
+                // response text can join words across turns. Compare all
+                // alphanumeric characters in order instead of word counts;
+                // both lost text and extra text still cause a failure.
+                guard compactCoverage(text) == compactCoverage(timedText),
+                      compactCoverage(text) == compactCoverage(result.map(\.text).joined(separator: " "))
+                else { throw Failure.incomplete }
+            } else {
+                guard Set(raw.keys).union(spoken.keys).allSatisfy({ token in
+                    (raw[token] ?? 0) >= (spoken[token] ?? 0)
+                        && (raw[token] ?? 0) <= (all[token] ?? 0)
+                }) else { throw Failure.incomplete }
+            }
         }
         return result.enumerated().sorted {
             $0.element.start == $1.element.start ? $0.offset < $1.offset : $0.element.start < $1.element.start
         }.map(\.element)
+    }
+
+    /// oMLX returns complete, already timed speaker turns. Keep each turn's
+    /// interval intact, including overlap with a different speaker.
+    static func omlxSegments(
+        from turns: [Word], offset: TimeInterval = 0, speakerPrefix: String = ""
+    ) -> [TranscriptSegment] {
+        var labels: [String: String] = [:]
+        return turns.map { turn in
+            if labels[turn.speaker] == nil {
+                let index = labels.count
+                labels[turn.speaker] = index < 26
+                    ? String(UnicodeScalar(65 + index)!) : "S\(index + 1)"
+            }
+            return TranscriptSegment(start: turn.start + offset, end: turn.end + offset,
+                                     text: turn.text, speaker: speakerPrefix + (labels[turn.speaker] ?? "A"))
+        }
     }
 
     private static func coverage(_ text: String) -> [String: Int] {
@@ -376,6 +417,14 @@ actor CompatibleTranscriptionEngine: TranscriptionEngine {
         let words = speech.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) ? String($0) : " " }
             .joined().split(whereSeparator: \.isWhitespace)
         return words.reduce(into: [:]) { $0[String($1), default: 0] += 1 }
+    }
+
+    private static func compactCoverage(_ text: String) -> String {
+        let speech = text.precomposedStringWithCanonicalMapping
+            .lowercased().replacingOccurrences(of: "ё", with: "е")
+        return String(String.UnicodeScalarView(speech.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0)
+        }))
     }
 
     static func segments(

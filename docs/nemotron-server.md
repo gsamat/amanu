@@ -5,6 +5,18 @@ Transcribe. Start and manage the server yourself; Amanu does not download the
 model or start the server. Enter its API base URL, model name and token in the
 transcription settings. A local server can omit the token.
 
+## oMLX
+
+Install oMLX 0.8.2 or newer, add a compatible Nemotron 3.5 Transcribe model,
+and start its server. In Amanu, choose **oMLX** as the API format and enter
+the server's base URL (normally `http://127.0.0.1:8000/v1`) and the model
+name shown in oMLX. Configure model idle unloading in oMLX if desired.
+oMLX returns speaker-labelled turns with start and end times; its diarized
+response does not expose word-level timestamps or indicate when generation
+hits its token limit.
+
+## MLX Audio
+
 For Apple Silicon, one option is the official NVFP4 model through
 `mlx-audio` 0.6.4. In a separate Python 3.12 environment:
 
@@ -24,8 +36,8 @@ MTP acceleration. Keep the server running while Amanu transcribes.
 The `umask` protects temporary WAV files created by this version of the
 server while it processes a recording.
 
-New server settings use the MLX Audio API format. Amanu sends audio to the
-configured server; when it is remote, the recording leaves your computer.
+Select **MLX Audio** as the API format for this server. Amanu sends audio to
+the configured server; when it is remote, the recording leaves your computer.
 The server check sends a short synthetic test phrase, not a meeting recording.
 
 Long recordings are split into parts of at most 40 minutes. A speaker label

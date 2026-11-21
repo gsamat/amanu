@@ -125,8 +125,8 @@ struct CompatibleTranscriptionSettingsTests {
         compatible.performClick(nil)
         #expect(Config.transcriptionEngine() == "compatible")
         #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
-        let label: NSTextField = try field("transcription.compatible.format", in: form)
-        #expect(label.stringValue.contains("MLX Audio"))
+        let format: NSPopUpButton = try field("transcription.compatible.format", in: form)
+        #expect(format.selectedItem?.title == "MLX Audio")
         let resolved = try CompatibleTranscriptionEngine.resolve(
             baseURL: Config.compatibleTranscriptionBaseURL(), protocol: .mlxAudio,
             model: Config.compatibleTranscriptionModel())
@@ -144,10 +144,8 @@ struct CompatibleTranscriptionSettingsTests {
         ]]])
         let form = SetupForm()
         defer { form.stop() }
-        let label: NSTextField = try field("transcription.compatible.format", in: form)
-        let change: NSButton = try field("transcription.compatible.use-mlx", in: form)
-        #expect(label.stringValue.contains(display))
-        #expect(!change.isHiddenOrHasHiddenAncestor)
+        let format: NSPopUpButton = try field("transcription.compatible.format", in: form)
+        #expect(format.selectedItem?.title.contains(display) == true)
         #expect(Config.compatibleTranscriptionProtocol() == profile)
         form.reload()
         #expect(Config.compatibleTranscriptionProtocol() == profile)
@@ -155,11 +153,11 @@ struct CompatibleTranscriptionSettingsTests {
         model.stringValue = "updated-model"
         form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: model))
         #expect(Config.compatibleTranscriptionProtocol() == profile, "editing a legacy model must not silently switch APIs")
-        #expect(label.stringValue.contains(display))
-        change.performClick(nil)
+        #expect(format.selectedItem?.title.contains(display) == true)
+        format.selectItem(withTitle: "MLX Audio")
+        format.sendAction(format.action, to: format.target)
         #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
-        #expect(label.stringValue.contains("MLX Audio"))
-        #expect(change.isHiddenOrHasHiddenAncestor)
+        #expect(format.selectedItem?.title == "MLX Audio")
     }
 
     @Test("Editing a server address fixes the MLX profile regardless of the new host",
@@ -170,14 +168,41 @@ struct CompatibleTranscriptionSettingsTests {
         ]]])
         let form = SetupForm()
         defer { form.stop() }
-        let label: NSTextField = try field("transcription.compatible.format", in: form)
+        let format: NSPopUpButton = try field("transcription.compatible.format", in: form)
         #expect(Config.compatibleTranscriptionProtocol() == "auto", "opening does not change the profile")
         let address: NSTextField = try field("transcription.compatible.base-url", in: form)
         address.stringValue = "https://api.deepinfra.com/custom/v1"
         form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: address))
         #expect(Config.compatibleTranscriptionProtocol() == "mlx-audio")
         #expect(Config.compatibleTranscriptionBaseURL() == "https://api.deepinfra.com/custom/v1")
-        #expect(label.stringValue.contains("MLX Audio"))
+        #expect(format.selectedItem?.title == "MLX Audio")
+    }
+
+    @Test("Choosing oMLX persists when the server fields or engine are changed")
+    func omlxSelectionPersists() throws {
+        try Home.current.writeConfig(["transcription": ["engine": "compatible", "compatible": [
+            "base_url": "http://127.0.0.1:8000/v1", "model": "speech-model", "protocol": "mlx-audio",
+        ]]])
+        let form = SetupForm()
+        defer { form.stop() }
+        let format: NSPopUpButton = try field("transcription.compatible.format", in: form)
+        format.selectItem(withTitle: "oMLX")
+        format.sendAction(format.action, to: format.target)
+        #expect(Config.compatibleTranscriptionProtocol() == "omlx")
+        let address: NSTextField = try field("transcription.compatible.base-url", in: form)
+        address.stringValue = "http://localhost:8000/v1"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: address))
+        let model: NSTextField = try field("transcription.compatible.model", in: form)
+        model.stringValue = "another-model"
+        form.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: model))
+        #expect(Config.compatibleTranscriptionProtocol() == "omlx")
+        Config.update(path: ["transcription", "engine"], value: "parakeet")
+        form.reload()
+        let compatible: NSButton = try field("transcription.compatible", in: form)
+        compatible.performClick(nil)
+        form.reload()
+        #expect(Config.compatibleTranscriptionProtocol() == "omlx")
+        #expect(format.selectedItem?.title == "oMLX")
     }
 
     @Test("Compatible server settings round-trip without becoming auto or borrowing credentials")

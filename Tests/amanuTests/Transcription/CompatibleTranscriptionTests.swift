@@ -58,6 +58,82 @@ struct CompatibleTranscriptionTests {
         }
     }
 
+    @Test func omlxUsesItsDiarizedContractAndPreservesSpeakerTurns() async throws {
+        let dir = try folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = dir.appendingPathComponent("public-test.caf")
+        try TestAudio.writeTone(to: audio, seconds: 4, frequency: 440)
+        let json = #"{"text":"Привет. Добрый день. Да.","segments":[{"type":"transcript.text.segment","text":"Привет.","start":0.1,"end":0.7,"speaker":"A"},{"type":"transcript.text.segment","text":"Добрый день.","start":0.6,"end":1.2,"speaker":"B"},{"type":"transcript.text.segment","text":"Да.","start":1.4,"end":1.8,"speaker":"A"}]}"#
+        let stub = StubHTTP { _, _ in .json(200, json) }
+        let engine = try Engine(baseURL: "http://127.0.0.1:8000/v1", model: "test-model",
+                                apiProtocol: .omlx, session: stub.session, chunkDuration: 2)
+        let turns = try await engine.transcribe(audio)
+        #expect(turns.map(\.text) == ["Привет.", "Добрый день.", "Да.", "Привет.", "Добрый день.", "Да."])
+        #expect(turns.map(\.speaker) == ["p1-A", "p1-B", "p1-A", "p2-A", "p2-B", "p2-A"])
+        #expect(turns[1].start < turns[0].end, "Overlapping speakers must remain overlapping")
+        #expect(turns[3].start == 2.1)
+        #expect(stub.requests.count == 2)
+        #expect(stub.requests[0].header("Authorization") == nil)
+        #expect(stub.requests[0].path == "/v1/audio/transcriptions")
+        let fields = Dictionary(uniqueKeysWithValues: Engine.requestFields(profile: .omlx, model: "test-model", expected: ["ru"]))
+        #expect(fields["response_format"] == "diarized_json")
+        #expect(fields["model"] == "test-model" && fields["language"] == "ru")
+        #expect(fields["max_tokens"] == "16384" && fields["stream"] == "false")
+        #expect(fields["prompt"] == nil && fields["word_timestamps"] == nil)
+        _ = try await engine.transcribe(audio)
+        #expect(stub.requests.count == 2, "Successful pieces should be reused from cache")
+    }
+
+    @Test func omlxRejectsInvalidOrIncompleteSpeakerTurns() throws {
+        let invalid = [
+            #"{"text":"Привет","segments":[{"text":"Привет","start":0.1,"end":0.2}]}"#,
+            #"{"text":"Привет","segments":[{"text":"Привет","start":0.1,"end":0.2,"speaker":"None"}]}"#,
+            #"{"text":"Привет","segments":[{"text":"Привет","start":0.1,"end":0.1,"speaker":"A"}]}"#,
+            #"{"text":"Привет","segments":[{"text":"Привет","start":0.1,"end":3,"speaker":"A"}]}"#,
+            #"{"segments":[]}"#,
+        ]
+        for json in invalid {
+            #expect(throws: Engine.Failure.malformed) {
+                try Engine.words(from: Data(json.utf8), profile: .omlx, duration: 2)
+            }
+        }
+        #expect(throws: Engine.Failure.incomplete) {
+            try Engine.words(from: Data(#"{"text":"Привет всем","segments":[{"text":"Привет","start":0.1,"end":0.2,"speaker":"A"}]}"#.utf8), profile: .omlx, duration: 2)
+        }
+        #expect(try Engine.words(from: Data(#"{"text":"","segments":[]}"#.utf8), profile: .omlx, duration: 2).isEmpty)
+    }
+
+    @Test func omlxAcceptsWordsJoinedAcrossSpeakerTagsWithoutDroppingText() throws {
+        let joined = #"{"text":"Приветмир!","segments":[{"type":"transcript.text.segment","text":"Привет","start":0.1,"end":0.2,"speaker":"A"},{"type":"transcript.text.segment","text":"мир!","start":0.2,"end":0.3,"speaker":"B"}]}"#
+        #expect(try Engine.words(from: Data(joined.utf8), profile: .omlx, duration: 2).count == 2)
+        let lost = joined.replacingOccurrences(of: "мир!\",\"start", with: "ми!\",\"start")
+        #expect(throws: Engine.Failure.incomplete) {
+            try Engine.words(from: Data(lost.utf8), profile: .omlx, duration: 2)
+        }
+        let extra = joined.replacingOccurrences(of: "мир!\",\"start", with: "мир и всем!\",\"start")
+        #expect(throws: Engine.Failure.incomplete) {
+            try Engine.words(from: Data(extra.utf8), profile: .omlx, duration: 2)
+        }
+    }
+
+    @Test func omlxRetryKeepsCompletedPartAndSendsConfiguredToken() async throws {
+        let dir = try folder()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let audio = dir.appendingPathComponent("public-test.caf")
+        try TestAudio.writeTone(to: audio, seconds: 4, frequency: 440)
+        let json = #"{"text":"Привет.","segments":[{"type":"transcript.text.segment","text":"Привет.","start":0.1,"end":0.7,"speaker":"A"}]}"#
+        let stub = StubHTTP { _, count in count == 2 ? .status(503) : .json(200, json) }
+        let engine = try Engine(baseURL: "http://localhost/v1", model: "test", apiKey: "test-token",
+                                apiProtocol: .omlx, session: stub.session, retry: .once, chunkDuration: 2)
+        await #expect(throws: Engine.Failure.unavailable(503)) { try await engine.transcribe(audio) }
+        #expect(stub.requests.count == 2)
+        let turns = try await engine.transcribe(audio)
+        #expect(stub.requests.count == 3, "The first completed part should come from cache")
+        #expect(stub.requests.allSatisfy { $0.header("Authorization") == "Bearer test-token" })
+        #expect(turns.map(\.speaker) == ["p1-A", "p2-A"])
+        #expect(turns.map(\.start) == [0.1, 2.1])
+    }
+
     @Test func compatibleFieldsMatchEachProviderRatherThanSendingAUnion() throws {
         let mlx = Dictionary(uniqueKeysWithValues: Engine.requestFields(profile: .mlxAudio, model: "mlx-model", expected: ["ru", "en"]))
         #expect(mlx["model"] == "mlx-model")
