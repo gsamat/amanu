@@ -49,6 +49,7 @@ struct TranscriptionChoice: Equatable {
     var provider: String
     /// Local engine used outright or as auto's offline fallback.
     var localEngine: String = "parakeet"
+    var compatible: Bool = false
 
     static func read(
         engine: String,
@@ -65,6 +66,11 @@ struct TranscriptionChoice: Equatable {
         guard enabled else {
             return TranscriptionChoice(
                 cloud: false, local: false, provider: provider, localEngine: selectedLocal)
+        }
+        if engine == "compatible" {
+            return TranscriptionChoice(
+                cloud: false, local: false, provider: cloudProvider,
+                localEngine: selectedLocal, compatible: true)
         }
         // Anything that isn't a provider name or "parakeet" is auto — the
         // default, and what an unreadable value falls back to elsewhere too.
@@ -133,6 +139,12 @@ struct TranscriptionChoice: Equatable {
     /// Defaults are removed rather than written out: a config file that only
     /// contains what was actually chosen is one a person can read.
     var updates: [(path: [String], value: Any?)] {
+        if compatible {
+            return [
+                (["transcription", "enabled"], nil),
+                (["transcription", "engine"], "compatible"),
+            ]
+        }
         guard cloud || local else {
             // Neither engine is a real answer — record only, transcription off
             // — and the engine setting is left alone so switching back on

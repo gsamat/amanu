@@ -34,6 +34,7 @@ enum SessionClaim {
     enum Stage: String {
         case transcribe
         case finish
+        case review
     }
 
     /// A claim as it is on disk, whether or not the process that wrote it is
@@ -69,9 +70,10 @@ enum SessionClaim {
                     + "\(SessionClaim.file) can't be read, so amanu is leaving the folder "
                     + "alone. Delete that file if no other copy of amanu is running."
             }
-            let what = holder.stage == Stage.finish.rawValue
-                ? "naming and summarizing this recording"
-                : "transcribing this recording"
+            let what = holder.stage == Stage.review.rawValue
+                ? "reviewing the speakers in this recording"
+                : (holder.stage == Stage.finish.rawValue
+                    ? "naming and summarizing this recording" : "transcribing this recording")
             // The owner can be this very process — the sweep and the button
             // reach for folders the transcription queue is already in — and
             // telling somebody to quit the copy they are reading the message
@@ -93,6 +95,10 @@ enum SessionClaim {
                         + "\(SessionClaim.file) can't be read, so amanu is leaving it alone.",
                     "Этой записью уже кто-то занят: её \(SessionClaim.file) не читается, "
                         + "поэтому amanu её не трогает.")
+            }
+            if holder.stage == Stage.review.rawValue {
+                return localised("Speaker names are being reviewed in Amanu.",
+                                 "В Amanu открыто именование участников этой записи.")
             }
             let finishing = holder.stage == Stage.finish.rawValue
             guard holder.pid != ProcessInfo.processInfo.processIdentifier else {
@@ -235,6 +241,16 @@ enum SessionClaim {
         SessionLock.withLock(dir) {
             guard holder(dir)?.pid == ProcessInfo.processInfo.processIdentifier else { return }
             try? FileManager.default.removeItem(at: url(dir))
+        }
+    }
+
+    /// Transfer this process's existing claim without a release/acquire race.
+    static func changeStage(_ dir: URL, to stage: Stage) throws {
+        try SessionLock.withLock(dir) {
+            guard holder(dir)?.pid == ProcessInfo.processInfo.processIdentifier else {
+                throw Busy(session: dir.lastPathComponent, holder: holder(dir))
+            }
+            try payload(stage: stage).write(to: url(dir), options: .atomic)
         }
     }
 

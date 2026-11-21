@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// unpublished staging folder before the process exits. Returning true
     /// means the callback will answer AppKit's deferred termination request.
     var onPrepareTermination: ((_ completion: @escaping () -> Void) -> Bool)?
+    var onReviewQuit: (@MainActor () async -> Bool)?
     /// The app menu's Settings item hangs off the delegate because it is the
     /// only NSObject in the picture — AppController is a plain class, and a
     /// menu item needs a target it can send a selector to.
@@ -77,6 +78,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard alert.runModal() == .alertFirstButtonReturn else {
                 return .terminateCancel
             }
+        }
+
+        if let onReviewQuit {
+            Task { @MainActor in
+                guard await onReviewQuit() else {
+                    sender.reply(toApplicationShouldTerminate: false)
+                    return
+                }
+                let deferred = onPrepareTermination? {
+                    sender.reply(toApplicationShouldTerminate: true)
+                } ?? false
+                if !deferred { sender.reply(toApplicationShouldTerminate: true) }
+            }
+            return .terminateLater
         }
 
         let deferred = onPrepareTermination? {

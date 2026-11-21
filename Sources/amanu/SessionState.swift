@@ -40,6 +40,12 @@ enum SessionState {
         /// that fails for good would otherwise have cost the only summary
         /// there was — and until then it is owed, and not shown as done.
         static let summaryStale = "summary_stale"
+        /// A changed manual name needs an explicit request before a new paid summary.
+        static let summaryManualUpdate = "summary_manual_update"
+        static let summaryUpdateRequested = "summary_update_requested"
+        static let speakerNamesRevision = "speaker_names_revision"
+        /// Decision and owner for this particular transcript, independent of names.json.
+        static let speakerReview = "speaker_review"
         static let speakersDeferrals = "speakers_deferrals"
     }
 

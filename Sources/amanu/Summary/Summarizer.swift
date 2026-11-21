@@ -21,7 +21,8 @@ enum Summarizer {
     static func summarize(
         transcript: Transcript,
         context: [String],
-        into dir: URL
+        into dir: URL,
+        speakerNamesRevision: Int? = nil
     ) async -> String? {
         func log(_ message: String) { appendSessionLog(message, to: dir) }
 
@@ -34,6 +35,9 @@ enum Summarizer {
             return nil
         }
         let settings = Config.summary()
+        let namesRevision = speakerNamesRevision
+            ?? (SessionState.value(dir, SessionState.Key.speakerNamesRevision) as? Int ?? 0)
+        let transcriptRevision = SpeakerReview.transcriptID(dir)
         guard MeetingEgress.route(for: .summary) != nil else { return nil }
 
         let body = plainText(transcript)
@@ -73,16 +77,33 @@ enum Summarizer {
                 )
                 let text = markdown.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else { throw LLMError.emptyResponse(backend.name) }
-                try Data((text + "\n").utf8).write(
-                    to: dir.appendingPathComponent("summary.md"), options: .atomic
-                )
+                let saved = try SessionLock.withLock(dir) {
+                    guard (SessionState.value(dir, SessionState.Key.speakerNamesRevision) as? Int ?? 0) == namesRevision,
+                          SpeakerReview.transcriptID(dir) == transcriptRevision else {
+                        try SessionState.amend(dir, with: [
+                            SessionState.Key.summaryStale: true,
+                            SessionState.Key.summaryManualUpdate: true,
+                            SessionState.Key.summaryUpdateRequested: nil,
+                        ])
+                        return false
+                    }
+                    try Data((text + "\n").utf8).write(
+                        to: dir.appendingPathComponent("summary.md"), options: .atomic)
+                    try SessionState.amend(dir, with: [
+                        SessionState.Key.summaryStatus: nil,
+                        SessionState.Key.summaryFailedFor: nil,
+                        SessionState.Key.summaryDeferrals: nil,
+                        SessionState.Key.summaryStale: nil,
+                        SessionState.Key.summaryManualUpdate: nil,
+                        SessionState.Key.summaryUpdateRequested: nil,
+                    ])
+                    return true
+                }
+                guard saved else {
+                    log("summary result discarded — transcript or speaker names changed during generation")
+                    return nil
+                }
                 log("summary written by \(backend.name)")
-                SessionState.update(dir, with: [
-                    SessionState.Key.summaryStatus: nil,
-                    SessionState.Key.summaryFailedFor: nil,
-                    SessionState.Key.summaryDeferrals: nil,
-                    SessionState.Key.summaryStale: nil,
-                ])
                 Analytics.track(.summaryFinished, [
                     .backend: .text(backend.name),
                     .model: .text(AnalyticsCatalogue.summaryModel(

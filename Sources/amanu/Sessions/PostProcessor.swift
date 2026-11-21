@@ -37,7 +37,8 @@ enum PostProcessor {
     struct Work: Equatable {
         var names = false
         var summary = false
-        var isEmpty: Bool { !names && !summary }
+        var review = false
+        var isEmpty: Bool { !names && !summary && !review }
     }
 
     /// What still needs doing, reading the session's own record of itself.
@@ -65,14 +66,16 @@ enum PostProcessor {
         }
 
         guard exists("transcript.json"), !TranscriptVersions.isRequested(dir) else { return Work() }
+        if SpeakerReview.isPending(dir) { return Work(review: true) }
 
         var work = Work()
-        work.names = policy.names
+        work.names = policy.names && !SpeakerReview.hasDecision(dir)
             && !exists(SpeakerNames.file)
             && !gaveUp(SessionState.Key.speakersStatus, SessionState.Key.speakersFailedFor,
                        .speakerNames)
         work.summary = policy.summary
             && !hasCurrentSummary(dir, meta: meta)
+            && (!summaryNeedsManualUpdate(dir) || meta[SessionState.Key.summaryUpdateRequested] as? Bool == true)
             && !gaveUp(SessionState.Key.summaryStatus, SessionState.Key.summaryFailedFor,
                        .summary)
         return work
@@ -86,6 +89,21 @@ enum PostProcessor {
         else { return false }
         let meta = meta ?? SessionState.read(dir) ?? [:]
         return meta[SessionState.Key.summaryStale] as? Bool != true
+    }
+
+    static func summaryNeedsManualUpdate(_ dir: URL) -> Bool {
+        SessionState.value(dir, SessionState.Key.summaryManualUpdate) as? Bool == true
+    }
+
+    /// Unlike a new ASR result, changing a name never automatically buys another summary.
+    static func requestSummaryUpdate(_ dir: URL) throws {
+        try SessionState.amend(dir, with: [
+            SessionState.Key.summaryStale: true,
+            SessionState.Key.summaryUpdateRequested: true,
+            SessionState.Key.summaryStatus: nil,
+            SessionState.Key.summaryFailedFor: nil,
+            SessionState.Key.summaryDeferrals: nil,
+        ])
     }
 
     /// Run whatever is outstanding for one session. Returns what it did.
@@ -113,8 +131,9 @@ enum PostProcessor {
                 "post-processing waits — config.json can't be read (\(reason))", to: dir)
             return Work()
         }
-        let work = outstanding(dir, policy: policy)
-        guard !work.isEmpty else { return work }
+        var work = outstanding(dir, policy: policy)
+        guard !work.isEmpty || SpeakerReview.needsAudioSettlement(dir) else { return work }
+        guard !SpeakerReview.isOwnedByOtherLiveUI(dir) else { return Work() }
 
         do {
             try SessionClaim.acquire(dir, stage: .finish)
@@ -122,12 +141,32 @@ enum PostProcessor {
             appendSessionLog("post-processing skipped — \(error)", to: dir)
             return Work()
         }
-        defer { SessionClaim.release(dir) }
+        var retainedForReview = false
+        defer { if !retainedForReview { SessionClaim.release(dir) } }
 
         guard let transcript = readTranscript(dir) else {
             appendSessionLog("post-processing skipped — can't read transcript.json", to: dir)
             return Work()
         }
+
+        if SpeakerReview.isPending(dir) {
+            do {
+                if try SpeakerReview.offerOrSkip(dir, summaryEnabled: policy.summary) {
+                    retainedForReview = true
+                    return Work(review: true)
+                }
+            } catch {
+                appendSessionLog("speaker review couldn't be recorded — \(error)", to: dir)
+                return Work()
+            }
+        }
+        do { try SpeakerReview.settleAudioIfNeeded(dir) }
+        catch {
+            appendSessionLog("audio settlement couldn't be recorded — \(error)", to: dir)
+            return Work()
+        }
+        // Re-check after acquiring the claim and resolving a headless/recovered review.
+        work = outstanding(dir, policy: policy)
 
         let meta = SessionState.read(dir) ?? [:]
         let calendar = meta["calendar"] as? [String: Any]
@@ -154,9 +193,13 @@ enum PostProcessor {
             if let app { context.append("Recorded from: \(app)") }
             // The summarizer reads speaker labels straight off the segments,
             // so hand it a renamed copy rather than a note about the names.
+            let snapshot = SessionLock.withLock(dir) {
+                (transcript.named(with: SpeakerNames.read(from: dir) ?? names),
+                 SessionState.value(dir, SessionState.Key.speakerNamesRevision) as? Int ?? 0)
+            }
             await Summarizer.summarize(
-                transcript: transcript.named(with: names), context: context, into: dir
-            )
+                transcript: snapshot.0, context: context, into: dir,
+                speakerNamesRevision: snapshot.1)
         }
 
         return work
@@ -371,7 +414,13 @@ enum PostProcessor {
                 SessionState.Key.transcriptionAttempts: nil,
                 SessionState.Key.transcriptionDeferred: nil,
             ])
-            TranscriptionScratch.remove(in: dir, includingDerivedAudio: true)
+            // Completed pieces of a failed compatible run are a continuation,
+            // not a stale answer: their keys already change with the audio,
+            // endpoint, model and parameters, and a success removes them. The
+            // pieces a successful run produced are gone by now, so a new
+            // version of a finished transcript still asks the server afresh.
+            TranscriptionScratch.remove(in: dir, includingDerivedAudio: true,
+                                        keepingResumable: engine == "compatible")
             appendSessionLog("queued a new transcript version", to: dir)
             return true
         } catch {
@@ -397,8 +446,10 @@ enum PostProcessor {
         do {
             try SessionLock.withLock(dir) {
                 var names = SpeakerNames.read(from: dir) ?? SpeakerNames()
+                let updatedName: String? = (cleaned?.isEmpty ?? true) ? nil : cleaned
+                let changed = names.speakers[label]?.name != updatedName
                 names.speakers[label] = SpeakerNames.Entry(
-                    name: (cleaned?.isEmpty ?? true) ? nil : cleaned,
+                    name: updatedName,
                     source: .manual
                 )
                 try names.write(to: dir)
@@ -408,6 +459,17 @@ enum PostProcessor {
                 // The label now has an answer, so the session is no longer
                 // waiting on a model for it.
                 SessionState.update(dir, with: [SessionState.Key.speakersStatus: nil])
+                if changed {
+                    let revision = SessionState.value(dir, SessionState.Key.speakerNamesRevision) as? Int ?? 0
+                    var fields: [String: Any?] = [SessionState.Key.speakerNamesRevision: revision + 1]
+                    if !SpeakerReview.isPending(dir),
+                       FileManager.default.fileExists(atPath: dir.appendingPathComponent("summary.md").path) {
+                        fields[SessionState.Key.summaryStale] = true
+                        fields[SessionState.Key.summaryManualUpdate] = true
+                        fields[SessionState.Key.summaryUpdateRequested] = nil
+                    }
+                    try SessionState.amend(dir, with: fields)
+                }
             }
             appendSessionLog(
                 cleaned?.isEmpty == false

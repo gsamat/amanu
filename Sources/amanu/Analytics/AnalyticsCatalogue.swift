@@ -93,7 +93,7 @@ enum AnalyticsCatalogue {
     /// closed vocabulary at collection and again when replaying older queues.
     static func sanitized(_ properties: [String: Any]) -> [String: Any] {
         var result = properties
-        let engines = ["auto"] + Array(Config.localEngines.union(Config.cloudEngines)).sorted()
+        let engines = ["auto", "compatible"] + Array(Config.localEngines.union(Config.cloudEngines)).sorted()
         let backends = [
             "auto", "claude-cli", "codex-cli", "anthropic-api", "openai-api", "ollama", "none",
         ]

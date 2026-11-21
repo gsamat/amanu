@@ -72,7 +72,7 @@ struct AccessibilityTests {
         let form = SetupForm()
         defer { form.stop() }
         let switches = form.view.allDescendants.compactMap { $0 as? NSSwitch }
-        #expect(switches.count >= 8)
+        #expect(switches.count >= 7)
         for toggle in switches {
             let name = toggle.accessibilityLabel() ?? ""
             #expect(!name.isEmpty, "\(toggle.identifier?.rawValue ?? "a switch") has no name")
@@ -81,6 +81,27 @@ struct AccessibilityTests {
         #expect(keepAudio?.accessibilityLabel() == "Keep the audio after transcribing")
         let summaries = switches.first { $0.identifier?.rawValue == "summary.enabled" }
         #expect(summaries?.accessibilityLabel() == "Summaries")
+    }
+
+    @Test("Transcription modes are named radio buttons", .freshHome)
+    func transcriptionModesAreNamed() throws {
+        let form = SetupForm()
+        defer { form.stop() }
+        for id in ["transcription.local", "transcription.cloud", "transcription.compatible"] {
+            let button = try #require(form.view.allDescendants.first {
+                $0.identifier?.rawValue == id
+            } as? NSButton)
+            #expect(button.accessibilityRole() == .radioButton, "\(id) is not a radio button")
+            #expect(button.accessibilityLabel()?.isEmpty == false, "\(id) has no name")
+            #expect(button.accessibilityHelp()?.isEmpty == false, "\(id) has no explanation")
+            #expect((button.accessibilityValue() as? NSNumber)?.intValue == button.state.rawValue,
+                    "\(id) does not announce its selected state")
+        }
+        let server = try #require(form.view.allDescendants.first {
+            $0.identifier?.rawValue == "transcription.compatible"
+        } as? NSButton)
+        #expect(server.accessibilityPerformPress())
+        #expect((server.accessibilityValue() as? NSNumber)?.intValue == 1)
     }
 
     @Test("Every card in the setup form is a named radio button", .freshHome)

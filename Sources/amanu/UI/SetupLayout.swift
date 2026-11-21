@@ -202,6 +202,15 @@ enum SetupLayout {
             if let detail = detail as? NSTextField, !detail.stringValue.isEmpty {
                 toggle.setAccessibilityHelp(detail.stringValue)
             }
+        } else if let button = leading as? NSButton {
+            words.addGestureRecognizer(NSClickGestureRecognizer(
+                target: button, action: #selector(NSButton.performClick(_:))))
+            if let title = title as? NSTextField {
+                button.setAccessibilityLabel(title.stringValue)
+            }
+            if let detail = detail as? NSTextField, !detail.stringValue.isEmpty {
+                button.setAccessibilityHelp(detail.stringValue)
+            }
         }
         views.append(words)
         views.append(spacer())

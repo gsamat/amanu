@@ -227,6 +227,9 @@ struct SettingsSchemaTests {
             "transcription.cloud",
             // The local-engine picker beside the local switch.
             "transcription.local_engine",
+            "transcription.compatible.base_url",
+            "transcription.compatible.model",
+            "transcription.compatible.protocol",
             // The live-transcript switch — Apple Silicon only, on both sides.
             "live_transcription.enabled",
             // Files: the switch, and the folder chosen with an open panel.

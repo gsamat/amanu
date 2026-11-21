@@ -40,19 +40,23 @@ struct Transcript: Codable {
             .write(to: dir.appendingPathComponent("transcript.md"), options: .atomic)
     }
 
-    /// A copy with each label replaced by its known name, for readers that
+    /// A copy with each label replaced by its readable name, for readers that
     /// take the speaker straight off the segment — the summarizer, mainly,
     /// which writes "Фёдор will send the contract" only if that is what it was
     /// given to read.
+    ///
+    /// An unnamed side stays `me` or `them` here rather than being translated:
+    /// the summarizer's system prompt defines those two words, and a Russian
+    /// interface used to hand it `я` and `они` instead.
     func named(with names: SpeakerNames?) -> Transcript {
-        guard let names else { return self }
+        let labels = displayNames(names: names, translatingSides: false)
         return Transcript(
             engine: engine,
             model: model,
             created_at: created_at,
             segments: segments.map {
                 Segment(
-                    speaker: names.name(for: $0.speaker),
+                    speaker: labels[$0.speaker] ?? $0.speaker,
                     start_ms: $0.start_ms,
                     end_ms: $0.end_ms,
                     text: $0.text
@@ -61,25 +65,49 @@ struct Transcript: Codable {
         )
     }
 
+    /// Raw labels remain identifiers on disk. Readers see a saved name or a
+    /// stable number in first-appearance order, without chunk namespaces.
+    func displaySpeaker(label: String, names: SpeakerNames?) -> String {
+        displayNames(names: names)[label] ?? label
+    }
+
+    private func displayNames(names: SpeakerNames?, translatingSides: Bool = true) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: SpeakerNamer.orderedLabels(of: self).enumerated().map { index, label in
+            let name = names?.speakers[label]?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let readable: String
+            if let name, !name.isEmpty {
+                readable = name
+            } else if label == "me" || label.hasPrefix("me ")
+                || label == "them" || label.hasPrefix("them ") {
+                readable = translatingSides ? SpeakerNames.described(label: label) : label
+            } else {
+                readable = localised("Participant \(index + 1)", "Участник \(index + 1)")
+            }
+            return (label, readable)
+        })
+    }
+
     func rendered(title: String, names: SpeakerNames?) -> String {
+        let labels = displayNames(names: names)
+        let unnamedLabels = displayNames(names: nil)
         var lines = ["# \(title)", "", "engine: \(engine) (\(model))"]
         // A roster only earns its place when it says something the body
         // doesn't: which label a name stands for.
-        let named = (names?.speakers ?? [:]).compactMap { label, entry in
-            entry.name.map { "\(label) → \($0)" }
+        let named = SpeakerNamer.orderedLabels(of: self).compactMap { label in
+            names?.speakers[label]?.name.map { "\(unnamedLabels[label] ?? label) → \($0)" }
         }.sorted()
         if !named.isEmpty {
             lines.append("speakers: " + named.joined(separator: ", "))
         }
         lines.append("")
         if Self.formatsTurns(engine) {
-            for paragraph in paragraphs(names: names) {
+            for paragraph in paragraphs(labels: labels) {
                 lines.append("**[\(Self.clock(paragraph.start_ms))] \(paragraph.speaker):** \(paragraph.text)")
                 lines.append("")
             }
         } else {
             for segment in segments {
-                let who = names?.name(for: segment.speaker) ?? segment.speaker
+                let who = labels[segment.speaker] ?? segment.speaker
                 lines.append("**[\(Self.clock(segment.start_ms))] \(who):** \(segment.text)")
                 lines.append("")
             }
@@ -97,13 +125,13 @@ struct Transcript: Codable {
     /// AssemblyAI can return one diarized utterance per word. Keep those
     /// timestamps in transcript.json, but present continuous speech as a turn.
     /// A brief interjection by another speaker does not split that turn.
-    private func paragraphs(names: SpeakerNames?) -> [Paragraph] {
+    private func paragraphs(labels: [String: String]) -> [Paragraph] {
         var result: [Paragraph] = []
         var lastBySpeaker: [String: Int] = [:]
         for segment in segments {
             let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            let speaker = names?.name(for: segment.speaker) ?? segment.speaker
+            let speaker = labels[segment.speaker] ?? segment.speaker
             if let index = lastBySpeaker[speaker],
                segment.start_ms - result[index].end_ms <= 1_500 {
                 let separator = text.first.map { ",.!?;:…)]}»".contains($0) } == true ? "" : " "

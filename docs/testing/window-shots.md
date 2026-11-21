@@ -33,6 +33,14 @@ AMANU_SHOTS=/tmp/shots-en swift test --filter 'Window(Shots|Gallery)'
 AMANU_SHOTS_LANGUAGE=ru AMANU_SHOTS=/tmp/shots-ru swift test --filter 'Window(Shots|Gallery)'
 ```
 
+The participant review's real field-editor test needs its own process: it
+drives AppKit's shared key window while other suites also manipulate it.
+Run it separately after the normal suite:
+
+```sh
+AMANU_ISOLATED_FIELD_EDITOR_TEST=1 swift test --filter activeNameEditIsSavedByReviewAction
+```
+
 `AMANU_SHOTS` both switches the suite on and says where to write; without it
 `swift test` skips the whole thing, which is why it can live in the test target
 without lengthening the suite. It is in the test target because that is the only

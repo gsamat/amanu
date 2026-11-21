@@ -144,10 +144,20 @@ enum TranscriptionFailurePolicy {
             // recordings window or `amanu process` may reach for the same
             // tracks to try again. Whoever has them then keeps them as they
             // are; retired sessions are only compressed to save disk.
+            //
+            // Except where a compatible run left pieces it was paid for: those
+            // are keyed to the exact mix, and a mix remade from the compressed
+            // archive is different audio, so compressing would turn a retry of
+            // the one failed piece into paying for every piece again. The PCM
+            // is compressed when the transcription finally succeeds.
             do {
                 try SessionClaim.acquire(dir, stage: .transcribe)
-                TrackCompressor.compress(sessionDir: dir)
-                TranscriptionScratch.remove(in: dir)
+                if TranscriptionScratch.resumableCaches(in: dir).isEmpty {
+                    TrackCompressor.compress(sessionDir: dir)
+                } else {
+                    log("audio left uncompressed — completed pieces are kept for a retry")
+                }
+                TranscriptionScratch.remove(in: dir, keepingResumable: true)
                 SessionClaim.release(dir)
             } catch {
                 log("audio left uncompressed — \(error)")

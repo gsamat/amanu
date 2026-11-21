@@ -55,6 +55,19 @@ actor EngineResolver {
     func engine(for session: URL) async throws -> TranscriptionEngine {
         if let fixedEngine { return try await hold(fixedEngine.name, fixedEngine) }
         let configured = Self.configuredEngine(for: session)
+        if configured == "compatible" {
+            // Snapshot the configured endpoint for this recording. Holding a
+            // client by name across the queue would retain old settings.
+            let engine = try CompatibleTranscriptionEngine(
+                baseURL: Config.compatibleTranscriptionBaseURL(),
+                model: Config.compatibleTranscriptionModel(),
+                apiKey: Config.compatibleTranscriptionKey(),
+                apiProtocol: CompatibleTranscriptionProtocol(
+                    rawValue: Config.compatibleTranscriptionProtocol()) ?? .automatic,
+                expectedLanguages: MeetingLanguages.expected(primary: Config.transcriptionLanguage()))
+            try await engine.prepare()
+            return engine
+        }
         if !Self.knownEngines.contains(configured) {
             FileHandle.standardError.write(Data(
                 "warning: unknown transcription engine \"\(configured)\" — choosing automatically\n".utf8
@@ -144,7 +157,7 @@ actor EngineResolver {
 
     // MARK: - what the configuration adds up to
 
-    static let knownEngines: Set<String> = Set(["auto"])
+    static let knownEngines: Set<String> = Set(["auto", "compatible"])
         .union(Config.cloudEngines)
         .union(Config.localEngines)
 
@@ -179,10 +192,7 @@ actor EngineResolver {
     }
 
     static func isCloud(_ engine: TranscriptionEngine) -> Bool {
-        switch engine.input {
-        case .perTrack: return false
-        case .multichannel, .mixed: return true
-        }
+        engine.runsRemotely
     }
 
     /// Which engine the configuration adds up to, before the network is

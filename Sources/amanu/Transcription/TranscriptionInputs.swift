@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 
 /// The three ways a session's audio is handed to an engine — one call per
@@ -12,6 +13,7 @@ struct TranscriptionInputs {
     /// The single mixed-down file used by engines that cannot consume the two
     /// channels directly. Derived from the tracks and regenerated when absent.
     static let mixedFile = "mixed.m4a"
+    static let mixedIdentityFile = ".mixed-sources.json"
     static let multichannelFile = "multichannel.m4a"
     static let multichannelTemporary = "multichannel.tmp.m4a"
 
@@ -209,22 +211,45 @@ struct TranscriptionInputs {
         let mixed = importedSource ?? (sharedArchive
             ? dir.appendingPathComponent(meta.tracks[0].file)
             : dir.appendingPathComponent(Self.mixedFile))
-        if importedSource == nil, !sharedArchive,
-           !FileManager.default.fileExists(atPath: mixed.path) {
-            log("mixing tracks → \(Self.mixedFile)")
-            try await AudioMixer.mix(
-                meta.tracks.map {
-                    AudioMixer.Track(
-                        url: dir.appendingPathComponent($0.file),
-                        offset: TimeInterval($0.offsetMs) / 1000
-                    )
-                },
-                to: mixed
-            )
+        if importedSource == nil, !sharedArchive {
+            let tracks = meta.tracks.map {
+                AudioMixer.Track(
+                    url: dir.appendingPathComponent($0.file),
+                    offset: TimeInterval($0.offsetMs) / 1000
+                )
+            }
+            // A resumable compatible request may keep the mix across a manual
+            // retry. Its cache is keyed by the mix, so reusing a stale mix
+            // would also reuse a transcript of the previous source tracks.
+            // The echo-cancelled directory is rebuilt for each run and must
+            // not leave another identity file behind in that temporary folder.
+            let verifyMix = engine.name == "compatible"
+                && dir.standardizedFileURL == session.standardizedFileURL
+            let identityURL = dir.appendingPathComponent(Self.mixedIdentityFile)
+            let sourceID = verifyMix ? try await Self.mixSourceID(tracks) : nil
+            var needsMix = !FileManager.default.fileExists(atPath: mixed.path)
+            if let sourceID, !needsMix {
+                let identity = (try? Data(contentsOf: identityURL))
+                    .flatMap { try? JSONDecoder().decode(MixIdentity.self, from: $0) }
+                let mixID = try await Self.fileID(mixed)
+                needsMix = identity?.sources != sourceID || identity?.mix != mixID
+            }
+            if needsMix {
+                if verifyMix { try? FileManager.default.removeItem(at: identityURL) }
+                log("mixing tracks → \(Self.mixedFile)")
+                try await AudioMixer.mix(tracks, to: mixed)
+                if let sourceID {
+                    guard try await Self.mixSourceID(tracks) == sourceID else {
+                        throw MixIdentityError.sourcesChanged
+                    }
+                    let identity = MixIdentity(sources: sourceID, mix: try await Self.fileID(mixed))
+                    try JSONEncoder().encode(identity).write(to: identityURL, options: .atomic)
+                }
+            }
         }
 
         log("transcribing \(Self.mixedFile) (\(engine.name))")
-        let segments = try await engine.transcribe(mixed)
+        let segments = try await engine.transcribe(mixed, cacheDirectory: session)
 
         let names = meta.track(for: "me").flatMap { mic in
             meta.track(for: "them").flatMap { system in
@@ -249,11 +274,67 @@ struct TranscriptionInputs {
         return segments.enumerated().map { index, segment in
             Transcript.Segment(
                 speaker: names?[index] ?? segment.speaker ?? "speaker",
-                start_ms: Int(segment.start * 1000),
-                end_ms: Int(segment.end * 1000),
+                start_ms: Int((segment.start * 1000).rounded(.down)),
+                end_ms: engine.name == "compatible"
+                    ? Int((segment.end * 1000).rounded(.up))
+                    : Int(segment.end * 1000),
                 text: segment.text
             )
         }
+    }
+
+    private struct MixIdentity: Codable {
+        let sources: String
+        let mix: String
+    }
+
+    private enum MixIdentityError: Error {
+        case sourcesChanged
+    }
+
+    /// Track order, offsets and every source byte determine the mix. Hash on
+    /// a utility task so long recordings do not block the cooperative pool.
+    private static func mixSourceID(_ tracks: [AudioMixer.Track]) async throws -> String {
+        let worker = Task.detached(priority: .utility) {
+            var parts = ["amanu-mix-v1"]
+            for track in tracks {
+                try Task.checkCancellation()
+                parts.append(track.url.standardizedFileURL.path)
+                parts.append(String(track.offset.bitPattern))
+                if FileManager.default.fileExists(atPath: track.url.path) {
+                    parts.append(try fileDigest(track.url))
+                } else {
+                    parts.append("missing")
+                }
+            }
+            let encoded = try JSONEncoder().encode(parts)
+            return SHA256.hash(data: encoded).map { String(format: "%02x", $0) }.joined()
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private static func fileID(_ url: URL) async throws -> String {
+        let worker = Task.detached(priority: .utility) { try fileDigest(url) }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
+    }
+
+    private static func fileDigest(_ url: URL) throws -> String {
+        let file = try FileHandle(forReadingFrom: url)
+        defer { try? file.close() }
+        var hash = SHA256()
+        while let bytes = try file.read(upToCount: 1 << 20), !bytes.isEmpty {
+            try Task.checkCancellation()
+            hash.update(data: bytes)
+        }
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 }
 

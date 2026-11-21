@@ -116,6 +116,26 @@ struct WindowShots {
         try write(panel, "settings-setup-switched-back-to-dark")
     }
 
+    @Test("Compatible transcription settings, including token and separate checks",
+          .freshHome(config: #"{"transcription":{"engine":"compatible"}}"#))
+    @MainActor
+    func compatibleTranscriptionSettings() throws {
+        _ = NSApplication.shared
+        var owners: [Any] = []
+        defer { withExtendedLifetime(owners) {} }
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            let panel = try settingsPanel(builtIn: appearance, keeping: &owners)
+            panel.setContentSize(NSSize(width: 700, height: 900))
+            try tabs(of: panel).selectTabViewItem(at: 0)
+            panel.contentView?.layoutSubtreeIfNeeded()
+            let field = try #require(panel.contentView?.allDescendants.first {
+                $0.identifier?.rawValue == "transcription.compatible.base-url"
+            })
+            if let options = field.superview?.superview { options.scrollToVisible(options.bounds) }
+            try write(panel, "settings-compatible-\(name)")
+        }
+    }
+
     /// The About window, which is small enough that both appearances fit in
     /// one pass and has no state to drive it through. What there is to see is
     /// the spacing: an icon, a name, a version and three links, centred, and
@@ -495,6 +515,53 @@ struct WindowGallery {
             let tabs = try #require(window.view?.allDescendants.compactMap { $0 as? NSTabView }.first)
             tabs.selectTabViewItem(withIdentifier: "transcript")
             try write(panel, "recordings-versions-\(name)")
+            withExtendedLifetime(window) {}
+        }
+    }
+
+    @Test("Participants review and manual summary update, in both appearances",
+          .freshHome(config: #"{"keep_audio":true,"summary":{"enabled":false},"speaker_names":{"enabled":false}}"#))
+    @MainActor
+    func speakerReviewWindow() async throws {
+        _ = NSApplication.shared
+        let root = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dir = root.appendingPathComponent("2026.08.20-1030")
+        try TestAudio.writeTone(to: dir.appendingPathComponent("source.caf"), seconds: 12,
+                                frequency: 220, sampleRate: 16_000)
+        try SessionState.amend(dir, with: ["files": ["source": "source.caf"]])
+        try Transcript(engine: "compatible", model: "Nemotron", created_at: "2026-11-06T10:20:00Z", segments: [
+            .init(speaker: "c001:s0", start_ms: 0, end_ms: 1000,
+                  text: localised("Hello, Maria.", "Привет, Мария.")),
+            .init(speaker: "c001:s1", start_ms: 1000, end_ms: 2000,
+                  text: localised("Hello!", "Привет!")),
+            .init(speaker: "c001:s0", start_ms: 3000, end_ms: 11000,
+                  text: localised("Let's check the release notes and decide what remains for tomorrow.",
+                                  "Давай проверим заметки к релизу и решим, что осталось на завтра.")),
+        ]).write(to: dir)
+        for (name, appearance) in [("light", light), ("dark", dark)] {
+            try SpeakerNames(speakers: [
+                "c001:s1": .init(name: localised("Maria", "Мария"), source: .manual),
+            ]).write(to: dir)
+            try SessionState.amend(dir, with: [
+                SessionState.Key.summaryManualUpdate: nil, SessionState.Key.summaryStale: nil,
+                SessionState.Key.summaryUpdateRequested: nil,
+            ])
+            try SpeakerReview.recordTranscript(dir, supportsDiarization: true)
+            let window = RecordingsWindow(root: root)
+            await window.showSpeakerReview(dir)
+            let panel = try #require(window.view?.window)
+            panel.appearance = appearance
+            panel.setContentSize(NSSize(width: 860, height: 560))
+            try write(panel, "recordings-speaker-review-\(name)")
+
+            // The second picture poses a correction after the review decision.
+            try SessionState.amend(dir, with: [SessionState.Key.speakerReview: nil])
+            PostProcessor.rename("c001:s0", to: localised("Fyodor", "Фёдор"), in: dir)
+            window.sessionsChanged()
+            await window.settled()
+            try write(panel, "recordings-speaker-update-\(name)")
+            panel.orderOut(nil)
             withExtendedLifetime(window) {}
         }
     }

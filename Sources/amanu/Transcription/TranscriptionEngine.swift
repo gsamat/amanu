@@ -122,7 +122,28 @@ protocol TranscriptionEngine: Sendable {
     /// Whether this engine wants each track separately, aligned stereo, or one
     /// mixed file.
     var input: TranscriptionInput { get }
+    /// Whether the engine distinguishes voices rather than only audio tracks.
+    var supportsDiarization: Bool { get }
+    /// Network location is independent of the shape of the audio input.
+    var runsRemotely: Bool { get }
     func prepare() async throws
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment]
+    /// Session-owned responses must survive a retry even when audio is an
+    /// ephemeral echo-cancelled mix. Engines without caches ignore this.
+    func transcribe(_ audio: URL, cacheDirectory: URL) async throws -> [TranscriptSegment]
     func release() async
+}
+
+extension TranscriptionEngine {
+    func transcribe(_ audio: URL, cacheDirectory: URL) async throws -> [TranscriptSegment] {
+        try await transcribe(audio)
+    }
+
+    var supportsDiarization: Bool {
+        switch input {
+        case .perTrack: return false
+        case .multichannel, .mixed: return true
+        }
+    }
+    var runsRemotely: Bool { supportsDiarization }
 }

@@ -292,8 +292,8 @@ the Mac, and a few minutes of waiting.
      `transcribe.log`;
    - your microphone is audible only in the left channel and Mac playback only
      in the right channel;
-   - **Re-transcribe** is enabled and successfully produces a new transcript
-     from the archived channels, and `amanu process --again` does the same
+   - **Re-transcribe** is enabled, and its **As in Settings** item
+     successfully produces a new transcript from the archived channels, and `amanu process --again` does the same
      thing from the command line.
 4. Optional failure-path check: temporarily switch **On this Mac** off and put
    an unusable key in place of the working one, record a few seconds, and
@@ -442,9 +442,19 @@ read once at startup, which is what the row under it says.
 
 - Open **Recordings** with a meeting still transcribing. When it finishes,
   its row changes from pending to done without the window being closed, and
-  **Finish processing** answers for the finished session, not the stale one.
-- Select a session that is being transcribed and click **Delete**: the window
-  says amanu is working on it and moves nothing to the Trash.
+  **Finish processing** beside the title answers for the finished session,
+  not the stale one — or is gone, once nothing is owed.
+- Select a session that is being transcribed and click the trash icon beside
+  its title: the window says amanu is working on it and moves nothing to the
+  Trash.
+- Right-click a row other than the selected one and choose an engine: the
+  row you clicked becomes the selection and is the one re-transcribed.
+- With a speaker review open, switch to **Transcript**: **Skip** and
+  **Create summary** stay beside the title, and Return in a name field saves
+  that name without ending the review. Type one name, leave another empty and
+  press **Skip**: the typed name is kept and the summary follows.
+- With VoiceOver on, move across the icons beside the title: each is
+  announced by its name (Open transcript, Show in Finder, Move to Trash).
 - Drop a large file to import, press **Cancel** in the import status, and
   immediately drop another: the second one is imported once the first has
   stopped, and is not silently forgotten.

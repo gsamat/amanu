@@ -506,7 +506,7 @@ struct RetranscriptionTests {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         #expect(RecordingsWindow.retranscriptionEngines.map(\.id)
-            == ["parakeet", "whisper", "gigaam", "assemblyai", "openai", "elevenlabs"])
+            == ["parakeet", "whisper", "gigaam", "assemblyai", "openai", "elevenlabs", "compatible"])
         RecordingsWindow.markForRetranscription(dir, engine: "whisper")
         #expect(SessionState.value(dir, SessionState.Key.transcriptionEngine) as? String
             == "whisper")

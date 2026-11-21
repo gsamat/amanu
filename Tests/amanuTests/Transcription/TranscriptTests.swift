@@ -4,6 +4,39 @@ import Testing
 @testable import amanu
 
 struct TranscriptTests {
+    @Test("Opaque labels get ordered display names in Markdown and summary input without changing raw IDs",
+          .speaking(.russian))
+    func participantDisplayDoesNotRenameRawLabels() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("amanu-display-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let transcript = Transcript(engine: "compatible", model: "test", created_at: "2026-11-06T10:00:00Z", segments: [
+            .init(speaker: "p2-B", start_ms: 0, end_ms: 1000, text: "Первый."),
+            .init(speaker: "p1-A", start_ms: 1000, end_ms: 2000, text: "Второй."),
+            .init(speaker: "p2-B", start_ms: 2000, end_ms: 3000, text: "Снова первый."),
+            .init(speaker: "me", start_ms: 3000, end_ms: 4000, text: "Я."),
+            .init(speaker: "them A", start_ms: 4000, end_ms: 5000, text: "Они."),
+        ])
+        try transcript.write(to: dir)
+        let raw = try Data(contentsOf: dir.appendingPathComponent("transcript.json"))
+        // The summarizer's prompt defines "me" and "them"; translated sides
+        // would contradict it in a Russian interface.
+        #expect(transcript.named(with: nil).segments.map(\.speaker)
+            == ["Участник 1", "Участник 2", "Участник 1", "me", "them A"])
+        let names = SpeakerNames(speakers: ["p1-A": .init(name: "Мария", source: .manual)])
+        try transcript.writeMarkdown(to: dir, names: names)
+        let markdown = try String(contentsOf: dir.appendingPathComponent("transcript.md"), encoding: .utf8)
+        #expect(markdown.contains("Участник 1:"))
+        #expect(markdown.contains("Участник 2 → Мария"))
+        #expect(!markdown.contains("p2-B") && !markdown.contains("p1-A"))
+        #expect(transcript.named(with: names).segments.map(\.speaker)
+            == ["Участник 1", "Мария", "Участник 1", "me", "them A"])
+        #expect(SessionInventory.opening(of: transcript, names: names).hasPrefix("Участник 1:"))
+        #expect(try Data(contentsOf: dir.appendingPathComponent("transcript.json")) == raw)
+        #expect(names.speakers.keys.sorted() == ["p1-A"])
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(SpeakerNames.file).path))
+    }
+
     @Test("Bulk formatting skips transcripts from other recognizers")
     func bulkFormattingSkipsOtherEngines() throws {
         let root = FileManager.default.temporaryDirectory

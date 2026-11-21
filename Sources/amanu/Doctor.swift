@@ -475,6 +475,19 @@ enum DoctorReport {
             )
         }
         let configured = Config.transcriptionEngine()
+        if configured == "compatible" {
+            let base = Config.compatibleTranscriptionBaseURL()
+            guard let url = URL(string: base),
+                  let scheme = url.scheme, ["http", "https"].contains(scheme),
+                  url.host != nil,
+                  !Config.compatibleTranscriptionModel().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else {
+                return Check(name: "transcription", status: .warn("server URL or model is invalid"),
+                             remediation: "configure transcription.compatible.base_url and model")
+            }
+            return Check(name: "transcription", status: .warn("server configured; availability not checked"),
+                         remediation: nil)
+        }
         let provider = EngineResolver.cloudProvider(configured: configured)
         if Config.cloudEngines.contains(configured) { return checkCloud(provider) }
         guard Platform.supportsLocalModels else { return checkWithoutLocalModels(provider) }
