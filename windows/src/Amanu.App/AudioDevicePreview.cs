@@ -8,6 +8,7 @@ internal sealed class AudioDevicePreview(IAudioEndpointFactory factory) : IAsync
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly AudioPeakMeter meter = new();
     private IAudioEndpointRecorder? recorder;
+    private EventHandler<NAudio.Wave.StoppedEventArgs>? stoppedHandler;
     public double Level => meter.Level;
     public bool IsRunning => recorder is not null;
     public string? Error { get; private set; }
@@ -19,19 +20,21 @@ internal sealed class AudioDevicePreview(IAudioEndpointFactory factory) : IAsync
         {
             await ReleaseAsync().ConfigureAwait(false);
             Error = null;
-            recorder = await factory.CreateAsync(microphone, factory.Resolve(microphone, selection), null).ConfigureAwait(false);
-            recorder.DataAvailable += OnData;
-            recorder.RecordingStopped += OnStopped;
-            recorder.StartRecording();
+            var current = await factory.CreateAsync(microphone, factory.Resolve(microphone, selection), null).ConfigureAwait(false);
+            recorder = current;
+            current.DataAvailable += OnData;
+            stoppedHandler = (_, args) => OnStopped(current, args);
+            current.RecordingStopped += stoppedHandler;
+            current.StartRecording();
         }
         catch { await ReleaseAsync().ConfigureAwait(false); throw; }
         finally { gate.Release(); }
     });
 
     private void OnData(ReadOnlySpan<byte> data, AudioClientBufferFlags flags, long position, long at) => meter.Observe(data, flags.HasFlag(AudioClientBufferFlags.Silent));
-    private void OnStopped(object? sender, NAudio.Wave.StoppedEventArgs args)
+    private void OnStopped(IAudioEndpointRecorder source, NAudio.Wave.StoppedEventArgs args)
     {
-        if (!ReferenceEquals(sender, recorder) || args.Exception is null) return;
+        if (!ReferenceEquals(source, recorder) || args.Exception is null) return;
         Error = args.Exception.Message;
         meter.Clear();
     }
@@ -46,7 +49,8 @@ internal sealed class AudioDevicePreview(IAudioEndpointFactory factory) : IAsync
         var current = recorder; recorder = null; meter.Clear();
         if (current is null) return;
         current.DataAvailable -= OnData;
-        current.RecordingStopped -= OnStopped;
+        current.RecordingStopped -= stoppedHandler;
+        stoppedHandler = null;
         try { current.StopRecording(); }
         finally { await current.DisposeAsync().ConfigureAwait(false); }
     }

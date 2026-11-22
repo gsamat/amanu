@@ -102,6 +102,9 @@ internal sealed class AudioPeakMeter
     public void Clear() { Volatile.Write(ref peak, 0); Volatile.Write(ref at, Environment.TickCount64); }
     public double Observe(ReadOnlySpan<byte> data, bool silent)
     {
+        // WASAPI can follow a real packet with an empty callback. It contains
+        // no new measurement, so leave the previous peak and its expiry alone.
+        if (data.IsEmpty) return 0;
         double maximum = 0;
         if (!silent)
             foreach (var value in MemoryMarshal.Cast<byte, float>(data[..(data.Length / 4 * 4)]))

@@ -207,6 +207,29 @@ public sealed class AudioDeviceCaptureTests
     }
 
     [Fact]
+    public void An_empty_callback_after_audio_preserves_the_measured_level()
+    {
+        var meter = new AudioPeakMeter();
+        meter.Observe(BitConverter.GetBytes(.6f), false);
+        Assert.Equal(0, meter.Observe([], false));
+        Assert.Equal(.6, meter.Level, 4);
+        meter.Observe(BitConverter.GetBytes(0f), false);
+        Assert.Equal(0, meter.Level);
+    }
+
+    [Fact]
+    public async Task Preview_reports_a_device_error_forwarded_by_the_recorder()
+    {
+        var factory = new TestEndpoints();
+        await using var preview = new AudioDevicePreview(factory);
+        await preview.StartAsync(false, "");
+        factory.Recorders[0].Emit(.6f);
+        factory.Recorders[0].Fail(new object());
+        Assert.Equal("Disconnected", preview.Error);
+        Assert.Equal(0, preview.Level);
+    }
+
+    [Fact]
     public async Task Preview_creates_no_meeting_files_and_releases_its_recorder()
     {
         using var files = new SessionFiles(); var factory = new TestEndpoints();
@@ -266,7 +289,7 @@ internal sealed class TestRecorder(string id, bool microphone, bool failStart) :
     public void StartRecording() { if (failStart) throw new InvalidOperationException("Start rejected"); }
     public void StopRecording() => RecordingStopped?.Invoke(this, new(null));
     public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
-    public void Fail() => RecordingStopped?.Invoke(this, new(new InvalidOperationException("Disconnected")));
+    public void Fail(object? sender = null) => RecordingStopped?.Invoke(sender ?? this, new(new InvalidOperationException("Disconnected")));
     public void Emit(float sample, AudioClientBufferFlags flags = 0)
     {
         float[] samples = Enumerable.Repeat(sample, 480 * WaveFormat.Channels).ToArray();
