@@ -30,10 +30,15 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
         public TrackWriter? Writer;
         public string? Error;
         public readonly AudioPeakMeter Meter = new();
+        public long SignalWatchStartedAt;
+        public long LastSignalAt = -1;
+        public volatile bool Silent;
+        public bool SilenceWarningShown;
     }
     private readonly Track mic = new(true), system = new(false);
     private readonly Func<AudioDeviceSelection> selection;
     private readonly IAudioEndpointFactory factory;
+    private readonly Func<long> clock;
     private readonly SemaphoreSlim gate = new(1, 1);
     private long startedAt100ns;
     private volatile bool paused;
@@ -46,16 +51,24 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
     private Task? writingEvents;
 
     public WindowsAudioCapture(Func<AudioDeviceSelection>? selection = null) : this(selection ?? (() => new("", "")), new WindowsAudioEndpointFactory()) { }
-    internal WindowsAudioCapture(Func<AudioDeviceSelection> selection, IAudioEndpointFactory factory) { this.selection = selection; this.factory = factory; }
+    internal WindowsAudioCapture(Func<AudioDeviceSelection> selection, IAudioEndpointFactory factory, Func<long>? clock = null)
+    {
+        this.selection = selection;
+        this.factory = factory;
+        this.clock = clock ?? (() => Environment.TickCount64);
+    }
     public bool IsRunning => running;
     public long ElapsedMs => (TrackWriter.Now100ns() - startedAt100ns) / 10_000;
     public double MicrophoneLevel => paused ? 0 : mic.Meter.Level;
     public double SystemLevel => paused ? 0 : system.Meter.Level;
     public string? MicrophoneError => Volatile.Read(ref mic.Error);
     public string? SystemError => Volatile.Read(ref system.Error);
+    public bool MicrophoneSilent => running && !paused && mic.Silent;
+    public bool SystemSilent => running && !paused && system.Silent;
     public event LiveAudioHandler? LiveAudioAvailable;
     public event EventHandler? CaptureStarted;
     public event EventHandler<string>? TrackLost;
+    public event EventHandler<string>? TrackSilent;
     public Func<Task>? LiveStopping { get; set; }
 
     public Task StartAsync(SessionHandle session, string? processFamily, CancellationToken cancellationToken) => Task.Run(async () =>
@@ -100,12 +113,15 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
     {
         var recorder = await factory.CreateAsync(track.Microphone, endpoint, track.Microphone ? null : processFamily).ConfigureAwait(false);
         track.Recorder = recorder; track.Endpoint = endpoint; track.Error = null; track.Meter.Clear();
+        ResetSignalWatch(track);
+        track.SilenceWarningShown = false;
         recorder.DataAvailable += (ReadOnlySpan<byte> data, AudioClientBufferFlags flags, long position, long at) =>
         {
             if (!ReferenceEquals(track.Recorder, recorder)) return;
             var silent = paused || flags.HasFlag(AudioClientBufferFlags.Silent);
             var invalidTime = flags.HasFlag(AudioClientBufferFlags.TimestampError);
-            track.Meter.Observe(data, silent);
+            if (track.Meter.Observe(data, silent) >= .001)
+                Interlocked.Exchange(ref track.LastSignalAt, clock());
             track.Writer?.Write(data, silent, at, invalidTime);
             LiveAudioAvailable?.Invoke(track.Microphone, data, recorder.WaveFormat, silent,
                 ((at > 0 && !invalidTime ? at : TrackWriter.Now100ns()) - startedAt100ns) / 10_000);
@@ -121,6 +137,32 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
     {
         var first = track.Error is null; track.Error = exception.Message; track.Meter.Clear();
         if (first) { RecordDeviceEvent(track, "unavailable"); TrackLost?.Invoke(this, track.Microphone ? "mic" : "system"); }
+    }
+
+    private void ResetSignalWatch(Track track)
+    {
+        Interlocked.Exchange(ref track.SignalWatchStartedAt, clock());
+        Interlocked.Exchange(ref track.LastSignalAt, -1);
+        track.Silent = false;
+    }
+
+    internal void CheckTrackSignal()
+    {
+        if (!running || paused) return;
+        var now = clock();
+        Check(mic, system);
+        Check(system, mic);
+
+        void Check(Track track, Track other)
+        {
+            var last = Math.Max(Interlocked.Read(ref track.LastSignalAt), Interlocked.Read(ref track.SignalWatchStartedAt));
+            var otherLast = Interlocked.Read(ref other.LastSignalAt);
+            track.Silent = track.Error is null && now - last >= 20_000 && otherLast >= 0 && now - otherLast <= 8_000;
+            if (!track.Silent || track.SilenceWarningShown) return;
+            track.SilenceWarningShown = true;
+            RecordDeviceEvent(track, "silent");
+            TrackSilent?.Invoke(this, track.Microphone ? "mic" : "system");
+        }
     }
 
     private void RecordDeviceEvent(Track track, string kind) => deviceEvents?.Writer.TryWrite(JsonSerializer.Serialize(new
@@ -157,6 +199,7 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
                     ReportLost(track, exception);
                 }
             }
+            CheckTrackSignal();
         }
         finally { gate.Release(); }
     });
@@ -207,7 +250,11 @@ public sealed class WindowsAudioCapture : IAudioCapture, ILiveAudioSource
 
     public Task SetPausedAsync(bool value, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested(); paused = value; mic.Meter.Clear(); system.Meter.Clear(); return Task.CompletedTask;
+        cancellationToken.ThrowIfCancellationRequested();
+        paused = value;
+        mic.Meter.Clear(); system.Meter.Clear();
+        ResetSignalWatch(mic); ResetSignalWatch(system);
+        return Task.CompletedTask;
     }
     private static async Task ReleaseRecorderAsync(Track track)
     {

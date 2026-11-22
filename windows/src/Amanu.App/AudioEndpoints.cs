@@ -100,7 +100,7 @@ internal sealed class AudioPeakMeter
     private long at;
     public double Level => Environment.TickCount64 - Volatile.Read(ref at) > 600 ? 0 : Volatile.Read(ref peak);
     public void Clear() { Volatile.Write(ref peak, 0); Volatile.Write(ref at, Environment.TickCount64); }
-    public void Observe(ReadOnlySpan<byte> data, bool silent)
+    public double Observe(ReadOnlySpan<byte> data, bool silent)
     {
         double maximum = 0;
         if (!silent)
@@ -108,5 +108,6 @@ internal sealed class AudioPeakMeter
                 if (float.IsFinite(value)) maximum = Math.Max(maximum, Math.Min(1, Math.Abs(value)));
         Volatile.Write(ref peak, maximum);
         Volatile.Write(ref at, Environment.TickCount64);
+        return maximum;
     }
 }

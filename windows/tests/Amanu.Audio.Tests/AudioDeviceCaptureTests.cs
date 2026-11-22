@@ -10,6 +10,32 @@ namespace Amanu.Audio.Tests;
 public sealed class AudioDeviceCaptureTests
 {
     [Fact]
+    public async Task A_silent_process_track_warns_once_without_switching_to_all_audio()
+    {
+        using var files = new SessionFiles();
+        var factory = new TestEndpoints();
+        long now = 0;
+        await using var capture = new WindowsAudioCapture(() => new("", ""), factory, () => now);
+        var warnings = new List<string>();
+        capture.TrackSilent += (_, track) => warnings.Add(track);
+        await capture.StartAsync(files.Session with { ProcessFamily = "ms-teams.exe" }, "ms-teams.exe", default);
+
+        now = 25_000;
+        factory.Recorders[0].Emit(.2f);
+        factory.Recorders[1].Emit(0);
+        capture.CheckTrackSignal();
+        capture.CheckTrackSignal();
+
+        Assert.Equal(["system"], warnings);
+        Assert.True(capture.SystemSilent);
+        Assert.Equal("ms-teams.exe", factory.Recorders[1].ProcessFamily);
+        Assert.Equal(2, factory.Recorders.Count);
+        factory.Recorders[1].Emit(.2f);
+        capture.CheckTrackSignal();
+        Assert.False(capture.SystemSilent);
+    }
+
+    [Fact]
     public async Task Device_loss_and_replacement_leave_a_local_timeline_of_the_gap()
     {
         using var files = new SessionFiles(); var factory = new TestEndpoints();

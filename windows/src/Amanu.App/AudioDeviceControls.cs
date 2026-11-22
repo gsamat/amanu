@@ -31,6 +31,7 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
     }
     private readonly AmanuRuntime runtime;
     private readonly DeviceRow mic, output;
+    private readonly Button captureAll;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(150) };
     private readonly SemaphoreSlim playbackGate = new(1, 1);
     private WasapiPlayer? player;
@@ -45,6 +46,8 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
     public AudioDeviceControls(AmanuRuntime runtime)
     {
         this.runtime = runtime;
+        captureAll = Ui.Button(T("Capture all audio", "Записывать весь звук"), CaptureAllAudio);
+        captureAll.Visibility = Visibility.Collapsed;
         var factory = new WindowsAudioEndpointFactory();
         mic = new(true, factory); output = new(false, factory);
         View.Children.Add(CreateRow(mic, T("Microphone", "Микрофон")));
@@ -84,6 +87,7 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
         System.Windows.Automation.AutomationProperties.SetName(bars, T("Sound level", "Уровень звука"));
         meter.Children.Add(bars); Grid.SetColumn(meter, 1); tests.Children.Add(meter); inside.Children.Add(tests);
         row.Message.Margin = new Thickness(0, 8, 0, 0); inside.Children.Add(row.Message);
+        if (!row.Microphone) inside.Children.Add(captureAll);
         section.Children.Add(Ui.Box(inside));
         row.Devices.SelectionChanged += (_, _) => SelectDevice(row);
         return section;
@@ -95,13 +99,10 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
         var settings = runtime.Settings;
         var old = row.Microphone ? settings.MicrophoneDevice : settings.OutputDevice;
         if (choice.Id == old) return;
-        if (!row.Microphone && settings.SystemAudio == "app")
+        if (!row.Microphone && settings.SystemAudio == "app" && !ConfirmAllAudio())
         {
-            var accepted = System.Windows.MessageBox.Show(Ui.OwnerOf(View),
-                T("Record sound from the selected device? This includes music and notifications on that device. The previous automatic mode recorded only the call app.",
-                  "Записывать звук выбранного устройства? В запись также попадут музыка и уведомления на нём. Прежний автоматический режим записывал только приложение звонка."),
-                T("Call audio device", "Устройство звука звонка"), MessageBoxButton.YesNo, MessageBoxImage.Information);
-            if (accepted != MessageBoxResult.Yes) { _ = RefreshDevicesAsync(); return; }
+            _ = RefreshDevicesAsync();
+            return;
         }
         if (!Ui.TryUpdate(Ui.OwnerOf(View), () => runtime.Update(next =>
         {
@@ -109,6 +110,18 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
             else { next.OutputDevice = choice.Id; next.SystemAudio = "all"; }
         }))) _ = RefreshDevicesAsync();
         _ = StopRowPreviewAsync(row);
+    }
+
+    private bool ConfirmAllAudio() => System.Windows.MessageBox.Show(Ui.OwnerOf(View),
+        T("Record all sound from the selected output? Music and notifications from that device will also be recorded.",
+          "Записывать весь звук выбранного устройства? В запись также попадут музыка и уведомления на нём."),
+        T("Call audio device", "Устройство звука звонка"), MessageBoxButton.YesNo, MessageBoxImage.Information)
+        == MessageBoxResult.Yes;
+
+    private void CaptureAllAudio()
+    {
+        if (ConfirmAllAudio())
+            Ui.TryUpdate(Ui.OwnerOf(View), () => runtime.Update(next => next.SystemAudio = "all"));
     }
 
     private async Task RefreshDevicesAsync()
@@ -224,12 +237,20 @@ internal sealed class AudioDeviceControls : IAsyncDisposable
         {
             var level = row.Testing && row.Preview.IsRunning ? row.Preview.Level : runtime.State.IsRecording ? row.Microphone ? runtime.AudioCapture.MicrophoneLevel : runtime.AudioCapture.SystemLevel : row.Preview.Level;
             var error = runtime.State.IsRecording ? row.Microphone ? runtime.AudioCapture.MicrophoneError : runtime.AudioCapture.SystemError : row.Preview.Error;
+            var silent = row.Microphone ? runtime.AudioCapture.MicrophoneSilent : runtime.AudioCapture.SystemSilent;
             for (var index = 0; index < row.Bars.Length; index++) row.Bars[index].SetResourceReference(Shape.FillProperty, index < Math.Ceiling(level * 10) ? Ui.Good : "ControlFillColorSecondaryBrush");
             row.Test.Content = row.Testing ? T("Finish checking", "Закончить проверку") : row.Microphone ? T("Test microphone", "Проверить микрофон") : T("Test sound", "Проверить звук");
             if (error is not null) { row.HadCaptureError = true; row.Message.Text = T("Sound is unavailable. Choose a device: ", "Звук недоступен. Выберите устройство: ") + error; }
+            else if (silent)
+            {
+                row.HadCaptureError = true;
+                row.Message.Text = T("No signal on this track.", "На этой дорожке нет сигнала.");
+            }
             else if (row.HadCaptureError) { row.HadCaptureError = false; row.Message.Text = ""; }
             row.Message.Visibility = string.IsNullOrEmpty(row.Message.Text) ? Visibility.Collapsed : Visibility.Visible;
         }
+        captureAll.Visibility = runtime.AudioCapture.SystemSilent && runtime.Settings.SystemAudio == "app"
+            ? Visibility.Visible : Visibility.Collapsed;
     }
     private void OnSettingsChanged(object? sender, EventArgs args) => View.Dispatcher.InvokeAsync(async () => await RefreshDevicesAsync());
     private void OnStateChanged(object? sender, Core.Recording.RecordingState state) => View.Dispatcher.InvokeAsync(async () => { if (state.IsRecording) await StopPreviewsAsync(); RefreshLevels(); });

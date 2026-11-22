@@ -134,6 +134,14 @@ public sealed class AmanuRuntime : IAsyncDisposable
                 : T("The call audio stopped; the microphone continues. Choose an available device in the main window to continue this recording.",
                     "Звук звонка пропал; микрофон продолжает записываться. Выберите доступное устройство в главном окне, чтобы продолжить эту запись."),
             NotificationKind.Warning);
+        capture.TrackSilent += (_, track) => Notify(
+            T("Recording has a silent track", "В записи есть тихая дорожка"),
+            track == "mic"
+                ? T("No signal from the microphone. Check its level and device in Amanu.",
+                    "С микрофона нет сигнала. Проверьте его уровень и устройство в Amanu.")
+                : T("No call audio is reaching Amanu. Check the audio level and capture source in the main window.",
+                    "В Amanu не поступает звук звонка. Проверьте уровень и источник звука в главном окне."),
+            NotificationKind.Warning);
         liveTranscription.StatusChanged += (_, status) => LiveStatusChanged?.Invoke(this, status);
 
         try
