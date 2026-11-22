@@ -27,19 +27,24 @@ actor ParakeetEngine: TranscriptionEngine {
     enum EngineError: TranscriptionFailure, CustomStringConvertible {
         case notPrepared
         case unreadableAudio(URL, Error?)
+        case audioTooLong(URL)
 
         /// The same answer Whisper and GigaAM give: audio that cannot be read
         /// today will not be readable tomorrow. It used to be no answer at
         /// all, so parakeet retried an unreadable file three times where the
         /// other two local engines retired it at once.
         var isPermanent: Bool {
-            if case .unreadableAudio = self { return true }
-            return false
+            switch self {
+            case .unreadableAudio, .audioTooLong: return true
+            case .notPrepared: return false
+            }
         }
 
         var description: String {
             switch self {
             case .notPrepared: return "parakeet engine used before prepare()"
+            case .audioTooLong(let url):
+                return "\(url.lastPathComponent) exceeds Parakeet’s frame limit; split the audio or use a different engine"
             case .unreadableAudio(let url, let e):
                 return "unreadable or empty audio \(url.lastPathComponent)"
                     + (e.map { ": \($0)" } ?? "")
@@ -111,8 +116,6 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
-        guard manager != nil else { throw EngineError.notPrepared }
-
         // A track with no frames (recorder died before its first buffer)
         // makes AVFoundation raise an ObjC exception deep inside the
         // resampler — uncatchable from Swift, so it takes the whole daemon
@@ -120,11 +123,15 @@ actor ParakeetEngine: TranscriptionEngine {
         do {
             let probe = try AVAudioFile(forReading: audio)
             guard probe.length > 0 else { throw EngineError.unreadableAudio(audio, nil) }
+            // FluidAudio narrows the remaining frame count before bounding
+            // the size of a read, which traps before a Swift error can be thrown.
+            guard probe.length <= AVAudioFramePosition(UInt32.max) else { throw EngineError.audioTooLong(audio) }
         } catch let error as EngineError {
             throw error
         } catch {
             throw EngineError.unreadableAudio(audio, error)
         }
+        guard manager != nil else { throw EngineError.notPrepared }
 
         // Where every expected language is written in the same alphabet, the
         // filter is known before a word is heard and one pass is the job.

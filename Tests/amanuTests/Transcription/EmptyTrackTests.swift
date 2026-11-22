@@ -7,6 +7,43 @@ import Testing
 /// A side that recorded nothing is a silent side, not a broken recording.
 @Suite(.freshHome(config: #"{"offline_echo_cancellation": false}"#))
 struct EmptyTrackTests {
+    @Test("Parakeet rejects a CAF beyond the decoder's frame limit before loading a model")
+    func oversizedTrackDoesNotReachParakeet() async throws {
+        let recordings = try TestRecordings()
+        defer { recordings.remove() }
+        let url = recordings.root.appendingPathComponent("long.caf")
+        let frames = UInt64(UInt32.max) + 1
+        // An ordinary mono CAF with a sparse PCM payload. Only the header occupies disk space.
+        var header = Data("caff".utf8)
+        func append<T: FixedWidthInteger>(_ value: T) {
+            var encoded = value.bigEndian
+            withUnsafeBytes(of: &encoded) { header.append(contentsOf: $0) }
+        }
+        append(UInt16(1))
+        append(UInt16(0))
+        header.append(contentsOf: "desc".utf8)
+        append(UInt64(32))
+        append(Double(48_000).bitPattern)
+        header.append(contentsOf: "lpcm".utf8)
+        for field: UInt32 in [2, 2, 1, 1, 16] { append(field) }
+        header.append(contentsOf: "data".utf8)
+        append(frames * 2 + 4)
+        append(UInt32(0))
+        try header.write(to: url)
+        let file = try FileHandle(forWritingTo: url)
+        try file.truncate(atOffset: UInt64(header.count) + frames * 2)
+        try file.close()
+        #expect(try AVAudioFile(forReading: url).length == Int64(frames))
+
+        do {
+            _ = try await ParakeetEngine().transcribe(url)
+            Issue.record("The oversized track was accepted")
+        } catch let error as ParakeetEngine.EngineError {
+            #expect(error.isPermanent)
+            #expect(error.description.contains("long.caf"))
+        }
+    }
+
     /// Refuses a file with no frames the way Whisper and GigaAM do: as
     /// unreadable audio, which is permanent.
     private static func strictLocalEngine() -> FakeEngine {
