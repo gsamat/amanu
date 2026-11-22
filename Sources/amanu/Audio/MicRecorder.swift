@@ -144,6 +144,7 @@ final class MicRecorder: @unchecked Sendable {
         var firstBufferAt: Date?
         var lastBufferAt: Date?
         var lastSoundAt: Date?
+        var meter = AudioLevel.Meter()
         var levelMeasurable = true
         var muted = false
         /// Every restart, and the dead span still open. Opened on the main
@@ -186,6 +187,10 @@ final class MicRecorder: @unchecked Sendable {
     /// the noise floor. nil means nothing audible has been captured yet.
     var lastSoundAt: Date? { state.withLock { $0.lastSoundAt } }
 
+    var signalLevel: Float? {
+        state.withLock { $0.levelMeasurable ? $0.meter.level(at: Date()) : nil }
+    }
+
     /// False once a buffer arrived in a sample format we can't measure —
     /// callers must then treat "silent" as "unknown" rather than as silence.
     var levelMeasurable: Bool { state.withLock { $0.levelMeasurable } }
@@ -199,7 +204,12 @@ final class MicRecorder: @unchecked Sendable {
     /// after the pause stay true, and nothing said in the room is recorded.
     var isMuted: Bool {
         get { state.withLock { $0.muted } }
-        set { state.withLock { $0.muted = newValue } }
+        set {
+            state.withLock {
+                $0.muted = newValue
+                $0.meter = AudioLevel.Meter()
+            }
+        }
     }
 
     // Main-thread only: the observer hands every configuration change to the
@@ -569,7 +579,9 @@ final class MicRecorder: @unchecked Sendable {
         let peak = AudioLevel.peak(of: buffer)
         let muted: Bool = state.withLock { s in
             if let peak {
-                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = Date() }
+                let now = Date()
+                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = now }
+                if !s.muted { s.meter.observe(peak, at: now) }
             } else {
                 s.levelMeasurable = false
             }

@@ -1019,6 +1019,9 @@ final class AppController {
             session.isPaused ? .paused : .recording,
             elapsed: Self.format(Date().timeIntervalSince(session.startedAt))
         )
+        if !session.isPaused {
+            window.updateRecordingLevels(microphone: session.microphoneSignal, system: session.systemSignal)
+        }
     }
 
     private func openFolder() {

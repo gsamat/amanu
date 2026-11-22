@@ -28,6 +28,9 @@ final class StatusWindow {
     private let rows = NSStackView()
     private let icon = NSImageView()
     private let stateLabel = NSTextField(labelWithString: localised("ready", "готов"))
+    private let microphoneMeter = NSLevelIndicator()
+    private let systemMeter = NSLevelIndicator()
+    private let recordingLevels = NSStackView()
     private let transcriptionLabel = NSTextField(labelWithString: "")
     /// What is wrong with the config file, when something is — see
     /// `Config.Problem`. Hidden, and so no row at all, the rest of the time.
@@ -202,8 +205,16 @@ final class StatusWindow {
         buttons.spacing = 8
 
         importStatus.onCancel = { [weak self] in self?.onCancelImport?() }
+        recordingLevels.orientation = .horizontal
+        recordingLevels.spacing = 12
+        recordingLevels.distribution = .fillEqually
+        recordingLevels.isHidden = true
+        recordingLevels.addArrangedSubview(Self.meterColumn(
+            microphoneMeter, title: localised("Microphone", "Микрофон")))
+        recordingLevels.addArrangedSubview(Self.meterColumn(
+            systemMeter, title: localised("Call audio", "Звук звонка")))
         rows.setViews([
-            header, configProblemLabel, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel,
+            header, recordingLevels, configProblemLabel, transcriptionLabel, buttons, autoRecordCheckbox, decisionLabel,
             importStatus, importButton, openFolder, manage, liveSection,
         ], in: .top)
         rows.orientation = .vertical
@@ -241,6 +252,7 @@ final class StatusWindow {
             rows.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             fill,
             buttons.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
+            recordingLevels.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
             transcriptionLabel.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
             configProblemLabel.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
             decisionLabel.widthAnchor.constraint(equalTo: rows.widthAnchor, constant: -32),
@@ -310,6 +322,11 @@ final class StatusWindow {
 
     func update(state: MenuBarController.State, elapsed: String?) {
         let recording = state != .idle
+        if recordingLevels.isHidden == recording {
+            recordingLevels.isHidden = !recording
+            if recording { growToFitContent() }
+        }
+        if state != .recording { updateRecordingLevels(microphone: 0, system: 0) }
         icon.image = FeatherIcon.image(
             size: 18,
             color: FeatherIcon.color(recording: recording, paused: state == .paused)
@@ -335,6 +352,32 @@ final class StatusWindow {
             toggleButton.title = localised("Stop recording", "Остановить запись")
             pauseButton.title = localised("Resume", "Продолжить")
             pauseButton.isEnabled = true
+        }
+    }
+
+    private static func meterColumn(_ meter: NSLevelIndicator, title: String) -> NSStackView {
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 11)
+        label.textColor = .secondaryLabelColor
+        meter.levelIndicatorStyle = .discreteCapacity
+        meter.minValue = 0
+        meter.maxValue = 10
+        meter.warningValue = 9
+        meter.criticalValue = 10
+        meter.setAccessibilityLabel(title)
+        let column = NSStackView(views: [label, meter])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 3
+        meter.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
+        return column
+    }
+
+    func updateRecordingLevels(microphone: Float?, system: Float?) {
+        for (meter, peak) in [(microphoneMeter, microphone), (systemMeter, system)] {
+            meter.doubleValue = 10 * sqrt(Double(peak ?? 0))
+            meter.isEnabled = peak != nil
+            meter.toolTip = peak == nil ? localised("Level unavailable", "Уровень недоступен") : nil
         }
     }
 

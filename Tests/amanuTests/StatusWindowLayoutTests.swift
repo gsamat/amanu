@@ -18,6 +18,27 @@ import Testing
 /// which is only one of the ways it has gone wrong.
 @Suite(.serialized)
 struct StatusWindowLayoutTests {
+    @Test("The status window shows the two recording levels separately", .speaking(.english))
+    @MainActor
+    func showRecordingLevels() throws {
+        _ = NSApplication.shared
+        let window = StatusWindow()
+        window.update(state: .recording, elapsed: "0:15")
+        window.updateRecordingLevels(microphone: 0.25, system: 0)
+        func meters(in view: NSView) -> [NSLevelIndicator] {
+            if let meter = view as? NSLevelIndicator { return [meter] }
+            return view.subviews.flatMap(meters(in:))
+        }
+        let levels = meters(in: try #require(window.view))
+        let microphone = try #require(levels.first { $0.accessibilityLabel() == "Microphone" })
+        let system = try #require(levels.first { $0.accessibilityLabel() == "Call audio" })
+        #expect(microphone.doubleValue > 0)
+        #expect(system.doubleValue == 0)
+        #expect(!microphone.isHiddenOrHasHiddenAncestor)
+        window.update(state: .idle, elapsed: nil)
+        #expect(microphone.isHiddenOrHasHiddenAncestor || microphone.superview == nil)
+    }
+
     @Test("Live speaker labels use the adaptive label colour", .speaking(.english))
     @MainActor
     func liveSpeakerLabelsFollowTheAppearance() throws {

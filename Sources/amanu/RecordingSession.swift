@@ -359,6 +359,8 @@ final class RecordingSession {
     /// heard on that track yet.
     var lastMicSoundAt: Date? { mic.lastSoundAt }
     var lastSystemSoundAt: Date? { system.lastSoundAt }
+    var microphoneSignal: Float? { mic.signalLevel }
+    var systemSignal: Float? { system.signalLevel }
 
     /// False when either track's sample format defeated the level meter. The
     /// silence backstop must then stand down — "can't measure" and "silent"

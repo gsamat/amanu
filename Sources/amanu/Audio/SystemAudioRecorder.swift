@@ -62,6 +62,7 @@ final class SystemAudioRecorder {
         var file: AVAudioFile?
         var firstBufferAt: Date?
         var lastSoundAt: Date?
+        var meter = AudioLevel.Meter()
         var levelMeasurable = true
         var muted = false
     }
@@ -71,6 +72,10 @@ final class SystemAudioRecorder {
     /// far end saying something. nil means nothing audible yet.
     var lastSoundAt: Date? { state.withLock { $0.lastSoundAt } }
 
+    var signalLevel: Float? {
+        state.withLock { $0.levelMeasurable ? $0.meter.level(at: Date()) : nil }
+    }
+
     /// False once a buffer arrived in a sample format we can't measure.
     var levelMeasurable: Bool { state.withLock { $0.levelMeasurable } }
 
@@ -78,7 +83,12 @@ final class SystemAudioRecorder {
     /// audio, so the track stays wall-clock aligned across a pause.
     var isMuted: Bool {
         get { state.withLock { $0.muted } }
-        set { state.withLock { $0.muted = newValue } }
+        set {
+            state.withLock {
+                $0.muted = newValue
+                $0.meter = AudioLevel.Meter()
+            }
+        }
     }
 
     private var file: AVAudioFile? {
@@ -298,7 +308,9 @@ final class SystemAudioRecorder {
         let peak = AudioLevel.peak(of: buffer)
         let muted: Bool = state.withLock { s in
             if let peak {
-                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = Date() }
+                let now = Date()
+                if peak >= AudioLevel.speechThreshold { s.lastSoundAt = now }
+                if !s.muted { s.meter.observe(peak, at: now) }
             } else {
                 s.levelMeasurable = false
             }

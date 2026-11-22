@@ -37,6 +37,23 @@ enum AudioFormats {
 }
 
 enum AudioLevel {
+    struct Meter {
+        private var peak: Float = 0
+        private var peakAt: Date?
+
+        mutating func observe(_ sample: Float, at now: Date) {
+            guard sample.isFinite, sample >= level(at: now) else { return }
+            peak = min(1, sample)
+            peakAt = now
+        }
+
+        func level(at now: Date) -> Float {
+            guard let peakAt else { return 0 }
+            let age = max(0, now.timeIntervalSince(peakAt))
+            return peak * Float(max(0, 1 - age / 1.5))
+        }
+    }
+
     /// Roughly −40 dBFS. Above the noise floor of a quiet room, below any
     /// speech worth transcribing — the same threshold mygranola settled on
     /// after measuring empty rooms.
@@ -53,12 +70,13 @@ enum AudioLevel {
         let frames = Int(buffer.frameLength)
         guard frames > 0 else { return 0 }
         let channels = Int(buffer.format.channelCount)
+        let stride = buffer.stride
 
         if let data = buffer.floatChannelData {
             var peak: Float = 0
             for channel in 0..<channels {
                 let samples = data[channel]
-                for i in 0..<frames { peak = max(peak, abs(samples[i])) }
+                for i in 0..<frames { peak = max(peak, abs(samples[i * stride])) }
             }
             return peak
         }
@@ -69,7 +87,7 @@ enum AudioLevel {
             var peak: UInt16 = 0
             for channel in 0..<channels {
                 let samples = data[channel]
-                for i in 0..<frames { peak = max(peak, samples[i].magnitude) }
+                for i in 0..<frames { peak = max(peak, samples[i * stride].magnitude) }
             }
             return min(1, Float(peak) / Float(Int16.max))
         }
