@@ -27,9 +27,9 @@ public static class ModelCatalog
                 271_803_328,
                 "gigaam-v3-ctc-Q8_0.gguf"),
             ["whisper"] = new(
-                "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/main/whisper-large-v3-turbo-Q8_0.gguf",
-                "b2e30cc286bc9f3aba4db9099fc7403543497c05ce7100d0d83091ddfd25a183",
-                886_381_760,
+                "https://huggingface.co/handy-computer/whisper-large-v3-turbo-gguf/resolve/18ada752005f5fddef499256f9a458d0b37a203a/whisper-large-v3-turbo-Q8_0.gguf",
+                "257aa7ec9121c22c167d5e2c49e3e76b4ba0e6e27ebc13074eba0a80f8190220",
+                886_381_728,
                 "whisper-large-v3-turbo-Q8_0.gguf"),
         };
 }
