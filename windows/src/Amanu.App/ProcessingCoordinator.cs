@@ -402,8 +402,18 @@ public sealed class ProcessingCoordinator : IAsyncDisposable
 
         try
         {
-            var transcript = await RunPlanAsync(plan, audio, current, cancellationToken).ConfigureAwait(false);
-            if (current.TranscriptEchoFilter && audio.BothSides)
+            var speechInput = audio with
+            {
+                Microphone = audio.Microphone is { } mic && AudioPreprocessor.HasSignal(mic, cancellationToken) ? mic : null,
+                System = audio.System is { } system && AudioPreprocessor.HasSignal(system, cancellationToken) ? system : null,
+            };
+            if (!speechInput.HasAudio)
+            {
+                await GiveUpAsync(directory, T("No speech was heard in this recording.", "В записи не слышно речи."), cancellationToken).ConfigureAwait(false);
+                return false;
+            }
+            var transcript = await RunPlanAsync(plan, speechInput, current, cancellationToken).ConfigureAwait(false);
+            if (current.TranscriptEchoFilter && speechInput.BothSides)
                 transcript = transcript with { Segments = TranscriptEchoFilter.Filter(transcript.Segments) };
             if (transcript.Segments.All(segment => string.IsNullOrWhiteSpace(segment.Text)))
             {

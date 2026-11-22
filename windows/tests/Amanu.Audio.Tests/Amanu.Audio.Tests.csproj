@@ -10,8 +10,12 @@
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="NAudio.Wasapi" />
+    <PackageReference Include="NAudio" />
     <ProjectReference Include="../../src/Amanu.Core/Amanu.Core.csproj" />
     <Compile Include="../../src/Amanu.App/WindowsAudioCapture.cs" Link="WindowsAudioCapture.cs" />
+    <Compile Include="../../src/Amanu.App/Rf64WaveWriter.cs" Link="Rf64WaveWriter.cs" />
+    <Compile Include="../../src/Amanu.App/AudioPreprocessor.cs" Link="AudioPreprocessor.cs" />
+    <Compile Include="../Amanu.Live.Tests/TrackWriterTests.cs" Link="TrackWriterTests.cs" />
     <Compile Include="../../src/Amanu.App/AudioEndpoints.cs" Link="AudioEndpoints.cs" />
     <Compile Include="../../src/Amanu.App/AudioDevicePreview.cs" Link="AudioDevicePreview.cs" />
   </ItemGroup>

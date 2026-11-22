@@ -77,6 +77,29 @@ public static class AudioPreprocessor
         }
     }
 
+    /// <summary>Skip only proven digital silence. A damaged track still needs normal recovery.</summary>
+    public static bool HasSignal(string path, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var reader = new WaveFileReader(path);
+            var samples = reader.ToSampleProvider();
+            var buffer = new float[16_384];
+            int count;
+            while ((count = samples.Read(buffer)) > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                foreach (var sample in buffer.AsSpan(0, count))
+                    if (sample != 0f) return true;
+            }
+            return reader.Position < reader.Length;
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or FormatException or NotSupportedException)
+        {
+            return true;
+        }
+    }
+
     /// <summary>
     /// Makes a WAV whose writer never finished — Amanu killed or the power cut
     /// mid-meeting — say how long it really is, so the samples after the last
