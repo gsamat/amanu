@@ -134,7 +134,16 @@ struct ProcessSession: ParsableCommand {
     )
     var again = false
 
+    @Flag(name: .long, help: "Finish or retry local speakers using saved recognition when possible.")
+    var diarize = false
+
+    @Flag(name: .long, help: "Skip unfinished local speakers and finalize the transcript.")
+    var skipDiarization = false
+
     func run() throws {
+        guard [again, diarize, skipDiarization].count(where: { $0 }) <= 1 else {
+            throw ValidationError("--again, --diarize and --skip-diarization cannot be combined.")
+        }
         let dir = URL(
             fileURLWithPath: (folder ?? FileManager.default.currentDirectoryPath as String)
                 .expandingTilde,
@@ -145,6 +154,40 @@ struct ProcessSession: ParsableCommand {
         Analytics.start(surface: .cli)
         defer { Analytics.flushOnExit() }
         print(item.summaryLine)
+
+        if diarize || skipDiarization {
+            do {
+                if diarize {
+                    try runBlocking { try await TranscriptionCoordinator().diarizeNow(dir) }
+                } else {
+                    try runBlocking { try await TranscriptionCoordinator().skipDiarization(dir) }
+                }
+            } catch {
+                print("\nLocal speakers unfinished: \(error)")
+                print(Self.logHint(dir))
+                throw ExitCode(1)
+            }
+            if let refreshed = SessionInventory.item(for: dir) {
+                print("\n" + refreshed.summaryLine)
+            }
+            print("\n" + Self.logHint(dir))
+            return
+        }
+
+        if item.diarization?.isOutstanding == true && !again {
+            do {
+                try runBlocking { try await TranscriptionCoordinator().diarizeNow(dir) }
+            } catch {
+                print("\nLocal speakers unfinished: \(error)")
+                print(Self.logHint(dir))
+                throw ExitCode(1)
+            }
+            if let refreshed = SessionInventory.item(for: dir) {
+                print("\n" + refreshed.summaryLine)
+            }
+            print("\n" + Self.logHint(dir))
+            return
+        }
 
         switch PostProcessor.plan(for: item, again: again) {
         case .refuse(let why):

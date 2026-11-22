@@ -34,6 +34,30 @@ struct DoctorSummaryTests {
         return facts
     }
 
+    @Test("Doctor names the selected speaker model and its pinned terms",
+          .freshHome(config: #"{"transcription":{"local_diarization":true,"diarization_model":"ls-eend-ami"}}"#),
+          .enabled(if: Platform.supportsLocalModels))
+    func selectedSpeakerModel() throws {
+        let check = DoctorReport.checkDiarization()
+        let message = try #require(Self.warning(check))
+        #expect(message.contains("LS-EEND AMI"))
+        #expect(message.contains("MIT"))
+        #expect(message.contains("28ce1b1f8ef1"))
+        #expect(check.remediation?.contains("LS-EEND AMI") == true)
+        #expect(!message.contains("Community-1"))
+    }
+
+    @Test("Doctor defaults new speaker choice to Nemotron with its terms",
+          .freshHome(config: #"{"transcription":{"local_diarization":true}}"#),
+          .enabled(if: Platform.supportsLocalModels))
+    func defaultSpeakerModel() throws {
+        let check = DoctorReport.checkDiarization()
+        let message = try #require(Self.warning(check))
+        #expect(message.contains("Nemotron 3"))
+        #expect(message.contains("OpenMDW 1.1"))
+        #expect(message.contains("f667ed73aee5"))
+    }
+
     /// The case the old check got wrong: Ollama chosen, Ollama not running,
     /// and a claude CLI elsewhere on the machine making the line read "ok".
     @Test("Ollama chosen and not running is a warning, whatever else is installed")

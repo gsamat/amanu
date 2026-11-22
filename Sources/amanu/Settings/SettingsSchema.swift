@@ -119,6 +119,17 @@ enum SettingsSchema {
     private static func localModelEntries(supported: Bool) -> [Entry] {
         guard supported else {
             return [
+                Entry(["transcription", "local_diarization"],
+                      localised("Separate local speakers", "Разделять говорящих локально"),
+                      localised("Needs Apple Silicon; this Mac cannot run the model.",
+                                "Нужен Apple Silicon; этот мак не запустит модель."),
+                      .toggle, default: false, askedInSetup: true),
+                Entry(["transcription", "diarization_model"],
+                      localised("Speaker model", "Модель говорящих"),
+                      localised("Needs Apple Silicon; this Mac cannot run the model.",
+                                "Нужен Apple Silicon; этот мак не запустит модель."),
+                      .choice(DiarizationModel.allCases.map(\.rawValue)),
+                      default: DiarizationModel.default.rawValue, askedInSetup: true),
                 Entry(["transcription", "engine"], localised("Engine", "Движок"),
                       localised(
                           "A cloud engine is the only one on an Intel Mac; parakeet needs Apple Silicon.",
@@ -154,6 +165,22 @@ enum SettingsSchema {
                       "Uses an additional local NVIDIA model while a meeting is being recorded.",
                       "Пока идёт запись, работает ещё одна местная модель NVIDIA."),
                   .toggle, default: false, askedInSetup: true),
+            Entry(["transcription", "local_diarization"],
+                  localised("Separate local speakers", "Разделять говорящих локально"),
+                  localised("Optional local stage. Download the model explicitly; audio stays on this Mac.",
+                            "Необязательный локальный этап. Модель скачивается отдельно; звук остаётся на маке."),
+                  .toggle, default: false, askedInSetup: true),
+            Entry(["transcription", "diarization_model"],
+                  localised("Speaker model", "Модель говорящих"),
+                  localised("Choose which local model separates speakers in new recordings.",
+                            "Выберите локальную модель для разделения говорящих в новых записях."),
+                  .choice(DiarizationModel.allCases.map(\.rawValue)),
+                  default: DiarizationModel.default.rawValue, askedInSetup: true),
+            Entry(["transcription", "diarization_threshold"],
+                  localised("Speaker separation threshold", "Порог разделения говорящих"),
+                  localised("Initial clustering setting (0.3–1.2), not an accuracy score.",
+                            "Начальная настройка группировки (0,3–1,2), не оценка точности."),
+                  .number(unit: ""), default: 0.6),
             Entry(["transcription", "engine"], localised("Engine", "Движок"),
                   localised(
                       "auto: the cloud engine when there's a key and the network answers, parakeet otherwise.",
@@ -692,6 +719,12 @@ enum SettingsSchema {
         case (.text(let raw), .number):
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if text.isEmpty { return .clear }
+            if let defaultNumber = entry.defaultValue as? Double {
+                guard let number = Double(text), number.isFinite else { return .invalid }
+                let value = entry.path == ["transcription", "diarization_threshold"]
+                    ? min(1.2, max(0.3, number)) : number
+                return defaultNumber == value ? .clear : .set(value)
+            }
             guard let number = Int(text) else { return .invalid }
             return entry.defaultValue as? Int == number ? .clear : .set(number)
 
@@ -734,7 +767,8 @@ enum SettingsSchema {
     static var unrenderedLocalModelKeys: [String] {
         Platform.supportsLocalModels
             ? []
-            : ["live_transcription.enabled", "transcription.model"]
+            : ["live_transcription.enabled", "transcription.model",
+               "transcription.diarization_threshold"]
     }
 
     /// Every key the program understands, as `a.b` strings — used to spot

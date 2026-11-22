@@ -20,7 +20,8 @@ enum Subprocess {
     }
 
     static func run(executable: String, arguments: [String], input: Data,
-                    timeout: TimeInterval, path: String? = nil) async throws -> Output {
+                    timeout: TimeInterval,
+                    environment: [String: String]? = nil) async throws -> Output {
         let cancellation = Cancellation()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -28,7 +29,8 @@ enum Subprocess {
                     do {
                         continuation.resume(returning: try runSync(
                             executable: executable, arguments: arguments, input: input,
-                            timeout: timeout, path: path, isCancelled: { cancellation.isCancelled }))
+                            timeout: timeout, environment: environment,
+                            isCancelled: { cancellation.isCancelled }))
                     } catch { continuation.resume(throwing: error) }
                 }
             }
@@ -36,7 +38,8 @@ enum Subprocess {
     }
 
     static func runSync(executable: String, arguments: [String], input: Data = Data(),
-                        timeout: TimeInterval, path: String? = nil,
+                        timeout: TimeInterval,
+                        environment: [String: String]? = nil,
                         isCancelled: @Sendable () -> Bool = { false }) throws -> Output {
         let scratch = FileManager.default.temporaryDirectory
             .appendingPathComponent("amanu-process-\(UUID().uuidString)", isDirectory: true)
@@ -70,12 +73,8 @@ enum Subprocess {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        if let environment { process.environment = environment }
         process.currentDirectoryURL = scratch
-        if let path {
-            var environment = ProcessInfo.processInfo.environment
-            environment["PATH"] = path
-            process.environment = environment
-        }
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = stderr

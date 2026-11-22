@@ -19,6 +19,15 @@ struct WhisperEngineTests {
         #expect(abs(settled.reduce(0, +) / Float(settled.count) - 0.25) < 0.02)
     }
 
+    @Test("Tiny output chunks do not mistake converter input starvation for EOF")
+    func pcmReaderKeepsReadingAcrossDryConversions() throws {
+        let audio = try makeAudio(seconds: 0.01, sampleRate: 48_000, channels: 1)
+        let reader = try WhisperPCMReader(audio: audio, maximumSamples: 1)
+        var samples: [Float] = []
+        while let chunk = try reader.nextChunk() { samples += chunk }
+        #expect(samples.count == 160)
+    }
+
     @Test("Chunk timestamps are relative to the original audio and a lone language reaches whisper.cpp")
     func engineOffsetsSegmentsAndPassesLanguage() async throws {
         let audio = try makeAudio(seconds: 1.25, sampleRate: 16_000, channels: 1)
@@ -41,6 +50,31 @@ struct WhisperEngineTests {
         #expect(segments.map(\.start) == [0, 0.5, 1.0])
         #expect(segments.map(\.end) == [0.5, 1.0, 1.25])
         #expect(segments.allSatisfy { $0.speaker == nil })
+    }
+
+    @Test("Word mode passes through native words with each chunk offset exactly once")
+    func wordModeUsesAbsoluteChunkClock() async throws {
+        let audio = try makeAudio(seconds: 1.25, sampleRate: 16_000, channels: 1)
+        let runtime = TimedWhisperRuntime()
+        let engine = WhisperEngine(
+            modelStore: try fixtureStore(), runtime: runtime,
+            expectedLanguages: ["en"], chunkDuration: 0.5, wordTimings: true)
+
+        try await engine.prepare()
+        let segments = try await engine.transcribe(audio)
+
+        #expect(await runtime.modes == [true, true, true])
+        #expect(segments.flatMap { $0.words ?? [] }.map(\.start) == [0, 0.5, 1.0])
+        #expect(segments.flatMap { $0.words ?? [] }.map(\.end) == [0.5, 1.0, 1.25])
+    }
+
+    @Test("Whisper immutable ASR options distinguish language and timing mode")
+    func optionsSnapshot() {
+        let english = WhisperEngine(expectedLanguages: ["en"], wordTimings: true)
+        let russian = WhisperEngine(expectedLanguages: ["ru"], wordTimings: true)
+        let plain = WhisperEngine(expectedLanguages: ["en"], wordTimings: false)
+        #expect(english.optionsFingerprint != russian.optionsFingerprint)
+        #expect(english.optionsFingerprint != plain.optionsFingerprint)
     }
 
     /// "Mostly Russian" is Russian and English, and a pin on Russian is how
@@ -128,6 +162,32 @@ private actor RecordingWhisperRuntime: WhisperRuntime {
         sampleCounts.append(samples.count)
         progress(1)
         return [.init(start: 0, end: Double(samples.count) / 16_000, text: "chunk")]
+    }
+
+    func release() async {}
+}
+
+private actor TimedWhisperRuntime: WhisperRuntime {
+    private(set) var modes: [Bool] = []
+
+    func prepare(model: URL) async throws {}
+
+    func transcribe(
+        samples: [Float], language: String?,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment] {
+        Issue.record("word mode should use the timed runtime call")
+        return []
+    }
+
+    func transcribe(
+        samples: [Float], language: String?, wordTimings: Bool,
+        progress: @escaping @Sendable (Double) -> Void
+    ) async throws -> [WhisperRuntimeSegment] {
+        modes.append(wordTimings)
+        let end = Double(samples.count) / 16_000
+        return [WhisperRuntimeSegment(start: 0, end: end, text: "chunk",
+            words: [TranscriptWord(start: 0, end: end, text: "chunk")])]
     }
 
     func release() async {}

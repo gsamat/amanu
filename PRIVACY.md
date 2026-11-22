@@ -13,6 +13,14 @@ choose.
   transcript uses a separate local streaming model on both platforms. Ollama
   summaries run locally when its Base URL is localhost/loopback; another host
   receives the summary input.
+- Optional macOS local batch diarization also runs on the computer. Its
+  separate model download sends no meeting content. It stores a lossless audio
+  source, timed ASR output, and speaker-assignment sidecars in the meeting
+  folder for recovery and repeatable retries. With audio retention disabled,
+  audio stays until the requested stage completes or is explicitly skipped.
+  Deleting the meeting deletes these artifacts too. It does not create a
+  voice-identity database or recognize people across meetings. Cloud naming
+  and summaries still follow the backend choices described below.
 - If you enable AssemblyAI, OpenAI, or ElevenLabs transcription, Amanu uploads
   the meeting audio to that provider.
 - If you select Claude Code, Codex, Anthropic, or OpenAI for summaries or

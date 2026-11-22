@@ -22,6 +22,7 @@ enum TrackCompressor {
     /// that recording is the only copy of the meeting and a later attempt is
     /// all it has.
     static func settle(sessionDir dir: URL) {
+        guard !DiarizationState.persisted(in: dir).retainsAudio else { return }
         if Config.keepAudio() {
             compress(sessionDir: dir)
         } else {
@@ -54,6 +55,10 @@ enum TrackCompressor {
         candidates.insert("multichannel.tmp.m4a")
         candidates.insert("audio.m4a")
         candidates.insert("audio.tmp.m4a")
+        if let entries = try? fm.contentsOfDirectory(atPath: dir.path) {
+            candidates.formUnion(entries.filter { $0.hasPrefix("diarization-source-")
+                && $0.hasSuffix(".caf") })
+        }
 
         var freed: Int64 = 0
         var removed = 0

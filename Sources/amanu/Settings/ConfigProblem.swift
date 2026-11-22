@@ -89,10 +89,16 @@ extension Config {
             let expected: String?
             switch entries[key.rawValue]?.kind {
             case .toggle?:
-                expected = found as? Bool != nil
+                let isBoolean = (found as? NSNumber).map {
+                    CFGetTypeID($0) == CFBooleanGetTypeID()
+                } == true
+                expected = (key == .localDiarization ? isBoolean : found as? Bool != nil)
                     ? nil : localised("true or false", "true или false")
             case .number?:
-                expected = found as? Double != nil
+                let isFiniteNumber = (found as? NSNumber).map {
+                    CFGetTypeID($0) != CFBooleanGetTypeID() && $0.doubleValue.isFinite
+                } == true
+                expected = (key == .diarizationThreshold ? isFiniteNumber : found as? Double != nil)
                     ? nil : localised("a number", "число")
             case .choice(let options)?:
                 expected = (found as? String).map(options.contains) == true

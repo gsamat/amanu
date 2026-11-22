@@ -309,7 +309,9 @@ swift test
 attributes privacy permissions to the process responsible for starting the
 capture. A checkout with no signing certificate falls back to ad-hoc signing;
 that is sufficient for development, although macOS may ask for permissions
-again after a rebuild.
+again after a rebuild. Ad-hoc builds use development signing without Hardened
+Runtime; builds signed with a certificate retain it. `make app` also runs the
+bundled command's `--help` to verify that the frameworks linked at startup load.
 
 Before changing capture, packaging, permissions, or releases, read
 [`CLAUDE.md`](CLAUDE.md), [Things that will bite](docs/pitfalls.md), and
@@ -357,6 +359,8 @@ amanu record start           # ask the running app to start recording
 amanu record stop
 amanu sessions               # list recordings and outstanding work
 amanu process <folder>       # finish or retry one meeting
+amanu process --diarize <folder>  # request or retry local speaker diarization
+amanu process --skip-diarization <folder>  # finish without a pending diarization pass
 amanu format-transcripts     # rebuild AssemblyAI Markdown from saved transcripts
 amanu setup                  # reopen first-run setup
 ```
@@ -453,6 +457,36 @@ only values that differ from the defaults. A compact example:
   each; a mono import uses the same diarization. Set `ELEVENLABS_API_KEY` or
   save a key in `~/.config/amanu/keys/elevenlabs`. `live_transcription.enabled`
   controls the on-device preview.
+- `transcription.local_diarization` enables local batch speaker diarization on
+  Apple Silicon for Parakeet, Whisper, and GigaAM. It defaults to `false`.
+  The separate Diarization section sits below the local transcription models
+  and is available when On this Mac is selected. Choose a speaker model with
+  the same radio cards, then download it explicitly before offline use.
+  `transcription.diarization_model` selects `nemotron-3` (default, meetings up
+  to eight speakers, about 107 MB), `ls-eend-ami` (meetings up to four speakers,
+  about 45 MB), or `community-1` (compact alternative, about 21 MB).
+  An existing saved processing request without this field retains Community-1.
+  The ordinary call microphone stays `me`; the system track can
+  become `them A`, `them B`, and so on. Local mono imports use `speaker A/B`.
+  Uncertain or overlapping speech is shown as an unidentified speaker.
+  Parakeet and Whisper use validated word timings; GigaAM and missing-word
+  fallback recognize separate bounded voice intervals without inventing word
+  timestamps. This affects the final transcript, not the live preview.
+  `transcription.diarization_threshold` defaults to `0.6` and is clamped to
+  `0.3…1.2`; it controls Community-1 clustering, not a promised accuracy
+  percentage, and does not affect the other models.
+  The evaluation procedure is in
+  [Local diarization evaluation](docs/testing/local-diarization-evaluation.md).
+  Diarization retains a lossless 16 kHz PCM source and processing sidecars for
+  repeatable retries. Float32 mono audio uses about 3.7 MiB per minute in
+  addition to the compact archive. With `keep_audio=false`, audio is retained
+  while diarization is unfinished and removed after completion or explicit
+  skip. Recordings shows the separate stage and retry/skip actions.
+  `process --diarize` requests a pass even with the automatic switch off;
+  `--diarize`, `--skip-diarization`, and `--again` cannot be combined.
+  `sessions --pending` includes unfinished diarization with an existing text.
+  Local diarization sends no audio or text to a provider; separately configured
+  cloud naming and summaries retain the data flows described below.
 - `auto_record.*` covers `enabled`, `mic_activity`, `calendar`,
   `start_delay_seconds`, `stop_delay_seconds`, `min_duration_seconds`,
   `max_duration_minutes`, `silence_stop_minutes`, `apps`, and `ignore_apps`.

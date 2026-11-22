@@ -141,6 +141,31 @@ enum Config {
         return flag(.liveTranscription, in: json)
     }
 
+    static func localDiarizationEnabled() -> Bool { localDiarizationEnabled(in: load()) }
+
+    static func localDiarizationEnabled(in json: [String: Any]?) -> Bool {
+        guard Platform.supportsLocalModels,
+              let number = value(.localDiarization, in: json) as? NSNumber,
+              CFGetTypeID(number) == CFBooleanGetTypeID()
+        else { return false }
+        return number.boolValue
+    }
+
+    static func diarizationModel() -> DiarizationModel { diarizationModel(in: load()) }
+
+    static func diarizationModel(in json: [String: Any]?) -> DiarizationModel {
+        DiarizationModel(rawValue: string(.diarizationModel, in: json)) ?? .default
+    }
+
+    static func diarizationThreshold() -> Double { diarizationThreshold(in: load()) }
+
+    static func diarizationThreshold(in json: [String: Any]?) -> Double {
+        guard let number = value(.diarizationThreshold, in: json) as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite
+        else { return defaultNumber(.diarizationThreshold) }
+        return min(1.2, max(0.3, number.doubleValue))
+    }
+
     /// amanu's own key drawer: one directory, mode 0700, one file per
     /// service, mode 0600.
     ///

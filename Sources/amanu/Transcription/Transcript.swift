@@ -2,8 +2,8 @@ import Foundation
 
 /// Canonical transcript. Property names are the JSON schema — this struct
 /// exists to be serialized.
-struct Transcript: Codable {
-    struct Segment: Codable {
+struct Transcript: Codable, Sendable {
+    struct Segment: Codable, Sendable {
         let speaker: String
         let start_ms: Int
         let end_ms: Int

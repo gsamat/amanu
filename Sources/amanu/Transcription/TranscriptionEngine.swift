@@ -3,7 +3,7 @@ import Foundation
 /// One timed span of recognized speech. Times are relative to whatever audio
 /// the engine was handed — a single track for `.perTrack` engines, the mixed
 /// session file for `.mixed` ones.
-struct TranscriptSegment: Sendable {
+struct TranscriptSegment: Codable, Sendable {
     let start: TimeInterval
     let end: TimeInterval
     let text: String
@@ -11,12 +11,16 @@ struct TranscriptSegment: Sendable {
     /// (assemblyai's "A", "B", …). nil for per-track engines — there the track
     /// *is* the speaker, so the coordinator already knows.
     let speaker: String?
+    /// Real lexical timings supplied by the recognizer, when available.
+    let words: [TranscriptWord]?
 
-    init(start: TimeInterval, end: TimeInterval, text: String, speaker: String? = nil) {
+    init(start: TimeInterval, end: TimeInterval, text: String,
+         speaker: String? = nil, words: [TranscriptWord]? = nil) {
         self.start = start
         self.end = end
         self.text = text
         self.speaker = speaker
+        self.words = words
     }
 }
 
@@ -114,15 +118,21 @@ extension TranscriptionFailure {
 /// A speech-to-text engine amanu can run. Engines are prepared lazily (model
 /// download + load) when the transcription queue has work and released when it
 /// drains, so amanu never idles holding gigabytes of model weights.
-protocol TranscriptionEngine: Sendable {
+protocol TranscriptionEngine: AnyObject, Sendable {
     /// Short engine identifier recorded as transcript.json provenance.
     var name: String { get }
     /// Concrete model identifier recorded as transcript.json provenance.
     var model: String { get }
+    /// Immutable ASR choices not already represented by the model identifier.
+    var optionsFingerprint: String { get }
     /// Whether this engine wants each track separately, aligned stereo, or one
     /// mixed file.
     var input: TranscriptionInput { get }
     func prepare() async throws
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment]
     func release() async
+}
+
+extension TranscriptionEngine {
+    var optionsFingerprint: String { "" }
 }

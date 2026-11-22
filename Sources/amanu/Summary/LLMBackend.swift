@@ -392,7 +392,7 @@ struct LLMBackend: Sendable {
     ) async throws -> String {
         let result = try await Subprocess.run(
             executable: executable, arguments: arguments,
-            input: Data(input.utf8), timeout: timeout, path: Tooling.runtimePath(for: executable))
+            input: Data(input.utf8), timeout: timeout, environment: Tooling.runtimeEnvironment(for: executable))
         guard result.status == 0 else {
             throw LLMError.exit(
                 Int(result.status),

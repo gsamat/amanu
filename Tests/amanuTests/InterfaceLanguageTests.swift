@@ -593,6 +593,9 @@ struct InterfaceLanguageTests {
             // The models, named the way their release notes name them.
             "parakeet v3", "parakeet v2", "NVIDIA nemotron",
             "Parakeet", "Parakeet v3", "Whisper large-v3-turbo", "GigaAM v3",
+            "Nemotron 3", "LS-EEND AMI", "Community-1",
+            // License identifiers are published names, not interface copy.
+            "CC BY 4.0", "MIT", "OpenMDW 1.1",
         ]
         if names.contains(text) { return true }
         // The meeting languages are named in themselves — English, Русский,

@@ -165,14 +165,16 @@ enum Tooling {
 
     /// Use the same runtime search path for a tool's probe and its real work.
     /// A located npm launcher still needs node in PATH for its env shebang.
-    static func runtimePath(for executable: String) -> String? {
+    static func runtimeEnvironment(for executable: String) -> [String: String]? {
         guard Home.current.discoversTools else { return nil }
         let tool = URL(fileURLWithPath: executable).deletingLastPathComponent().path
         let inherited = pathEntries(Home.current.variable("PATH") ?? "")
         let directories = [tool] + inherited + cache.loginPath() + standardDirectories
             + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
         var seen = Set<String>()
-        return directories.filter { seen.insert($0).inserted }.joined(separator: ":")
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = directories.filter { seen.insert($0).inserted }.joined(separator: ":")
+        return environment
     }
 
     private static func pathEntries(_ value: String) -> [String] {
@@ -214,7 +216,7 @@ enum Tooling {
     /// Run it. Not "does the file exist" — the whole point of this pass is the
     /// machine where the file exists and running it from here doesn't work.
     private static func askVersion(of path: String) -> String? {
-        guard let output = run(path, ["--version"], timeout: 20, path: runtimePath(for: path)) else { return nil }
+        guard let output = run(path, ["--version"], timeout: 20, environment: runtimeEnvironment(for: path)) else { return nil }
         let line = output
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -227,9 +229,9 @@ enum Tooling {
     /// on a clean exit and nil on anything else. Deliberately quiet: every
     /// caller here is asking a question that is allowed to be answered "no".
     private static func run(_ executable: String, _ arguments: [String],
-                            timeout: TimeInterval, path: String? = nil) -> String? {
+                            timeout: TimeInterval, environment: [String: String]? = nil) -> String? {
         guard let result = try? Subprocess.runSync(
-            executable: executable, arguments: arguments, timeout: timeout, path: path),
+            executable: executable, arguments: arguments, timeout: timeout, environment: environment),
               result.status == 0 else { return nil }
         return String(decoding: result.stdout, as: UTF8.self)
     }
