@@ -39,12 +39,12 @@ enum Tooling {
     /// first because that's where both official installers put their entry
     /// point (for Claude Code, a symlink into `~/.local/share/claude`, which
     /// is also what the desktop app manages).
-    private static func standardLocations(for name: String) -> [String] {
+    private static var standardDirectories: [String] {
         [
-            FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local/bin/\(name)").path,
-            "/opt/homebrew/bin/\(name)",
-            "/usr/local/bin/\(name)",
+            Home.current.url
+                .appendingPathComponent(".local/bin", isDirectory: true).path,
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
         ]
     }
 
@@ -98,12 +98,24 @@ enum Tooling {
         private let lock = NSLock()
         private var paths: [String: String?] = [:]
         private var versions: [String: String?] = [:]
+        private var shellPath: [String]?
 
         func clear() {
             lock.lock()
             defer { lock.unlock() }
             paths = [:]
             versions = [:]
+            shellPath = nil
+        }
+
+        func loginPath() -> [String] {
+            if let known = lock.withLock({ shellPath }) { return known }
+            let found = Tooling.readLoginPath()
+            return lock.withLock {
+                if let shellPath { return shellPath }
+                shellPath = found
+                return found
+            }
         }
 
         func path(for name: String) -> String? {
@@ -143,11 +155,28 @@ enum Tooling {
 
     private static func search(for name: String) -> String? {
         let fm = FileManager.default
-        if let found = (standardLocations(for: name) + bundledLocations(for: name))
+        if let found = (standardDirectories.map { "\($0)/\(name)" } + bundledLocations(for: name))
             .first(where: { fm.isExecutableFile(atPath: $0) }) {
             return found
         }
-        return fromLoginShell(name)
+        return cache.loginPath().map { "\($0)/\(name)" }
+            .first { fm.isExecutableFile(atPath: $0) }
+    }
+
+    /// Use the same runtime search path for a tool's probe and its real work.
+    /// A located npm launcher still needs node in PATH for its env shebang.
+    static func runtimePath(for executable: String) -> String? {
+        guard Home.current.discoversTools else { return nil }
+        let tool = URL(fileURLWithPath: executable).deletingLastPathComponent().path
+        let inherited = pathEntries(Home.current.variable("PATH") ?? "")
+        let directories = [tool] + inherited + cache.loginPath() + standardDirectories
+            + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+        var seen = Set<String>()
+        return directories.filter { seen.insert($0).inserted }.joined(separator: ":")
+    }
+
+    private static func pathEntries(_ value: String) -> [String] {
+        value.split(separator: ":").filter { $0.hasPrefix("/") }.map(String.init)
     }
 
     /// Ask the user's login shell where the tool is, because that shell is the
@@ -158,9 +187,9 @@ enum Tooling {
     ///
     /// Failures here are silent and expected: a shell with a prompt that waits
     /// for something, a shell that isn't zsh or bash, no shell at all.
-    private static func fromLoginShell(_ name: String) -> String? {
+    private static func readLoginPath() -> [String] {
         let shell: String = {
-            if let fromEnvironment = ProcessInfo.processInfo.environment["SHELL"],
+            if let fromEnvironment = Home.current.variable("SHELL"),
                !fromEnvironment.isEmpty {
                 return fromEnvironment
             }
@@ -170,26 +199,22 @@ enum Tooling {
             }
             return "/bin/zsh"
         }()
-        guard FileManager.default.isExecutableFile(atPath: shell) else { return nil }
+        guard FileManager.default.isExecutableFile(atPath: shell) else { return [] }
 
         guard let output = run(
-            shell, ["-lic", "command -v \(name)"], timeout: 8
-        ) else { return nil }
+            shell, ["-lic", "printf '\\n__AMANU_PATH__=%s\\n' \"$PATH\""], timeout: 8
+        ) else { return [] }
 
-        // `command -v` prints a path, but a login shell prints whatever else
-        // the dotfiles feel like printing, so take the last line that looks
-        // like an executable rather than trusting the first.
-        let path = output
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .last { $0.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: $0) }
-        return path
+        let prefix = "__AMANU_PATH__="
+        guard let line = output.split(separator: "\n").last(where: { $0.hasPrefix(prefix) })
+        else { return [] }
+        return pathEntries(String(line.dropFirst(prefix.count)))
     }
 
     /// Run it. Not "does the file exist" — the whole point of this pass is the
     /// machine where the file exists and running it from here doesn't work.
     private static func askVersion(of path: String) -> String? {
-        guard let output = run(path, ["--version"], timeout: 20) else { return nil }
+        guard let output = run(path, ["--version"], timeout: 20, path: runtimePath(for: path)) else { return nil }
         let line = output
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -202,9 +227,9 @@ enum Tooling {
     /// on a clean exit and nil on anything else. Deliberately quiet: every
     /// caller here is asking a question that is allowed to be answered "no".
     private static func run(_ executable: String, _ arguments: [String],
-                            timeout: TimeInterval) -> String? {
+                            timeout: TimeInterval, path: String? = nil) -> String? {
         guard let result = try? Subprocess.runSync(
-            executable: executable, arguments: arguments, timeout: timeout),
+            executable: executable, arguments: arguments, timeout: timeout, path: path),
               result.status == 0 else { return nil }
         return String(decoding: result.stdout, as: UTF8.self)
     }

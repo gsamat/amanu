@@ -9,6 +9,33 @@ import Testing
 // Assert the timeout/cancellation outcome, with a separate runaway-test limit.
 @Suite(.timeLimit(.minutes(1)))
 struct SubprocessTests {
+    @Test("A GUI-installed Codex launcher can find its interpreter for both probing and summaries")
+    func codexLauncherPath() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let bin = directory.appendingPathComponent(".local/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let codex = bin.appendingPathComponent("codex")
+        let interpreter = bin.appendingPathComponent("amanu-test-node")
+        try "#!/usr/bin/env amanu-test-node\n".write(to: codex, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nif [ \"$2\" = --version ]; then printf 'codex test version'; else /bin/cat; fi\n"
+            .write(to: interpreter, atomically: true, encoding: .utf8)
+        for executable in [codex, interpreter] {
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+        let home = Home(url: directory, environment: ["PATH": "/usr/bin:/bin", "SHELL": "/usr/bin/false"],
+                        discoversTools: true, languageModels: nil)
+        try await Home.$scoped.withValue(home) {
+            Tooling.forget()
+            defer { Tooling.forget() }
+            #expect(Tooling.probe("codex")?.path == codex.path)
+            #expect(Tooling.probe("codex")?.version == "codex test version")
+            let result = try await LLMBackend.run(executable: codex.path, arguments: ["exec"],
+                                                  input: "meeting prompt", timeout: 2)
+            #expect(result == "meeting prompt")
+        }
+    }
+
     @Test("Cancelling CLI processing stops waiting for the child")
     func cancellation() async throws {
         let task = Task {
