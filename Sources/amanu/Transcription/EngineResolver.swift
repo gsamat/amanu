@@ -45,6 +45,7 @@ actor EngineResolver {
     /// they fail at once rather than starting another half-gigabyte download
     /// for every session in the queue; the next drain tries afresh.
     private var unpreparable: [String: EnginePreparationFailed] = [:]
+    private var languagePolicies: [TranscriptionLanguagePolicy]?
 
     init(fixed: TranscriptionEngine? = nil, environment: Environment = .live) {
         fixedEngine = fixed
@@ -54,6 +55,7 @@ actor EngineResolver {
     /// The engine this session asks for, prepared.
     func engine(for session: URL) async throws -> TranscriptionEngine {
         if let fixedEngine { return try await hold(fixedEngine.name, fixedEngine) }
+        await refreshLanguageConfiguration()
         let configured = Self.configuredEngine(for: session)
         if !Self.knownEngines.contains(configured) {
             FileHandle.standardError.write(Data(
@@ -99,7 +101,8 @@ actor EngineResolver {
     /// The local engine for one session whose cloud engine failed for want
     /// of a network. The next session is resolved from scratch.
     func localFallback() async throws -> TranscriptionEngine {
-        try await local(Config.transcriptionLocalEngine())
+        await refreshLanguageConfiguration()
+        return try await local(Config.transcriptionLocalEngine())
     }
 
     /// Whether the machine can rescue a failed cloud transcription locally.
@@ -109,7 +112,24 @@ actor EngineResolver {
         let engines = held.values
         held = [:]
         unpreparable = [:]
+        languagePolicies = nil
         for engine in engines { await engine.release() }
+    }
+
+    /// A language decision takes effect for the next session, not halfway
+    /// through a running one. Keep a model only while its policy still fits;
+    /// changing a code ignored by Auto deliberately does not reload it.
+    private func refreshLanguageConfiguration() async {
+        let current = [
+            Config.transcriptionLanguagePolicy(for: "whisper"),
+            Config.transcriptionLanguagePolicy(for: "parakeet"),
+        ]
+        guard languagePolicies != current else { return }
+        let old = held.values
+        held = [:]
+        unpreparable = [:]
+        languagePolicies = current
+        for engine in old { await engine.release() }
     }
 
     private func cloud(_ provider: String) async throws -> TranscriptionEngine {

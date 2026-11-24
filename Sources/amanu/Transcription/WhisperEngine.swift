@@ -60,9 +60,10 @@ actor WhisperEngine: TranscriptionEngine {
     private let vadModelStore: WhisperModelStore
     nonisolated let usesVAD: Bool
     private let runtime: any WhisperRuntime
+    private let languagePolicy: TranscriptionLanguagePolicy
     /// The language whisper.cpp is told to hear, or nil to let it detect.
-    /// Normally follows `MeetingLanguages.pin(for:)`; a monolingual user can
-    /// explicitly override that policy for Whisper alone.
+    /// Follows the common language policy, including read-only compatibility
+    /// with an older Whisper-only pin.
     nonisolated let language: String?
     private let maximumSamples: Int
     private let progress: @Sendable (Progress) -> Void
@@ -72,9 +73,8 @@ actor WhisperEngine: TranscriptionEngine {
         runtime: any WhisperRuntime = WhisperCPPRuntime(),
         vadModelStore: WhisperModelStore = .init(manifest: WhisperModelStore.vadManifest),
         usesVAD: Bool = Config.whisperVAD(),
-        languageOverride: String? = Config.whisperLanguage(),
-        expectedLanguages: [String] = MeetingLanguages.expected(
-            primary: Config.transcriptionLanguage()),
+        languagePolicy: TranscriptionLanguagePolicy = Config.transcriptionLanguagePolicy(for: "whisper"),
+        expectedLanguages: [String]? = nil,
         chunkDuration: TimeInterval = 10 * 60,
         progress: @escaping @Sendable (Progress) -> Void = { _ in }
     ) {
@@ -82,13 +82,15 @@ actor WhisperEngine: TranscriptionEngine {
         self.vadModelStore = vadModelStore
         self.usesVAD = usesVAD
         self.runtime = runtime
-        language = languageOverride ?? MeetingLanguages.pin(for: expectedLanguages)
+        self.languagePolicy = languagePolicy
+        language = MeetingLanguages.pin(for: expectedLanguages ?? languagePolicy.expectedLanguages)
         maximumSamples = Int((chunkDuration * 16_000).rounded())
         self.progress = progress
         model = modelStore.manifest.id
     }
 
     func prepare() async throws {
+        try languagePolicy.validate(engine: name, model: model)
         let modelURL = try await modelStore.download { [progress] update in
             progress(.downloading(update))
         }

@@ -611,27 +611,112 @@ struct SetupTests {
     /// into it. What replaced it has to keep the code out of sight and the
     /// five spoken languages within reach — and choosing from it has to write
     /// the code, which a target alone does not prove.
-    @Test("The meeting language is chosen from a menu of named languages")
+    @Test("One recognition-language block selects Auto or a fixed named language")
     @MainActor
     func languageIsAMenuOfNames() throws {
         try withFreshHome { _ in
             let form = SetupForm()
             defer { form.stop() }
             let popup = try Self.control(NSPopUpButton.self, "transcription.language", in: form.view)
+            let mode = try Self.control(NSPopUpButton.self, "transcription.language_mode", in: form.view)
 
-            #expect(popup.itemTitles.first == "Detect automatically")
-            let codes = popup.menu?.items.compactMap { $0.representedObject as? String } ?? []
+            #expect(mode.selectedItem?.representedObject as? String == "auto")
+            #expect(!popup.isEnabled)
+            let codes =
+                popup.menu?.items.compactMap { $0.representedObject as? String }
+                .filter { $0 != "other" } ?? []
             #expect(Array(codes.prefix(5)) == MeetingLanguages.pinned)
             #expect(codes.count == MeetingLanguages.menu.count)
 
+            mode.select(try #require(mode.menu?.items.first { $0.representedObject as? String == "fixed" }))
+            mode.sendAction(mode.action, to: mode.target)
+            #expect(popup.isEnabled)
             let russian = try #require(popup.menu?.items.first { $0.representedObject as? String == "ru" })
             popup.select(russian)
             popup.sendAction(popup.action, to: popup.target)
             #expect(Config.transcriptionLanguage() == "ru")
+            #expect(Config.transcriptionLanguagePolicy() == .fixed("ru"))
 
-            popup.selectItem(at: 0)
-            popup.sendAction(popup.action, to: popup.target)
-            #expect(Config.transcriptionLanguage() == nil, "Detect automatically wrote something")
+            mode.select(try #require(mode.menu?.items.first { $0.representedObject as? String == "auto" }))
+            mode.sendAction(mode.action, to: mode.target)
+            #expect(Config.transcriptionLanguageMode() == "auto")
+            #expect(Config.transcriptionLanguage() == "ru", "Auto may remember the last fixed language")
+            #expect(Config.transcriptionLanguagePolicy() == .automatic)
+            #expect(!popup.isEnabled)
+        }
+    }
+
+    @Test("Opening old language settings is read-only until a mode is explicitly chosen")
+    @MainActor
+    func legacyLanguageRequiresAnExplicitDecision() throws {
+        try withFreshHome { _ in
+            Config.update(path: ["transcription", "language"], value: "ru")
+            let before = try Data(contentsOf: Config.path)
+            let form = SetupForm()
+            defer { form.stop() }
+            let mode = try Self.control(NSPopUpButton.self, "transcription.language_mode", in: form.view)
+            #expect(mode.selectedItem?.representedObject as? String == "legacy")
+            #expect(try Data(contentsOf: Config.path) == before)
+            mode.select(try #require(mode.menu?.items.first { $0.representedObject as? String == "auto" }))
+            mode.sendAction(mode.action, to: mode.target)
+            #expect(Config.transcriptionLanguagePolicy() == .automatic)
+            #expect(Config.transcriptionLanguageMode() == "auto")
+        }
+    }
+
+    @Test("A retired Whisper pin is not labelled Auto when automatic engine selection may use it")
+    @MainActor
+    func oldWhisperPinRemainsVisibleUntilMigration() throws {
+        try withFreshHome { _ in
+            Config.update(path: ["transcription", "whisper", "language"], value: "ru")
+            let before = try Data(contentsOf: Config.path)
+            let form = SetupForm()
+            defer { form.stop() }
+            let mode = try Self.control(NSPopUpButton.self, "transcription.language_mode", in: form.view)
+            let note = try Self.control(NSTextField.self, "transcription.language.note", in: form.view)
+            #expect(mode.selectedItem?.representedObject as? String == "legacy")
+            #expect(note.stringValue.contains("Whisper"))
+            #expect(try Data(contentsOf: Config.path) == before)
+            mode.select(try #require(mode.menu?.items.first { $0.representedObject as? String == "auto" }))
+            mode.sendAction(mode.action, to: mode.target)
+            #expect(WhisperEngine().language == nil)
+        }
+    }
+
+    @Test("A language outside the named menu is editable in the same block")
+    @MainActor
+    func customRecognitionLanguageIsReachable() throws {
+        try withFreshHome { _ in
+            let form = SetupForm()
+            defer { form.stop() }
+            let mode = try Self.control(NSPopUpButton.self, "transcription.language_mode", in: form.view)
+            mode.select(try #require(mode.menu?.items.first { $0.representedObject as? String == "fixed" }))
+            mode.sendAction(mode.action, to: mode.target)
+            let language = try Self.control(NSPopUpButton.self, "transcription.language", in: form.view)
+            language.select(try #require(language.menu?.items.first { $0.representedObject as? String == "other" }))
+            language.sendAction(language.action, to: language.target)
+            let custom = try Self.control(NSTextField.self, "transcription.language.custom", in: form.view)
+            #expect(!custom.isHidden)
+            custom.stringValue = "ja"
+            form.controlTextDidEndEditing(Notification(name: NSText.didEndEditingNotification, object: custom))
+            #expect(Config.transcriptionLanguagePolicy() == .fixed("ja"))
+            #expect(Config.transcriptionLanguage() == "ja")
+        }
+    }
+
+    @Test("An unsupported fixed language mode is explained instead of silently becoming auto")
+    @MainActor
+    func unsupportedLanguageModeIsVisible() throws {
+        try withFreshHome { _ in
+            Config.update(path: ["transcription", "engine"], value: "parakeet")
+            Config.update(path: ["transcription", "model"], value: "v3")
+            Config.setTranscriptionLanguage(mode: "fixed", language: "ru")
+            let form = SetupForm()
+            defer { form.stop() }
+            let note = try Self.control(NSTextField.self, "transcription.language.note", in: form.view)
+            #expect(note.stringValue.contains("Parakeet"))
+            #expect(note.textColor == .systemOrange)
+            #expect(Config.transcriptionLanguagePolicy() == .fixed("ru"))
         }
     }
 

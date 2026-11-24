@@ -543,13 +543,19 @@ enum DoctorReport {
                     + " && chmod 600 \(cloudKeyPath(provider).path)"
             )
         }
-        let expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
+        let policy = Config.transcriptionLanguagePolicy(for: provider)
+        if let reason = policy.unsupportedReason(engine: provider, model: "") {
+            return Check(
+                name: "transcription", status: .warn(reason),
+                remediation: "choose a valid transcription.language_mode and transcription.language")
+        }
+        let expected = policy.expectedLanguages
         guard !expected.isEmpty else {
             return Check(
                 name: "transcription",
                 status: .warn("\(provider) · key ok · no language set (detects from any)"),
-                remediation: "set transcription.language (e.g. \"ru\") — detection over every "
-                    + "language it knows can pick wrong on a short or noisy meeting"
+                remediation: "for a monolingual recording, choose transcription.language_mode=fixed "
+                    + "and transcription.language (e.g. \"ru\")"
             )
         }
         return Check(

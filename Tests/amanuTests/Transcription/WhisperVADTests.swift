@@ -8,7 +8,7 @@ struct WhisperVADTests {
     @Test("Whisper VAD is opt-in and automatic language policy remains the default", .freshHome(config: "{}"))
     func defaultsPreserveExistingBehavior() throws {
         #expect(!Config.whisperVAD())
-        #expect(Config.whisperLanguage() == nil)
+        #expect(Config.transcriptionLanguagePolicy() == .automatic)
         let engine = WhisperEngine(expectedLanguages: ["ru", "en"])
         #expect(!engine.usesVAD)
         #expect(engine.language == nil)
@@ -18,7 +18,8 @@ struct WhisperVADTests {
         #expect(entry.defaultValue as? Bool == false)
     }
 
-    @Test("A monolingual Whisper override is explicit rather than changing meeting languages",
+    @Test(
+        "An older Whisper pin stays compatible without changing other engines",
           .freshHome(config: #"{"transcription":{"language":"ru","whisper":{"vad":true,"language":"ru"}}}"#))
     func explicitRussianOverride() {
         let engine = WhisperEngine()

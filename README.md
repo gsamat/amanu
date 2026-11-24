@@ -389,7 +389,7 @@ app identifiers, and hooks differ. Settings saves only overrides of defaults.
 ### macOS
 
 Settings writes `~/.config/amanu/config.json`. The file is optional and stores
-only values that differ from the defaults. A compact example:
+only explicit decisions (including a chosen language mode). A compact example:
 
 ```json
 {
@@ -401,7 +401,7 @@ only values that differ from the defaults. A compact example:
     "enabled": true,
     "engine": "auto",
     "cloud": "assemblyai",
-    "language": "ru",
+    "language_mode": "auto",
     "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
   },
   "auto_record": {
@@ -444,10 +444,23 @@ only values that differ from the defaults. A compact example:
   On macOS, `transcription.whisper.vad` opts into local Silero speech detection
   before Whisper decoding (off by default, one additional verified 0.9 MB
   download). It can reduce text invented on silence, but can also miss very
-  quiet speech; saved audio is unchanged. `transcription.whisper.language`
-  defaults to `auto`, preserving the normal meeting-language policy. An
-  explicit language such as `ru` pins Whisper for strictly monolingual
-  recordings without changing the language policy of other engines.
+  quiet speech; saved audio is unchanged.
+  On macOS, language selection is shared across final-transcript engines:
+  `transcription.language_mode` is `auto` (detect from audio, ignoring the saved
+  code) or `fixed` (use `transcription.language`, for example `ru`). In Settings,
+  both live in one **Recognition language** block; **Other language** accepts
+  a two-letter code without a duplicate Advanced field. New configurations
+  default to automatic detection. Fixed mode does not silently add English.
+  A model that cannot honour a fixed language reports an actionable error:
+  Parakeet v3 offers script hints rather than a fixed recognition language;
+  GigaAM is Russian-only and Parakeet v2 is English-only.
+  With no explicit mode, old `transcription.language` configurations keep
+  their former primary-language-plus-English policy until the user selects
+  a mode. The old `transcription.whisper.language` key is read only for legacy
+  Whisper configurations, never overrides the shared mode, and is removed
+  when the common language controls are saved. Opening Settings does not
+  rewrite the file. For example, Russian-only Whisper can use:
+  `"transcription": {"language_mode": "fixed", "language": "ru", "whisper": {"vad": true}}`.
   Provider overrides are `transcription.openai.model`,
   `transcription.openai.api_key_path`,
   `transcription.assemblyai.api_key`,

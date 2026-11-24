@@ -227,6 +227,8 @@ struct SettingsSchemaTests {
             "transcription.cloud",
             // The local-engine picker beside the local switch.
             "transcription.local_engine",
+                "transcription.language_mode",
+                "transcription.language",
             // The live-transcript switch — Apple Silicon only, on both sides.
             "live_transcription.enabled",
             // Files: the switch, and the folder chosen with an open panel.
@@ -244,22 +246,20 @@ struct SettingsSchemaTests {
         ])
     }
 
-    /// The two that stay on both tabs, and why: setup asks them, but cannot
-    /// say everything the schema allows. The language menu offers parakeet's
-    /// 25 European languages while the cloud engines understand more, and the
-    /// summary cards have no card for `none`. Flagging either would leave a
+    /// Summary cards have no card for `none`. Hiding that setting would leave a
     /// legal value reachable only by editing the config file by hand.
     @Test("A setting setup asks only partly is still asked in Advanced")
     func partialCoverageStaysInAdvanced() {
         let advanced = Set(SettingsSchema.advancedSections
             .flatMap(\.entries)
             .map { $0.path.joined(separator: ".") })
-        #expect(advanced.contains("transcription.language"))
+        #expect(!advanced.contains("transcription.language"))
+        #expect(!advanced.contains("transcription.language_mode"))
+        #expect(!advanced.contains("transcription.whisper.language"))
         #expect(advanced.contains("summary.backend"))
 
-        // The claim about the menu, checked rather than asserted: a menu that
-        // grew to every language the cloud takes would make the field above
-        // redundant after all.
+        // The named menu is not the whole language setting: Setup's "Other"
+        // field makes additional codes reachable without a duplicate control.
         let offered = Set(MeetingLanguages.menu.map(\.code))
         #expect(!offered.contains("ja"), "the meeting-language menu now covers more than parakeet")
         // And the claim about the cards: every card setup offers, resolved
@@ -463,6 +463,13 @@ struct SettingsSchemaTests {
                 case .number:
                     #expect(entry.defaultValue is Int, "\(entry.path) number default isn't an Int")
                 case .choice(let options):
+                    if !entry.hasValueDefault {
+                        // This optional choice must distinguish an explicit
+                        // Auto decision from preserving a legacy configuration.
+                        #expect(entry.path == ["transcription", "language_mode"])
+                        #expect(options == ["auto", "fixed"])
+                        continue
+                    }
                     // A default outside its own option list can't be selected,
                     // so the pop-up would open on something else and the first
                     // change would write a value that was already in effect.

@@ -39,6 +39,7 @@ actor ElevenLabsEngine: TranscriptionEngine {
 
     private let apiKey: String
     private let http: CloudHTTP
+    private let fixedLanguage: String?
 
     init(
         apiKey: String? = nil,
@@ -46,8 +47,11 @@ actor ElevenLabsEngine: TranscriptionEngine {
         retry: CloudHTTP.RetryPolicy = .standard,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) throws {
+        let policy = Config.transcriptionLanguagePolicy(for: "elevenlabs")
+        try policy.validate(engine: "elevenlabs", model: "scribe_v2")
         guard let key = apiKey ?? Config.elevenLabsKey() else { throw EngineError.noAPIKey }
         self.apiKey = key
+        fixedLanguage = policy.fixedLanguage
         http = CloudHTTP(service: .elevenLabs, session: session, retry: retry, sleep: sleep)
     }
 
@@ -90,7 +94,7 @@ actor ElevenLabsEngine: TranscriptionEngine {
                     if channel != nil { try? FileManager.default.removeItem(at: upload) }
                 }
                 let data = try await http.sendMultipart(
-                    to: Self.endpoint, fields: Self.requestFields(), file: upload,
+                    to: Self.endpoint, fields: Self.requestFields(language: fixedLanguage), file: upload,
                     key: apiKey, what: "transcription", timeout: 1800)
                 response = try http.decode(Response.self, from: data, what: "transcription")
                 try? data.write(to: cache, options: .atomic)
@@ -107,17 +111,19 @@ actor ElevenLabsEngine: TranscriptionEngine {
         ProviderCache.url(
             in: audio.deletingLastPathComponent(), provider: .elevenLabs,
             parts: [audio.lastPathComponent, model]
-                + Self.requestFields().map { "\($0.0)=\($0.1)" },
+                + Self.requestFields(language: fixedLanguage).map { "\($0.0)=\($0.1)" },
             suffix: channel.map { "channel\($0 + 1)" })
     }
 
-    static func requestFields() -> [(String, String)] {
-        [
+    static func requestFields(language: String? = nil) -> [(String, String)] {
+        var fields = [
             ("model_id", "scribe_v2"),
             ("timestamps_granularity", "word"),
             ("tag_audio_events", "false"),
             ("diarize", "true"),
         ]
+        if let language { fields.append(("language_code", language)) }
+        return fields
     }
 
     struct Response: Decodable, Sendable {

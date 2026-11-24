@@ -144,7 +144,10 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     private var localDownloadButtons: [String: NSButton] = [:]
     private var localDownloadErrors: [String: String] = [:]
 
+    private let languageMode = NSPopUpButton()
     private let language = NSPopUpButton()
+    private let customLanguage = NSTextField()
+    private var customLanguageSelected = false
     private let languageNote = NSTextField(labelWithString: "")
     private let keepAudio = NSSwitch()
     private let liveTranscription = NSSwitch()
@@ -535,9 +538,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// where nobody was reading. What is stored is still the code.
     private func languageRow() -> NSView {
         let label = NSTextField(labelWithString: localised(
-            "Meetings are mostly in", "Чаще всего встречи на языке"))
+                "Recognition language", "Язык распознавания"))
         label.font = .systemFont(ofSize: 13)
         label.textColor = .secondaryLabelColor
+
+        languageMode.target = self
+        languageMode.action = #selector(languageModeChanged)
+        languageMode.identifier = NSUserInterfaceItemIdentifier("transcription.language_mode")
+        languageMode.setAccessibilityLabel(localised("Language mode", "Режим языка"))
 
         language.target = self
         language.action = #selector(languageChanged)
@@ -545,7 +553,14 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         language.setAccessibilityLabel(label.stringValue)
         buildLanguageMenu()
 
-        let picker = NSStackView(views: [label, language, NSView()])
+        customLanguage.placeholderString = localised("Language code, e.g. ja", "Код языка, например ja")
+        customLanguage.identifier = NSUserInterfaceItemIdentifier("transcription.language.custom")
+        customLanguage.setAccessibilityLabel(customLanguage.placeholderString)
+        customLanguage.delegate = self
+        customLanguage.translatesAutoresizingMaskIntoConstraints = false
+        customLanguage.widthAnchor.constraint(equalToConstant: 150).isActive = true
+
+        let picker = NSStackView(views: [label, languageMode, language, NSView()])
         picker.orientation = .horizontal
         picker.alignment = .centerY
         picker.spacing = 10
@@ -553,23 +568,23 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
         languageNote.font = SetupLayout.statusFont
         languageNote.textColor = .secondaryLabelColor
         languageNote.lineBreakMode = .byWordWrapping
-        languageNote.maximumNumberOfLines = 2
+        languageNote.maximumNumberOfLines = 0
         languageNote.preferredMaxLayoutWidth = 520
+        languageNote.identifier = NSUserInterfaceItemIdentifier("transcription.language.note")
 
-        let stack = NSStackView(views: [picker, languageNote])
+        let stack = NSStackView(views: [picker, customLanguage, languageNote])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 4
         return stack
     }
 
-    /// Detect first, then the five languages amanu is actually used in, then
-    /// the alphabet. Each item carries its own config value, so the menu can
-    /// be reordered without a table of indices to keep in step with it.
+    /// Named common choices and an explicit code field for other languages
+    /// supported by Whisper/cloud models: no second language control in Advanced.
     private func buildLanguageMenu() {
         let menu = NSMenu()
         let detect = NSMenuItem(
-            title: localised("Detect automatically", "Определять автоматически"),
+            title: localised("Choose a language…", "Выберите язык…"),
             action: nil, keyEquivalent: "")
         menu.addItem(detect)
         menu.addItem(.separator())
@@ -579,11 +594,16 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
             item.representedObject = choice.code
             menu.addItem(item)
         }
+        menu.addItem(.separator())
+        let other = NSMenuItem(title: localised("Other language…", "Другой язык…"), action: nil, keyEquivalent: "")
+        other.representedObject = "other"
+        menu.addItem(other)
         language.menu = menu
     }
 
     private var selectedLanguage: String? {
-        language.selectedItem?.representedObject as? String
+        let code = language.selectedItem?.representedObject as? String
+        return code == "other" ? customLanguage.stringValue : code
     }
 
     private func liveTranscriptionRow() -> NSView {
@@ -1021,7 +1041,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     private func downloadLiveModel() {
         guard !liveDownloading else { return }
-        let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguageHint())
         if liveModelStore.isReady(language: prompt) {
             liveStatus.stringValue = localised("downloaded", "скачана")
             refresh()
@@ -1417,6 +1437,15 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         guard let field = notification.object as? NSTextField else { return }
+        if field === customLanguage {
+            // A hidden field losing focus during a refresh is not a new
+            // language decision and must not turn Auto back into Fixed.
+            if customLanguage.isEnabled, !customLanguage.isHidden {
+                Config.setTranscriptionLanguage(mode: "fixed", language: selectedLanguage)
+                refresh()
+            }
+            return
+        }
         if field === cloudKey { Task { await saveCloudKey() } }
         if field === summaryKey { Task { await saveSummaryKey() } }
         let summaryPaths: [(NSTextField, String)] = [
@@ -1460,25 +1489,99 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     }
 
     @objc private func languageChanged() {
-        Config.update(path: ["transcription", "language"], value: selectedLanguage)
+        customLanguageSelected = language.selectedItem?.representedObject as? String == "other"
+        Config.setTranscriptionLanguage(mode: "fixed", language: selectedLanguage)
         refresh()
     }
 
-    /// What the choice above actually promises, in the one place somebody is
-    /// looking at it. Picking English says nothing worth saying — it is the
-    /// language the second slot would have added anyway.
-    private static func note(forLanguage code: String?) -> String {
-        guard let code else {
-            return localised(
-                "Both engines work it out from the audio. Naming a language "
-                    + "keeps a short or noisy meeting from being taken for another one.",
-                "Оба движка определяют язык по звуку. Названный язык не даст принять "
-                    + "короткую или шумную встречу за другую.")
+    @objc private func languageModeChanged() {
+        guard let mode = languageMode.selectedItem?.representedObject as? String,
+            mode != "legacy"
+        else { return }
+        Config.setTranscriptionLanguage(mode: mode, language: selectedLanguage)
+        refresh()
+    }
+
+    private func refreshLanguage() {
+        let policy = Config.transcriptionLanguagePolicy()
+        let oldPin = Config.text(.legacyWhisperLanguage, in: Config.raw())?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasOldPin =
+            Config.transcriptionLanguageMode() == nil
+            && oldPin != nil && oldPin != "auto" && oldPin != ""
+        let legacyChoice = policy.isLegacy || (hasOldPin && policy.fixedLanguage == nil)
+        let menu = NSMenu()
+        if legacyChoice {
+            let item = NSMenuItem(title: localised("Previous policy", "Прежний режим"), action: nil, keyEquivalent: "")
+            item.representedObject = "legacy"
+            menu.addItem(item)
         }
-        guard code != "en" else { return "" }
-        return localised(
-            "English meetings are recognised too — nothing to switch.",
-            "Встречи на английском тоже распознаются — переключать ничего не надо.")
+        for (value, title) in [
+            ("auto", localised("Automatic", "Автоматически")),
+            ("fixed", localised("Fixed", "Фиксированный")),
+        ] {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.representedObject = value
+            menu.addItem(item)
+        }
+        languageMode.menu = menu
+        let mode =
+            Config.transcriptionLanguageMode()
+            ?? (legacyChoice ? "legacy" : (policy.fixedLanguage == nil ? "auto" : "fixed"))
+        languageMode.select(menu.items.first { $0.representedObject as? String == mode } ?? menu.items.first)
+
+        let code =
+            policy.fixedLanguage
+            ?? Config.transcriptionLanguage()?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let item = language.menu?.items.first { $0.representedObject as? String == code }
+        if code != nil, item != nil { customLanguageSelected = false }
+        let other = (code != nil && item == nil) || customLanguageSelected
+        language.select(other ? language.menu?.items.last : (item ?? language.menu?.items.first))
+        customLanguage.stringValue = other ? (code ?? "") : ""
+        language.isEnabled = mode != "auto"
+        language.isHidden = mode == "auto"
+        customLanguage.isEnabled = language.isEnabled
+        customLanguage.isHidden = !other || mode == "auto"
+
+        let engine = Config.transcriptionEngine()
+        let local =
+            engine == "auto"
+            ? (Platform.supportsLocalModels ? Config.transcriptionLocalEngine() : Config.transcriptionCloudProvider())
+            : engine
+        let unsupported = policy.unsupportedReason(engine: local, model: Config.transcriptionModel())
+        var note =
+            legacyChoice && !policy.isLegacy
+            ? localised(
+                "Keeping the previous per-engine language behavior.",
+                "Сохранено прежнее поведение выбора языка для движков.")
+            : policy.explanation
+        if hasOldPin {
+            note += localised(
+                " Legacy Whisper language: \(oldPin ?? ""). Choosing a common mode replaces this setting.",
+                " Сохранён старый язык Whisper: \(oldPin ?? ""). Выбор общего режима заменит эту настройку.")
+        }
+        if let unsupported {
+            note +=
+                engine == "auto" && Platform.supportsLocalModels
+                ? localised(" Local fallback (\(local)): ", " Резервный локальный движок (\(local)): ") + unsupported
+                : " " + unsupported
+        } else if local == "gigaam" {
+            note +=
+                engine == "auto"
+                ? localised(
+                    " The local fallback recognises Russian only.",
+                    " Резервный локальный движок распознаёт только русский.")
+                : localised(" This model recognises Russian only.", " Эта модель распознаёт только русский.")
+        } else if local == "parakeet", Config.transcriptionModel() == "v2" {
+            note +=
+                engine == "auto"
+                ? localised(
+                    " The local fallback recognises English only.",
+                    " Резервный локальный движок распознаёт только английский.")
+                : localised(" This model recognises English only.", " Эта модель распознаёт только английский.")
+        }
+        languageNote.stringValue = note
+        languageNote.textColor = unsupported == nil ? .secondaryLabelColor : .systemOrange
     }
 
     /// What a key field says while the provider is being asked.
@@ -1738,19 +1841,11 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
 
         let config = Config.raw()
         refreshTranscription()
-        // A code the menu doesn't offer — hand-edited, or a leftover "ru-RU"
-        // — selects Detect automatically, which is what the engines will
-        // actually do with it. Shown as it will behave rather than as it is
-        // written, and left in the file for its owner to change.
-        let stored = Config.transcriptionLanguage()
-        let item = language.menu?.items.first { $0.representedObject as? String == stored }
-        language.select(item ?? language.menu?.items.first)
-        languageNote.stringValue = Self.note(forLanguage: item?.representedObject as? String)
-        languageNote.isHidden = languageNote.stringValue.isEmpty
+        refreshLanguage()
         keepAudio.state = Config.keepAudio() ? .on : .off
 
         liveTranscription.state = Config.liveTranscriptionEnabled() ? .on : .off
-        let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        let livePrompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguageHint())
         if liveModelStore.isReady(language: livePrompt) {
             liveStatus.stringValue = Self.downloaded(modelStorage.liveModel())
             liveStatus.textColor = .systemGreen
@@ -1943,7 +2038,7 @@ final class SetupForm: NSObject, NSTextFieldDelegate {
     /// reads cost a round trip each, and `ThisTurn` is what keeps a redraw
     /// from paying for them more than once.
     var progress: SetupProgress {
-        let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        let prompt = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguageHint())
         let live = Config.liveTranscriptionEnabled()
         return SetupProgress(SetupProgress.Machine(
             loginItem: LoginItem.status(),
