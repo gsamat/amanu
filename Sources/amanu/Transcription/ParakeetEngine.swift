@@ -69,13 +69,16 @@ actor ParakeetEngine: TranscriptionEngine {
     private let version: AsrModelVersion
     /// The languages this recording may be in — one, two, or none at all.
     private let expected: [Language]
+    private let languagePolicy: TranscriptionLanguagePolicy
     private var manager: AsrManager?
 
     init(version: AsrModelVersion = ParakeetEngine.configuredVersion()) {
         self.version = version
 
-        let configured = Config.transcriptionLanguage()
-        let codes = MeetingLanguages.expected(primary: configured)
+        let policy = Config.transcriptionLanguagePolicy(for: "parakeet")
+        languagePolicy = policy
+        let configured = Config.transcriptionLanguageHint()
+        let codes = policy.expectedLanguages
         if let configured, !configured.isEmpty, codes.isEmpty {
             let warning = "warning: parakeet doesn't know language \"\(configured)\" — "
                 + "transcribing without a script hint\n"
@@ -103,6 +106,7 @@ actor ParakeetEngine: TranscriptionEngine {
     }
 
     func prepare() async throws {
+        try languagePolicy.validate(engine: name, model: model)
         guard manager == nil else { return }
         let models = try await AsrModels.downloadAndLoad(version: version)
         let manager = AsrManager()

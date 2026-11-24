@@ -8,7 +8,7 @@ import Foundation
 ///         "enabled": true,
 ///         "engine": "auto",
 ///         "cloud": "assemblyai",
-///         "language": "ru",
+///         "language_mode": "auto",
 ///         "assemblyai": { "api_key_path": "~/.config/amanu/keys/assemblyai" }
 ///       },
 ///       "mic_voice_processing": false,
@@ -114,14 +114,63 @@ enum Config {
         string(.transcriptionModel, in: load())
     }
 
-    /// Two-letter code for the language meetings are *mostly* in, e.g. "ru".
-    ///
-    /// Not a pin. Both engines identify the language themselves; what this
-    /// narrows is the shortlist they choose from, and English is on that
-    /// shortlist whatever this says — see `MeetingLanguages`. nil means no
-    /// expectation at all.
+    /// The language code retained by the picker. Its meaning is settled once
+    /// by `transcriptionLanguagePolicy`, not independently by every engine.
     static func transcriptionLanguage() -> String? {
         text(.transcriptionLanguage, in: load())
+    }
+
+    static func transcriptionLanguageMode() -> String? {
+        text(.transcriptionLanguageMode, in: load())
+    }
+
+    static func transcriptionLanguagePolicy(for engine: String? = nil) -> TranscriptionLanguagePolicy {
+        transcriptionLanguagePolicy(in: load(), for: engine)
+    }
+
+    static func transcriptionLanguagePolicy(
+        in json: [String: Any]?, for engine: String? = nil
+    ) -> TranscriptionLanguagePolicy {
+        if let raw = value(.transcriptionLanguageMode, in: json), !(raw is String) {
+            return .invalid(
+                localised(
+                    "transcription.language_mode must be auto or fixed.",
+                    "transcription.language_mode должен быть auto или fixed."))
+        }
+        return TranscriptionLanguagePolicy.resolve(
+            mode: text(.transcriptionLanguageMode, in: json),
+            language: text(.transcriptionLanguage, in: json),
+            legacyWhisperLanguage: (engine ?? string(.transcriptionEngine, in: json)) == "whisper"
+                ? text(.legacyWhisperLanguage, in: json) : nil)
+    }
+
+    /// Live transcription takes a prompt, not a final-transcript language
+    /// pin. Keep old prompts unchanged until the shared mode is chosen.
+    static func transcriptionLanguageHint() -> String? {
+        guard transcriptionLanguageMode() != nil else { return transcriptionLanguage() }
+        switch transcriptionLanguagePolicy() {
+        case .fixed(let code): return code
+        case .automatic, .invalid: return nil
+        case .legacy(let primary): return primary
+        }
+    }
+
+    /// A single atomic decision: explicit auto must stay on disk, otherwise
+    /// removing its key would restore a legacy language expectation.
+    @discardableResult
+    static func setTranscriptionLanguage(mode: String, language: String?) -> Bool {
+        guard ["auto", "fixed"].contains(mode) else { return false }
+        let code = language?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return update(changes: [
+            (.transcriptionLanguageMode, mode),
+            (.transcriptionLanguage, code?.isEmpty == false ? code : nil),
+            (.legacyWhisperLanguage, nil),
+        ])
+    }
+
+    /// Opt-in because a detector can discard very quiet speech as silence.
+    static func whisperVAD() -> Bool {
+        flag(.whisperVAD, in: load())
     }
 
     /// Whether a meeting should feed the optional local streaming model while
@@ -744,11 +793,17 @@ enum Config {
 
     @discardableResult
     static func update(path: [String], value: Any?) -> Bool {
-        guard let first = path.first else { return false }
+        guard !path.isEmpty else { return false }
+        guard let key = Key(rawValue: path.joined(separator: ".")) else {
+            assertionFailure("\(path.joined(separator: ".")) is not a Config.Key")
+            return false
+        }
+        return update(changes: [(key, value)])
+    }
+
+    private static func update(changes: [(Key, Any?)]) -> Bool {
         // The writing half of `Key`: a setting nothing reads, written by a
         // window, is a setting that silently does nothing.
-        assert(Key(rawValue: path.joined(separator: ".")) != nil,
-               "\(path.joined(separator: ".")) is not a Config.Key")
         var json: [String: Any]
         switch file() {
         case .absent:
@@ -766,19 +821,15 @@ enum Config {
             return false
         }
 
-        if path.count == 1 {
-            if let value { json[first] = value } else { json.removeValue(forKey: first) }
-        } else {
-            var nested = json[first] as? [String: Any] ?? [:]
-            nested = updated(nested, path: Array(path.dropFirst()), value: value)
-            if nested.isEmpty { json.removeValue(forKey: first) } else { json[first] = nested }
+        for (key, value) in changes {
+            json = updated(json, path: key.path, value: value)
         }
         switch write(json) {
         case .failed: return false
         case .unchanged: return true
         case .written:
             NotificationCenter.default.post(name: didChange, object: nil)
-            Analytics.settingChanged(path: path, value: value)
+            for (key, value) in changes { Analytics.settingChanged(path: key.path, value: value) }
             return true
         }
     }

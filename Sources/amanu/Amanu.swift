@@ -718,7 +718,7 @@ final class AppController {
         // Close the old epoch synchronously. Any partial result already in
         // flight is rejected by the coordinator's epoch check.
         session.installLiveAudioSinks(mic: nil, system: nil)
-        let language = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        let language = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguageHint())
         Task { [liveTranscription] in
             await liveTranscription.setEnabled(enabled, language: language)
         }
@@ -781,7 +781,7 @@ final class AppController {
 
         guard let newSession = session else { return true }
         let liveEnabled = Config.liveTranscriptionEnabled()
-        let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguage())
+        let liveLanguage = LiveTranscriptionLanguage.prompt(for: Config.transcriptionLanguageHint())
         Task { [weak self, liveTranscription] in
             await liveTranscription.beginRecording(
                 enabled: liveEnabled,

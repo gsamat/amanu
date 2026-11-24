@@ -88,6 +88,7 @@ actor AssemblyAIEngine: TranscriptionEngine {
     /// pin on the wrong language is where this engine returns fluent phonetic
     /// garbage instead of failing.
     private let expected: [String]
+    private let fixedLanguage: String?
     private let speechModel: String?
     private let http: CloudHTTP
     private let timing: Timing
@@ -101,16 +102,20 @@ actor AssemblyAIEngine: TranscriptionEngine {
         timing: Timing = Timing(),
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) throws {
+        let policy = Config.transcriptionLanguagePolicy(for: "assemblyai")
+        try policy.validate(engine: "assemblyai", model: "assemblyai")
         guard let key = apiKey ?? Config.assemblyAIKey() else { throw EngineError.noAPIKey }
         self.apiKey = key
-        expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
+        expected = policy.expectedLanguages
+        fixedLanguage = policy.fixedLanguage
         speechModel = Config.assemblyAISpeechModel()
         http = CloudHTTP(service: .assemblyAI, session: session, retry: retry, sleep: sleep)
         self.timing = timing
 
         let parts = [
             speechModel ?? "universal",
-            expected.isEmpty ? "auto-detect" : expected.joined(separator: "+"),
+            fixedLanguage.map { "fixed:\($0)" }
+                ?? (expected.isEmpty ? "auto-detect" : expected.joined(separator: "+")),
         ]
         model = parts.joined(separator: " · ")
     }
@@ -263,7 +268,8 @@ actor AssemblyAIEngine: TranscriptionEngine {
         ProviderCache.url(
             in: audio.deletingLastPathComponent(), provider: .assemblyAI,
             parts: [
-                "code-switching-v1", audio.lastPathComponent, speechModel ?? "universal",
+                fixedLanguage.map { "fixed-language:\($0)" } ?? "code-switching-v1",
+                audio.lastPathComponent, speechModel ?? "universal",
                 expected.joined(separator: "+"), multichannel ? "multichannel" : "mono",
             ])
     }
@@ -291,7 +297,8 @@ actor AssemblyAIEngine: TranscriptionEngine {
             audioURL: audioURL,
             expectedLanguages: expected,
             speechModel: speechModel,
-            multichannel: multichannel)
+            multichannel: multichannel,
+            fixedLanguage: fixedLanguage)
 
         var request = URLRequest(url: Self.base.appendingPathComponent("transcript"))
         request.httpMethod = "POST"
@@ -309,7 +316,8 @@ actor AssemblyAIEngine: TranscriptionEngine {
         audioURL: String,
         expectedLanguages: [String],
         speechModel: String?,
-        multichannel: Bool = true
+        multichannel: Bool = true,
+        fixedLanguage: String? = nil
     ) -> [String: Any] {
         var body: [String: Any] = [
             "audio_url": audioURL,
@@ -321,6 +329,14 @@ actor AssemblyAIEngine: TranscriptionEngine {
             // any hint applies independently to every channel.
         ]
         if multichannel { body["multichannel"] = true }
+        if let fixedLanguage {
+            // A fixed language is not a detection shortlist. Do not leave
+            // code-switching/detection options in the same request.
+            body["language_detection"] = false
+            body["language_code"] = fixedLanguage
+            if let speechModel { body["speech_model"] = speechModel }
+            return body
+        }
         // Detection alone selects the dominant language. Universal-2 needs
         // this option even when the user has chosen automatic detection.
         var detection: [String: Any] = ["code_switching": true]

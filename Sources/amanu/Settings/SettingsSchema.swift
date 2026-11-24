@@ -57,9 +57,8 @@ enum SettingsSchema {
         /// It is `askedInSetup`, not `hidden`: the entry stays in the list,
         /// so `knownKeys` still knows it, the README still has to document
         /// it, and the config file still reads as a record of decisions.
-        /// Partial coverage does not count — the meeting language menu
-        /// offers parakeet's 25 languages and the cloud engines understand
-        /// more, so that one is still asked here.
+        /// Partial coverage does not count: a control must expose every
+        /// value before its Advanced counterpart can be omitted.
         let askedInSetup: Bool
 
         init(
@@ -108,6 +107,33 @@ enum SettingsSchema {
         let entries: [Entry]
     }
 
+    /// The shared language decision is independent of local-model support.
+    private static var languageEntries: [Entry] {
+        [
+            Entry(
+                ["transcription", "language_mode"],
+                localised("Recognition language mode", "Режим языка распознавания"),
+                localised(
+                    "Auto detects the language; fixed uses the language selected below.",
+                    "Автоматический режим определяет язык по аудио; фиксированный использует выбранный ниже язык."),
+                .choice(["auto", "fixed"]),
+                describedAs: localised(
+                    "automatic for new configurations; existing policies are preserved",
+                    "автоматически для новых настроек; прежние настройки сохраняются"),
+                askedInSetup: true),
+            Entry(
+                ["transcription", "language"],
+                localised("Recognition language", "Язык распознавания"),
+                localised(
+                    "Two-letter language code used only in fixed mode; ignored in auto mode.",
+                    "Двухбуквенный код языка: используется только в фиксированном режиме и не влияет на автоматический."
+                ),
+                .text,
+                describedAs: localised("choose a language for fixed mode", "выберите язык для фиксированного режима"),
+                askedInSetup: true),
+        ]
+    }
+
     /// The settings that only exist where a local model can run. On Intel the
     /// window would otherwise show a live-transcript switch that does nothing
     /// and a choice of engines with only one real option in it — settings that
@@ -136,15 +162,6 @@ enum SettingsSchema {
                           "Используется, когда универсальная сборка работает на Apple Silicon."),
                       .choice(["parakeet", "whisper", "gigaam"]),
                       default: "parakeet", askedInSetup: true),
-                Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
-                      localised(
-                          "Two-letter code for what meetings are mostly in. English is expected "
-                              + "alongside it; the engine still decides which it heard.",
-                          "Двухбуквенный код языка, на котором в основном идут встречи. Вместе с ним "
-                              + "ожидается английский, а какой язык прозвучал, решает сам движок."),
-                      .text,
-                      describedAs: localised(
-                          "detected from any language", "определяется, язык любой")),
             ]
         }
         return [
@@ -171,15 +188,12 @@ enum SettingsSchema {
                       "Какую локальную модель auto использует, когда облако недоступно."),
                   .choice(["parakeet", "whisper", "gigaam"]),
                   default: "parakeet", askedInSetup: true),
-            Entry(["transcription", "language"], localised("Meeting language", "Язык встреч"),
+            Entry(["transcription", "whisper", "vad"],
+                  localised("Whisper: detect speech before decoding", "Whisper: определять речь перед распознаванием"),
                   localised(
-                      "Two-letter code for what meetings are mostly in. English is expected "
-                          + "alongside it; both engines still decide which they heard.",
-                      "Двухбуквенный код языка, на котором в основном идут встречи. Вместе с ним "
-                          + "ожидается английский, а какой язык прозвучал, решают сами движки."),
-                  .text,
-                  describedAs: localised(
-                      "detected from any language", "определяется, язык любой")),
+                      "Downloads a verified 0.9 MB Silero model once. Can reduce silence hallucinations, but may miss very quiet speech. Does not alter saved audio.",
+                      "Один раз скачивает проверенную модель Silero, 0,9 МБ. Может уменьшить выдуманный текст на тишине, но пропустить очень тихую речь. Не меняет сохранённое аудио."),
+                  .toggle, default: false),
             Entry(["transcription", "model"], localised("Parakeet model", "Модель parakeet"),
                   localised(
                       "v3 covers 25 European languages; v2 is English-only.",
@@ -313,7 +327,7 @@ enum SettingsSchema {
                       "Off means record only; the on_stop hook still fires.",
                       "Выключено — только запись; хук on_stop всё равно срабатывает."),
                   .toggle, default: true, askedInSetup: true),
-        ] + localModelEntries + [
+                ] + localModelEntries + languageEntries + [
             Entry(["transcript_echo_filter"],
                   localised("Drop echoed speech", "Убирать отражённую речь"),
                   localised(
@@ -713,13 +727,15 @@ enum SettingsSchema {
 
     /// Settings the program reads but the window deliberately doesn't show.
     ///
-    /// One entry, and it earns the exception: an API key pasted into the
-    /// config file is a secret, and a text field would put it on screen and
-    /// into a screenshot. The path to a key file is offered instead. Keys
+    /// API keys pasted into the config file are secrets, and a text field
+    /// would put them into screenshots; key-file paths are offered instead.
+    /// The retired Whisper language key is read for compatibility only. Keys
     /// listed here still count as known — a setting amanu obeys must never be
     /// reported as one it ignores.
     static let unrenderedKeys = [
         "transcription.assemblyai.api_key", "transcription.elevenlabs.api_key",
+        // Read-only compatibility for configurations written before the shared mode.
+        "transcription.whisper.language",
     ]
 
     /// Older releases exposed these choices. Retained audio now always becomes
@@ -734,7 +750,7 @@ enum SettingsSchema {
     static var unrenderedLocalModelKeys: [String] {
         Platform.supportsLocalModels
             ? []
-            : ["live_transcription.enabled", "transcription.model"]
+            : ["live_transcription.enabled", "transcription.model", "transcription.whisper.vad"]
     }
 
     /// Every key the program understands, as `a.b` strings — used to spot

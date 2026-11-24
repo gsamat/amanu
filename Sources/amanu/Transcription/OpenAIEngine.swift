@@ -80,9 +80,11 @@ actor OpenAITranscriptionEngine: TranscriptionEngine {
         retry: CloudHTTP.RetryPolicy = .standard,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) throws {
+        let policy = Config.transcriptionLanguagePolicy(for: "openai")
+        try policy.validate(engine: "openai", model: Config.openAITranscriptionModel())
         guard let key = apiKey ?? Config.openAIKey() else { throw EngineError.noAPIKey }
         self.apiKey = key
-        expected = MeetingLanguages.expected(primary: Config.transcriptionLanguage())
+        expected = policy.expectedLanguages
         model = Config.openAITranscriptionModel()
         self.requestLimit = requestLimit
         http = CloudHTTP(service: .openAI, session: session, retry: retry, sleep: sleep)

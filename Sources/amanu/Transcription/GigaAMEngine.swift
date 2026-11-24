@@ -43,6 +43,7 @@ actor GigaAMEngine: TranscriptionEngine {
 
     private let modelStore: GigaAMModelStore
     private let runtime: any GigaAMRuntime
+    private let languagePolicy: TranscriptionLanguagePolicy
     private let maximumSamples: Int
     private let progress: @Sendable (Progress) -> Void
 
@@ -54,12 +55,14 @@ actor GigaAMEngine: TranscriptionEngine {
     ) {
         self.modelStore = modelStore
         self.runtime = runtime
+        languagePolicy = Config.transcriptionLanguagePolicy(for: "gigaam")
         maximumSamples = Int((chunkDuration * 16_000).rounded())
         self.progress = progress
         model = modelStore.manifest.id
     }
 
     func prepare() async throws {
+        try languagePolicy.validate(engine: name, model: model)
         let modelURL = try await modelStore.download { [progress] update in
             progress(.downloading(update))
         }

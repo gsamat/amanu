@@ -22,6 +22,18 @@ struct WhisperModelStore: Sendable {
         expectedBytes: 574_041_195,
         sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2")
 
+    /// The optional Silero VAD model published by whisper.cpp's maintainers.
+    /// It uses the same verified, atomic and shared download as the ASR model.
+    static let vadManifest = Manifest(
+        id: "silero-v6.2.0",
+        fileName: "ggml-silero-v6.2.0.bin",
+        revision: "9ffd54a1e1ee413ddf265af9913beaf518d1639b",
+        downloadURL: URL(string:
+            "https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin?download=true"
+        )!,
+        expectedBytes: 885_098,
+        sha256: "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987")
+
     static let advertisedDownloadBytes: Int64 = 550 * 1_048_576
 
     private let store: VerifiedModelStore

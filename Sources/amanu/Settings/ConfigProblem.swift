@@ -16,6 +16,7 @@ extension Config {
         /// instead. It used to apply without a word, and a quoted `"false"`
         /// reads as off to anybody but a JSON parser.
         case unusable(key: String, found: String, expected: String)
+        case languagePolicy(reason: String)
 
         /// One line, for the menu and the status window, where there is room
         /// for the fact and not for its explanation.
@@ -25,7 +26,7 @@ extension Config {
                 return localised(
                     "config.json can't be read — transcription and summaries are waiting",
                     "config.json не читается — расшифровка и саммари ждут")
-            case .unusable:
+            case .unusable, .languagePolicy:
                 return localised(
                     "config.json has a setting amanu can't use — see Settings",
                     "в config.json есть настройка, которую amanu не может использовать, — "
@@ -54,6 +55,11 @@ extension Config {
                         + "\(expected), so the default applies.",
                     "\(key) в config.json — \(found), а amanu ждёт там \(expected), поэтому "
                         + "действует значение по умолчанию.")
+            case .languagePolicy(let reason):
+                return reason
+                    + localised(
+                        " Transcription is waiting for a valid language setting; saved audio is kept.",
+                        " Расшифровка ждёт корректного выбора языка; сохранённое аудио остаётся на месте.")
             }
         }
     }
@@ -109,6 +115,13 @@ extension Config {
                 problems.append(.unusable(
                     key: key.rawValue, found: describe(found), expected: expected))
             }
+        }
+        if case .invalid(let reason) = transcriptionLanguagePolicy(in: json) {
+            problems.removeAll {
+                if case .unusable(let key, _, _) = $0 { return key == "transcription.language_mode" }
+                return false
+            }
+            problems.append(.languagePolicy(reason: reason))
         }
         return problems
     }

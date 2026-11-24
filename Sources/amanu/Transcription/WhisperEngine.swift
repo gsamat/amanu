@@ -9,7 +9,7 @@ struct WhisperRuntimeSegment: Equatable, Sendable {
 }
 
 protocol WhisperRuntime: Sendable {
-    func prepare(model: URL) async throws
+    func prepare(model: URL, vadModel: URL?) async throws
     func transcribe(
         samples: [Float],
         language: String?,
@@ -57,10 +57,13 @@ actor WhisperEngine: TranscriptionEngine {
     nonisolated let input: TranscriptionInput = .perTrack
 
     private let modelStore: WhisperModelStore
+    private let vadModelStore: WhisperModelStore
+    nonisolated let usesVAD: Bool
     private let runtime: any WhisperRuntime
+    private let languagePolicy: TranscriptionLanguagePolicy
     /// The language whisper.cpp is told to hear, or nil to let it detect.
-    /// Only ever a language that cannot be the wrong one — see
-    /// `MeetingLanguages.pin(for:)`.
+    /// Follows the common language policy, including read-only compatibility
+    /// with an older Whisper-only pin.
     nonisolated let language: String?
     private let maximumSamples: Int
     private let progress: @Sendable (Progress) -> Void
@@ -68,24 +71,38 @@ actor WhisperEngine: TranscriptionEngine {
     init(
         modelStore: WhisperModelStore = .init(),
         runtime: any WhisperRuntime = WhisperCPPRuntime(),
-        expectedLanguages: [String] = MeetingLanguages.expected(
-            primary: Config.transcriptionLanguage()),
+        vadModelStore: WhisperModelStore = .init(manifest: WhisperModelStore.vadManifest),
+        usesVAD: Bool = Config.whisperVAD(),
+        languagePolicy: TranscriptionLanguagePolicy = Config.transcriptionLanguagePolicy(for: "whisper"),
+        expectedLanguages: [String]? = nil,
         chunkDuration: TimeInterval = 10 * 60,
         progress: @escaping @Sendable (Progress) -> Void = { _ in }
     ) {
         self.modelStore = modelStore
+        self.vadModelStore = vadModelStore
+        self.usesVAD = usesVAD
         self.runtime = runtime
-        language = MeetingLanguages.pin(for: expectedLanguages)
+        self.languagePolicy = languagePolicy
+        language = MeetingLanguages.pin(for: expectedLanguages ?? languagePolicy.expectedLanguages)
         maximumSamples = Int((chunkDuration * 16_000).rounded())
         self.progress = progress
         model = modelStore.manifest.id
     }
 
     func prepare() async throws {
+        try languagePolicy.validate(engine: name, model: model)
         let modelURL = try await modelStore.download { [progress] update in
             progress(.downloading(update))
         }
-        try await runtime.prepare(model: modelURL)
+        let vadURL: URL?
+        if usesVAD {
+            vadURL = try await vadModelStore.download { [progress] update in
+                progress(.downloading(update))
+            }
+        } else {
+            vadURL = nil
+        }
+        try await runtime.prepare(model: modelURL, vadModel: vadURL)
     }
 
     func transcribe(_ audio: URL) async throws -> [TranscriptSegment] {
@@ -242,10 +259,12 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
 
     private let contextLock = NSLock()
     private var context: OpaquePointer?
+    private var vadModel: URL?
 
-    func prepare(model: URL) async throws {
+    func prepare(model: URL, vadModel: URL?) async throws {
         try await DedicatedThread.run("whisper load") { [self] in
             try contextLock.withLock {
+                self.vadModel = vadModel
                 if context != nil { return }
                 var params = whisper_context_default_params()
                 params.use_gpu = true
@@ -298,14 +317,17 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
             params.abort_callback_user_data = Unmanaged.passUnretained(run).toOpaque()
 
             let code: Int32 = samples.withUnsafeBufferPointer { pcm in
-                if let language {
-                    return language.withCString { value in
-                        params.language = value
-                        return whisper_full(context, params, pcm.baseAddress, Int32(pcm.count))
-                    }
-                }
-                return "auto".withCString { value in
+                return (language ?? "auto").withCString { value in
                     params.language = value
+                    if let vadModel {
+                        // The native call borrows both strings for its entire
+                        // duration; neither pointer outlives withCString.
+                        return vadModel.path.withCString { path in
+                            WhisperVADParameters.apply(to: &params, modelPath: path)
+                            return whisper_full(context, params, pcm.baseAddress, Int32(pcm.count))
+                        }
+                    }
+                    WhisperVADParameters.apply(to: &params, modelPath: nil)
                     return whisper_full(context, params, pcm.baseAddress, Int32(pcm.count))
                 }
             }
@@ -328,6 +350,7 @@ private final class WhisperCPPRuntime: WhisperRuntime, @unchecked Sendable {
         contextLock.withLock {
             if let context { whisper_free(context) }
             context = nil
+            vadModel = nil
         }
     }
 
